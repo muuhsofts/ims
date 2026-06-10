@@ -1,0 +1,15 @@
+node_modules
+.git
+.github
+.vscode
+.idea
+storage/logs/*
+storage/framework/*
+tests
+k8s
+.gitignore
+README.md
+.env
+.env.example
+.phpunit.cache
+*.log
