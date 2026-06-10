@@ -1,0 +1,22 @@
+import { makeStyles } from "styles/mui";
+
+export default makeStyles(theme => ({
+  marginRight: {
+    marginRight: theme.spacing(3)
+  },
+  marginTop: {
+    marginTop: theme.spacing(3)
+  },
+  paperItem: {
+    backgroundColor: theme.palette.primary.light,
+    textAlign: "center",
+    padding: theme.spacing(2),
+    color: "#f3f3f3",
+  },
+  wrapFix: {
+    whiteSpace: 'pre'
+  },
+  paperMargin: {
+    margin: 12,
+  },
+}));

@@ -1,0 +1,110 @@
+import { Button } from '../../../components/Wrappers';
+import { Grid, Typography } from "@mui/material";
+import Dot from '../../../components/Dot/Dot';
+import { makeStyles } from 'styles/mui';
+import {
+    ResponsiveContainer,
+    PieChart,
+    Pie,
+    Cell,
+  } from "recharts";
+
+const PieChartData = [
+  { name: "New", value: 400 ,color: "#536DFE" },
+  { name: "In Progress", value: 300 ,color: "#FFC35F" },
+  { name: "Completed", value: 300 ,color: "#3CD4A0" },
+  { name: "Cancel", value: 200 ,color: "#FF5C93" }
+];
+
+const styles = () => ({
+  legendItemContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    marginBottom: 8,
+    paddingLeft: 10
+  },
+  detailsWrapper: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    paddingRight: 0,
+    paddingLeft: 0,
+    width: '100%',
+    bottom: 5,
+  },
+  legendItemsContainer: {
+    display: 'flex', 
+    alignItems: 'center', 
+    flexWrap: 'wrap'
+  }
+})
+
+const useStyles = makeStyles(styles);
+
+const DonutChart = () => {
+  const classes = useStyles();
+
+  return (
+    <Grid container spacing={0}>
+      <Grid
+        size={{ xs: 12, md: 12, lg: 12 }}
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          position: 'relative',
+          padding: 0,
+        }}
+      >
+        <Typography
+          variant={"caption"}
+          style={{ position: "absolute", top: 60, fontWeight: "bold", fontSize: 18 }}
+        >
+          121
+        </Typography>
+        <ResponsiveContainer width="100%" height={150}>
+          <PieChart>
+            <Pie
+              data={PieChartData}
+              innerRadius={33}
+              outerRadius={50}
+              dataKey="value"
+            >
+              {PieChartData.map((entry, index) => (
+                <Cell
+                  key={`cell-${index}`}
+                  fill={entry.color}
+                  stroke={""}
+                />
+              ))}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+      </Grid>
+      <Grid size={{ xs: 12, md: 12, lg: 12 }} className={classes.legendItemsContainer}>
+          {PieChartData.map(({ name, color }) => (
+            <div key={color} className={classes.legendItemContainer}>
+              <Dot color={color} style={{ marginLeft: 5 }} />
+              <Typography
+                color="text"
+                variant={"caption"}
+                style={{ fontSize: 14 }}
+                noWrap
+              >
+                &nbsp;{name}&nbsp;
+              </Typography>
+            </div>
+          ))}
+      </Grid>
+      <div className={classes.detailsWrapper} >
+        <Button 
+          variant="outlined" 
+          color="primary" 
+        >
+          DETAILS
+        </Button>
+      </div>
+    </Grid>
+  )
+}
+
+export default DonutChart

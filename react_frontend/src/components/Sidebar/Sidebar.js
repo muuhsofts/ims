@@ -1,0 +1,123 @@
+// src/components/Sidebar/Sidebar.js (or index.js)
+import { useState, useEffect, useMemo } from 'react';
+import { ArrowBack as ArrowBackIcon } from '@mui/icons-material';
+import { Drawer, IconButton, List } from '@mui/material';
+import { useTheme } from '@mui/material';
+import classNames from 'classnames';
+import { useLocation } from 'react-router-dom';
+
+// styles
+import useStyles from './styles';
+
+// components
+import SidebarLink from './components/SidebarLink/SidebarLink';
+
+// permission hook
+import { usePermission } from '@/hooks/usePermission';
+
+// layout context
+import {
+  useLayoutState,
+  useLayoutDispatch,
+  toggleSidebar,
+} from 'context/LayoutContext';
+
+// ✅ IMPORTANT: use relative import (same folder)
+import { getSidebarStructure } from './SidebarStructure';
+
+function Sidebar() {
+  let classes = useStyles();
+  let theme = useTheme();
+  const location = useLocation();
+  const { hasPermission } = usePermission();
+
+  // Generate dynamic menu structure based on permissions
+  const structure = useMemo(() => getSidebarStructure(hasPermission), [hasPermission]);
+
+  const toggleDrawer = (value) => (event) => {
+    if (
+        event.type === 'keydown' &&
+        (event.key === 'Tab' || event.key === 'Shift')
+    ) {
+      return;
+    }
+    if (value && !isPermanent) toggleSidebar(layoutDispatch);
+  };
+
+  // global
+  let { isSidebarOpened } = useLayoutState();
+  let layoutDispatch = useLayoutDispatch();
+
+  // local
+  let [isPermanent, setPermanent] = useState(true);
+
+  const isSidebarOpenedWrapper = useMemo(
+      () => (!isPermanent ? !isSidebarOpened : isSidebarOpened),
+      [isPermanent, isSidebarOpened],
+  );
+
+  useEffect(function () {
+    window.addEventListener('resize', handleWindowWidthChange);
+    handleWindowWidthChange();
+    return function cleanup() {
+      window.removeEventListener('resize', handleWindowWidthChange);
+    };
+  });
+
+  return (
+      <Drawer
+          variant={isPermanent ? 'permanent' : 'temporary'}
+          className={classNames(classes.drawer, {
+            [classes.drawerOpen]: isSidebarOpenedWrapper,
+            [classes.drawerClose]: !isSidebarOpenedWrapper,
+          })}
+          classes={{
+            paper: classNames({
+              [classes.drawerOpen]: isSidebarOpenedWrapper,
+              [classes.drawerClose]: !isSidebarOpenedWrapper,
+            }),
+          }}
+          open={isSidebarOpenedWrapper}
+          onClose={toggleDrawer(true)}
+      >
+        <div className={classes.toolbar} />
+        <div className={classes.mobileBackButton}>
+          <IconButton onClick={() => toggleSidebar(layoutDispatch)}>
+            <ArrowBackIcon
+                classes={{
+                  root: classNames(classes.headerIcon, classes.headerIconCollapse),
+                }}
+            />
+          </IconButton>
+        </div>
+        <List
+            className={classes.sidebarList}
+            classes={{ padding: classes.padding }}
+        >
+          {structure.map(link => (
+              <SidebarLink
+                  key={link.id}
+                  location={location}
+                  isSidebarOpened={!isPermanent ? !isSidebarOpened : isSidebarOpened}
+                  {...link}
+                  toggleDrawer={toggleDrawer(true)}
+              />
+          ))}
+        </List>
+      </Drawer>
+  );
+
+  function handleWindowWidthChange() {
+    let windowWidth = window.innerWidth;
+    let breakpointWidth = theme.breakpoints.values.md;
+    let isSmallScreen = windowWidth < breakpointWidth;
+
+    if (isSmallScreen && isPermanent) {
+      setPermanent(false);
+    } else if (!isSmallScreen && !isPermanent) {
+      setPermanent(true);
+    }
+  }
+}
+
+export default Sidebar;

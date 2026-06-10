@@ -1,0 +1,10 @@
+/node_modules/
+/.vite/
+/build/
+/.idea/
+.DS_Store
+.env
+.env.local
+*.log.idea/
+.vite/
+node_modules/

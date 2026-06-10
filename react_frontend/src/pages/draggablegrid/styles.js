@@ -1,0 +1,16 @@
+import { makeStyles } from "styles/mui";
+
+export default makeStyles(() => ({
+  root: {
+    // marginTop: '-36px',
+  },
+  widgetLayout: {
+    margin: '0 0 32px 0',
+  },
+  loaderWidgetLayout: {
+    marginTop: '32px',
+  },
+  autoloadWidgetLayout: {
+    margin: 0,
+  },
+}));
