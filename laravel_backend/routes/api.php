@@ -26,6 +26,8 @@ use App\Http\Controllers\Api\ReceiptController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\DashboardAnalyticsReportController;
 use App\Http\Controllers\Api\AgentAnalyticsReportController;
+use App\Http\Controllers\Api\BranchOwnerAnalyticsReportController;
+use App\Http\Controllers\Api\BranchOwnerReportController;
 /*
 |--------------------------------------------------------------------------
 | Health Check
@@ -362,23 +364,27 @@ Route::prefix('collection-center-inventories')->group(function () {
     // v14 – Reports & Dashboard
 Route::prefix('v14')->group(function () {
     
-  // Reports
-        Route::prefix('reports')->group(function () {
-            
+   // Reports
+    Route::prefix('reports')->group(function () {
+        
         // Stock Reports
         Route::get('stock', [ReportController::class, 'stockReport']);
+        
+        // 🆕 Branch Owner Stock Reports
+        Route::get('branch/stock', [BranchOwnerReportController::class, 'branchStockReport']);
+        Route::get('branch/agent-stock', [BranchOwnerReportController::class, 'branchAgentStockReport']);
+        Route::get('branch/agent-products', [BranchOwnerReportController::class, 'branchAgentProductsReport']);
         
         // Purchase Reports
         Route::get('purchases', [ReportController::class, 'purchasesReport']);
         
-        // Sales Reports - Main endpoint with period parameter
+        // Sales Reports
         Route::get('sales', [ReportController::class, 'salesReport']);
-        
-        // Sales Reports - Period-specific endpoints (convenience methods)
         Route::get('sales/weekly', [ReportController::class, 'weeklySalesReport']);
         Route::get('sales/monthly', [ReportController::class, 'monthlySalesReport']);
         Route::get('sales/yearly', [ReportController::class, 'yearlySalesReport']);
         Route::get('sales/custom', [ReportController::class, 'customSalesReport']);
+  
 
     });
 
@@ -388,6 +394,8 @@ Route::prefix('v14')->group(function () {
     Route::prefix('analytics')->group(function () {
         Route::get('/dashboard', [DashboardAnalyticsReportController::class, 'index']);
          Route::get('/agent-dashboard', [AgentAnalyticsReportController::class, 'index']);
+         Route::get('/branch-owner-dashboard', [BranchOwnerAnalyticsReportController::class, 'index']);
+
     });
 
 });
