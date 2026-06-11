@@ -361,18 +361,13 @@ Route::prefix('collection-center-inventories')->group(function () {
         Route::get('/receipts/order/{saleId}', [ReceiptController::class, 'bySale']);
     });
    
-
     // v14 – Reports & Dashboard
 Route::prefix('v14')->group(function () {
-
-    /*
-    |--------------------------------------------------------------------------
-    | Reports
-    |--------------------------------------------------------------------------
-    */
+    
+   // Reports
     Route::prefix('reports')->group(function () {
-
-        // Stock Reports
+        
+       // Stock Reports
         Route::get('stock', [ReportController::class, 'stockReport']);
 
         // Branch Owner Reports
@@ -411,10 +406,10 @@ Route::prefix('v14')->group(function () {
 
         // Dashboard Summary
         Route::get('dashboard', [ReportController::class, 'dashboardSummary']);
+  
 
+    });
 
-});
-    
     
 
     // Dashboard Analytics
