@@ -33,7 +33,6 @@ import {
     Menu,
     ListItemIcon,
     ListItemText,
-    Divider,
     LinearProgress
 } from '@mui/material';
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
@@ -50,23 +49,21 @@ import {
     DateRange as DateRangeIcon,
     ExpandMore as ExpandMoreIcon,
     ExpandLess as ExpandLessIcon,
-    ShoppingCart as CartIcon,
     CheckCircle as CheckCircleIcon,
     Pending as PendingIcon,
+    Cancel as CancelIcon,
     Inventory as InventoryIcon,
     Phone as PhoneIcon,
     Person as PersonIcon,
     Payment as PaymentIcon,
     Smartphone as SmartphoneIcon,
     FileDownload as FileDownloadIcon,
-    PictureAsPdf as PdfIcon,
     TableChart as ExcelIcon,
     TextSnippet as CsvIcon,
-    Print as PrintIcon,
     Store as StoreIcon,
     AccountBalanceWallet as ProfitIcon,
-    Category as CategoryIcon,
-    LocationOn as LocationIcon
+    LocationOn as LocationIcon,
+    Business as AgentIcon
 } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { reportService } from 'services/report.service';
@@ -81,6 +78,12 @@ const paymentMethodColors = {
     halopesa: 'secondary',
     mixx_yas: 'default',
     mixed: 'error'
+};
+
+const statusColors = {
+    completed: 'success',
+    pending: 'warning',
+    cancelled: 'error'
 };
 
 const months = [
@@ -106,7 +109,7 @@ const formatDateForAPI = (date) => {
     return `${year}-${month}-${day}`;
 };
 
-// Helper functions for the new response structure
+// Helper functions - FIXED to use product SKU from products table
 const getProductName = (sale) => {
     return sale.product?.category?.category_name || 'Unknown Product';
 };
@@ -115,8 +118,9 @@ const getProductModel = (sale) => {
     return sale.product?.category?.model || 'N/A';
 };
 
+// FIXED: Get SKU from product.sku (from products table), not from category
 const getProductSku = (sale) => {
-    return sale.product?.category?.sku || 'N/A';
+    return sale.product?.sku || 'N/A';
 };
 
 const getProductImei = (sale) => {
@@ -129,10 +133,6 @@ const getProductColor = (sale) => {
 
 const getProductBuyingPrice = (sale) => {
     return sale.product?.buying_price || 0;
-};
-
-const getProductSellingPrice = (sale) => {
-    return sale.product?.selling_price || sale.total_amount || 0;
 };
 
 const getCustomerName = (sale) => {
@@ -177,10 +177,10 @@ export default function SalesReport() {
     const [rowsPerPage, setRowsPerPage] = useState(10);
     const [exportAnchorEl, setExportAnchorEl] = useState(null);
     const printRef = useRef();
-    
-    const [reportType, setReportType] = useState('daily');
-    const [groupBy, setGroupBy] = useState('agent');
-    
+
+    const [reportType, setReportType] = useState('custom');
+    const [statusFilter, setStatusFilter] = useState('all');
+
     const [selectedDate, setSelectedDate] = useState(dayjs());
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
@@ -188,7 +188,7 @@ export default function SalesReport() {
         startDate: dayjs().startOf('month'),
         endDate: dayjs()
     });
-    
+
     const [searchTerm, setSearchTerm] = useState('');
 
     const getExportData = () => {
@@ -198,10 +198,10 @@ export default function SalesReport() {
             'Customer Phone': getCustomerPhone(sale),
             'Product Name': getProductName(sale),
             'Model': getProductModel(sale),
-            'SKU': getProductSku(sale),
+            'SKU': getProductSku(sale),  // Now using product SKU
             'IMEI': getProductImei(sale),
             'Color': getProductColor(sale),
-            'Amount (TSh)': parseFloat(sale.total_amount).toLocaleString(undefined, { minimumFractionDigits: 2 }),
+            'Amount (TSh)': parseFloat(sale.total_amount).toLocaleString(),
             'Payment Method': sale.payment_method,
             'Agent': getAgentName(sale),
             'Collection Center': getCollectionCenterName(sale),
@@ -260,41 +260,6 @@ export default function SalesReport() {
         handleExportClose();
     };
 
-    const printReport = () => {
-        const printContent = printRef.current;
-        if (!printContent) return;
-
-        const printWindow = window.open('', '_blank');
-        printWindow.document.write(`
-            <html>
-                <head>
-                    <title>Sales Report</title>
-                    <style>
-                        * { margin: 0; padding: 0; box-sizing: border-box; }
-                        body { font-family: Arial, sans-serif; margin: 20px; padding: 20px; background: white; }
-                        .header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #4CAF50; }
-                        .summary { margin-bottom: 20px; padding: 15px; background: #f5f5f5; display: flex; justify-content: space-around; flex-wrap: wrap; }
-                        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 10px; }
-                        th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
-                        th { background-color: #4CAF50; color: white; font-weight: bold; }
-                        .footer { text-align: center; margin-top: 30px; font-size: 10px; color: #666; }
-                    </style>
-                </head>
-                <body>
-                    <div class="header">
-                        <h1>Sales Report</h1>
-                        <p>Period: ${data?.period} | Generated: ${dayjs().format('DD/MM/YYYY HH:mm:ss')}</p>
-                    </div>
-                    ${printContent.innerHTML}
-                    <div class="footer">Report generated on ${dayjs().format('DD/MM/YYYY HH:mm:ss')}</div>
-                    <script>window.onload = function() { window.print(); setTimeout(window.close, 500); }</script>
-                </body>
-            </html>
-        `);
-        printWindow.document.close();
-        handleExportClose();
-    };
-
     const handleExportClick = (event) => {
         setExportAnchorEl(event.currentTarget);
     };
@@ -330,49 +295,49 @@ export default function SalesReport() {
 
     const loadReport = useCallback(async () => {
         if (!canView) return;
-        
+
         setLoading(true);
         setData(null);
         setPage(0);
-        
+
         try {
             let fromDate, toDate;
-            
+
             if (reportType === 'daily') {
                 fromDate = formatDateForAPI(selectedDate);
                 toDate = formatDateForAPI(selectedDate);
-            } 
+            }
             else if (reportType === 'weekly') {
                 const { week_start, week_end } = getWeekRange(selectedDate);
                 fromDate = week_start;
                 toDate = week_end;
-            } 
+            }
             else if (reportType === 'monthly') {
                 const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
                 fromDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
                 toDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${lastDay}`;
-            } 
+            }
             else if (reportType === 'yearly') {
                 fromDate = `${selectedYear}-01-01`;
                 toDate = `${selectedYear}-12-31`;
-            } 
+            }
             else {
                 fromDate = formatDateForAPI(dateRange.startDate);
                 toDate = formatDateForAPI(dateRange.endDate);
             }
-            
-            const response = await reportService.getSalesReport(fromDate, toDate, groupBy);
-            
+
+            const status = statusFilter === 'all' ? null : statusFilter;
+            const response = await reportService.getSalesReport(fromDate, toDate, status);
+
             if (response.data?.success) {
                 const reportData = response.data.data;
                 setData({
                     period: getPeriodDisplay(),
                     summary: reportData.summary,
-                    dailyBreakdown: reportData.daily_breakdown,
                     sales: reportData.sales || [],
-                    availableFilters: reportData.available_filters,
                     totalRecords: reportData.total_records
                 });
+                showSnackbar({ type: 'success', message: `Found ${reportData.sales?.length || 0} sales` });
             } else {
                 showSnackbar({ type: 'error', message: response.data?.message || 'Failed to fetch sales report' });
             }
@@ -382,7 +347,7 @@ export default function SalesReport() {
         } finally {
             setLoading(false);
         }
-    }, [canView, reportType, selectedDate, selectedYear, selectedMonth, dateRange, groupBy]);
+    }, [canView, reportType, selectedDate, selectedYear, selectedMonth, dateRange, statusFilter]);
 
     useEffect(() => {
         loadReport();
@@ -421,52 +386,86 @@ export default function SalesReport() {
 
     const filteredSales = filterSales();
     const paginatedSales = filteredSales.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-    const summary = data?.summary || { total_transactions: 0, total_revenue: 0, average_transaction_value: 0 };
+    const summary = data?.summary || {
+        total_transactions: 0,
+        total_revenue: 0,
+        total_profit: 0,
+        overall_profit_margin: 0,
+        average_transaction_value: 0,
+        payment_methods: [],
+        agent_performance: []
+    };
     const currentYear = new Date().getFullYear();
     const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
     return (
         <LocalizationProvider dateAdapter={AdapterDayjs}>
-            <Box sx={{ p: 2 }}>
+            <Box sx={{ p: 2, bgcolor: 'background.default', minHeight: '100vh' }}>
                 <Paper sx={{ borderRadius: 2, overflow: 'hidden' }}>
                     {/* Header */}
                     <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }} className="no-print">
                         <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
-                            <Typography variant="h5" fontWeight="bold">Sales Report</Typography>
-                            {data?.sales && data.sales.length > 0 && (
-                                <Box>
-                                    <Button variant="contained" color="primary" startIcon={<FileDownloadIcon />} onClick={handleExportClick} sx={{ mr: 1 }}>
+                            <Typography variant="h5" fontWeight="bold">
+                                <ReceiptIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                                Sales Report
+                            </Typography>
+                            <Box>
+                                <Tooltip title="Refresh">
+                                    <IconButton onClick={loadReport} disabled={loading} sx={{ mr: 1 }}>
+                                        <RefreshIcon />
+                                    </IconButton>
+                                </Tooltip>
+                                {data?.sales && data.sales.length > 0 && (
+                                    <Button variant="contained" startIcon={<FileDownloadIcon />} onClick={handleExportClick}>
                                         Export
                                     </Button>
-                                    <Menu anchorEl={exportAnchorEl} open={Boolean(exportAnchorEl)} onClose={handleExportClose}>
-                                        <MenuItem onClick={exportToExcel}><ListItemIcon><ExcelIcon color="success" /></ListItemIcon><ListItemText>Excel</ListItemText></MenuItem>
-                                        <MenuItem onClick={exportToCSV}><ListItemIcon><CsvIcon color="primary" /></ListItemIcon><ListItemText>CSV</ListItemText></MenuItem>
-                                    </Menu>
-                                </Box>
-                            )}
+                                )}
+                                <Menu anchorEl={exportAnchorEl} open={Boolean(exportAnchorEl)} onClose={handleExportClose}>
+                                    <MenuItem onClick={exportToExcel}>
+                                        <ListItemIcon><ExcelIcon color="success" /></ListItemIcon>
+                                        <ListItemText>Excel (.xlsx)</ListItemText>
+                                    </MenuItem>
+                                    <MenuItem onClick={exportToCSV}>
+                                        <ListItemIcon><CsvIcon color="primary" /></ListItemIcon>
+                                        <ListItemText>CSV (.csv)</ListItemText>
+                                    </MenuItem>
+                                </Menu>
+                            </Box>
                         </Box>
-                        
+
                         {/* Report Type Toggle */}
                         <Box sx={{ mb: 2, mt: 2 }}>
-                            <ToggleButtonGroup value={reportType} exclusive onChange={handleReportTypeChange} size="small">
-                                <ToggleButton value="daily"><CalendarIcon sx={{ mr: 0.5, fontSize: 18 }} /> Daily</ToggleButton>
-                                <ToggleButton value="weekly"><CalendarIcon sx={{ mr: 0.5, fontSize: 18 }} /> Weekly</ToggleButton>
-                                <ToggleButton value="monthly"><CalendarIcon sx={{ mr: 0.5, fontSize: 18 }} /> Monthly</ToggleButton>
-                                <ToggleButton value="yearly"><TrendingUpIcon sx={{ mr: 0.5, fontSize: 18 }} /> Yearly</ToggleButton>
-                                <ToggleButton value="range"><DateRangeIcon sx={{ mr: 0.5, fontSize: 18 }} /> Custom</ToggleButton>
+                            <ToggleButtonGroup value={reportType} exclusive onChange={handleReportTypeChange} size="small" fullWidth>
+                                <ToggleButton value="daily"><CalendarIcon sx={{ mr: 0.5 }} /> Daily</ToggleButton>
+                                <ToggleButton value="weekly"><CalendarIcon sx={{ mr: 0.5 }} /> Weekly</ToggleButton>
+                                <ToggleButton value="monthly"><CalendarIcon sx={{ mr: 0.5 }} /> Monthly</ToggleButton>
+                                <ToggleButton value="yearly"><TrendingUpIcon sx={{ mr: 0.5 }} /> Yearly</ToggleButton>
+                                <ToggleButton value="custom"><DateRangeIcon sx={{ mr: 0.5 }} /> Custom</ToggleButton>
                             </ToggleButtonGroup>
                         </Box>
-                        
+
                         {/* Date Selection */}
                         <Grid container spacing={2} sx={{ mb: 2 }}>
                             {reportType === 'daily' && (
                                 <Grid item xs={12}>
-                                    <DatePicker label="Select Date" value={selectedDate} onChange={setSelectedDate} format="DD/MM/YYYY" slotProps={{ textField: { size: 'small', fullWidth: true } }} />
+                                    <DatePicker
+                                        label="Select Date"
+                                        value={selectedDate}
+                                        onChange={setSelectedDate}
+                                        format="DD/MM/YYYY"
+                                        slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                                    />
                                 </Grid>
                             )}
                             {reportType === 'weekly' && (
                                 <Grid item xs={12}>
-                                    <DatePicker label="Any day in week" value={selectedDate} onChange={setSelectedDate} format="DD/MM/YYYY" slotProps={{ textField: { size: 'small', fullWidth: true } }} />
+                                    <DatePicker
+                                        label="Any day in week"
+                                        value={selectedDate}
+                                        onChange={setSelectedDate}
+                                        format="DD/MM/YYYY"
+                                        slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                                    />
                                     <Typography variant="caption" color="textSecondary">Select any day to get the full week (Monday to Sunday)</Typography>
                                 </Grid>
                             )}
@@ -500,32 +499,56 @@ export default function SalesReport() {
                                     </FormControl>
                                 </Grid>
                             )}
-                            {reportType === 'range' && (
+                            {reportType === 'custom' && (
                                 <>
                                     <Grid item xs={6}>
-                                        <DatePicker label="Start Date" value={dateRange.startDate} onChange={(newValue) => setDateRange({ ...dateRange, startDate: newValue })} format="DD/MM/YYYY" slotProps={{ textField: { size: 'small', fullWidth: true } }} />
+                                        <DatePicker
+                                            label="Start Date"
+                                            value={dateRange.startDate}
+                                            onChange={(newValue) => setDateRange({ ...dateRange, startDate: newValue })}
+                                            format="DD/MM/YYYY"
+                                            slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                                        />
                                     </Grid>
                                     <Grid item xs={6}>
-                                        <DatePicker label="End Date" value={dateRange.endDate} onChange={(newValue) => setDateRange({ ...dateRange, endDate: newValue })} format="DD/MM/YYYY" slotProps={{ textField: { size: 'small', fullWidth: true } }} />
+                                        <DatePicker
+                                            label="End Date"
+                                            value={dateRange.endDate}
+                                            onChange={(newValue) => setDateRange({ ...dateRange, endDate: newValue })}
+                                            format="DD/MM/YYYY"
+                                            slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                                        />
                                     </Grid>
                                 </>
                             )}
                         </Grid>
-                        
-                        {/* Group By Selection */}
-                        <FormControl size="small" fullWidth sx={{ mb: 2 }}>
-                            <InputLabel>Group By</InputLabel>
-                            <Select value={groupBy} label="Group By" onChange={(e) => setGroupBy(e.target.value)}>
-                                <MenuItem value="agent">👤 By Agent</MenuItem>
-                                <MenuItem value="customer">👥 By Customer</MenuItem>
-                                <MenuItem value="product">📦 By Product</MenuItem>
-                                <MenuItem value="category">📁 By Category</MenuItem>
-                            </Select>
-                        </FormControl>
-                        
-                        <Button variant="contained" startIcon={<RefreshIcon />} onClick={loadReport} disabled={loading} fullWidth>
-                            Load Report
-                        </Button>
+
+                        {/* Status Filter */}
+                        <Grid container spacing={2} sx={{ mb: 2 }}>
+                            <Grid item xs={12} sm={6}>
+                                <FormControl fullWidth size="small">
+                                    <InputLabel>Status</InputLabel>
+                                    <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                                        <MenuItem value="all">All Status</MenuItem>
+                                        <MenuItem value="completed">Completed</MenuItem>
+                                        <MenuItem value="pending">Pending</MenuItem>
+                                        <MenuItem value="cancelled">Cancelled</MenuItem>
+                                    </Select>
+                                </FormControl>
+                            </Grid>
+                            <Grid item xs={12} sm={6}>
+                                <Button
+                                    variant="contained"
+                                    startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
+                                    onClick={loadReport}
+                                    disabled={loading}
+                                    fullWidth
+                                    sx={{ height: '100%' }}
+                                >
+                                    {loading ? 'Loading...' : 'Load Report'}
+                                </Button>
+                            </Grid>
+                        </Grid>
                     </Box>
 
                     {loading ? (
@@ -535,24 +558,69 @@ export default function SalesReport() {
                         </Box>
                     ) : data ? (
                         <Box ref={printRef} sx={{ p: 2 }}>
-                            <Typography variant="subtitle1" color="primary" gutterBottom>📅 Period: {data.period}</Typography>
-                            
+                            <Typography variant="subtitle1" color="primary" gutterBottom>
+                                📅 Period: {data.period}
+                            </Typography>
+
                             {/* Summary Cards */}
                             <Grid container spacing={2} sx={{ mb: 3 }}>
-                                <Grid item xs={12} sm={6} md={2.4}>
-                                    <Card><CardContent><Box display="flex" alignItems="center" justifyContent="space-between"><Box><Typography color="textSecondary" variant="caption">Total Transactions</Typography><Typography variant="h4" fontWeight="bold">{summary.total_transactions || 0}</Typography></Box><ReceiptIcon sx={{ fontSize: 40, color: 'primary.main', opacity: 0.7 }} /></Box></CardContent></Card>
+                                <Grid item xs={12} sm={6} md={3}>
+                                    <Card sx={{ bgcolor: 'background.paper' }}>
+                                        <CardContent>
+                                            <Box display="flex" alignItems="center" justifyContent="space-between">
+                                                <Box>
+                                                    <Typography color="textSecondary" variant="caption">Total Transactions</Typography>
+                                                    <Typography variant="h4" fontWeight="bold">{summary.total_transactions || 0}</Typography>
+                                                </Box>
+                                                <ReceiptIcon sx={{ fontSize: 40, color: 'primary.main', opacity: 0.7 }} />
+                                            </Box>
+                                        </CardContent>
+                                    </Card>
                                 </Grid>
-                                <Grid item xs={12} sm={6} md={2.4}>
-                                    <Card><CardContent><Box display="flex" alignItems="center" justifyContent="space-between"><Box><Typography color="textSecondary" variant="caption">Total Revenue</Typography><Typography variant="h4" fontWeight="bold" color="success.main">TSh {(summary.total_revenue || 0).toLocaleString()}</Typography></Box><MoneyIcon sx={{ fontSize: 40, color: 'success.main', opacity: 0.7 }} /></Box></CardContent></Card>
+                                <Grid item xs={12} sm={6} md={3}>
+                                    <Card sx={{ bgcolor: 'background.paper' }}>
+                                        <CardContent>
+                                            <Box display="flex" alignItems="center" justifyContent="space-between">
+                                                <Box>
+                                                    <Typography color="textSecondary" variant="caption">Total Revenue</Typography>
+                                                    <Typography variant="h4" fontWeight="bold" color="success.main">
+                                                        TSh {(summary.total_revenue || 0).toLocaleString()}
+                                                    </Typography>
+                                                </Box>
+                                                <MoneyIcon sx={{ fontSize: 40, color: 'success.main', opacity: 0.7 }} />
+                                            </Box>
+                                        </CardContent>
+                                    </Card>
                                 </Grid>
-                                <Grid item xs={12} sm={6} md={2.4}>
-                                    <Card><CardContent><Box display="flex" alignItems="center" justifyContent="space-between"><Box><Typography color="textSecondary" variant="caption">Total Profit</Typography><Typography variant="h4" fontWeight="bold" color="info.main">TSh {(summary.total_profit || 0).toLocaleString()}</Typography></Box><ProfitIcon sx={{ fontSize: 40, color: 'info.main', opacity: 0.7 }} /></Box></CardContent></Card>
+                                <Grid item xs={12} sm={6} md={3}>
+                                    <Card sx={{ bgcolor: 'background.paper' }}>
+                                        <CardContent>
+                                            <Box display="flex" alignItems="center" justifyContent="space-between">
+                                                <Box>
+                                                    <Typography color="textSecondary" variant="caption">Total Profit</Typography>
+                                                    <Typography variant="h4" fontWeight="bold" color="info.main">
+                                                        TSh {(summary.total_profit || 0).toLocaleString()}
+                                                    </Typography>
+                                                </Box>
+                                                <ProfitIcon sx={{ fontSize: 40, color: 'info.main', opacity: 0.7 }} />
+                                            </Box>
+                                        </CardContent>
+                                    </Card>
                                 </Grid>
-                                <Grid item xs={12} sm={6} md={2.4}>
-                                    <Card><CardContent><Box display="flex" alignItems="center" justifyContent="space-between"><Box><Typography color="textSecondary" variant="caption">Profit Margin</Typography><Typography variant="h4" fontWeight="bold" color="warning.main">{(summary.overall_profit_margin || 0).toFixed(2)}%</Typography></Box><TrendingUpIcon sx={{ fontSize: 40, color: 'warning.main', opacity: 0.7 }} /></Box></CardContent></Card>
-                                </Grid>
-                                <Grid item xs={12} sm={6} md={2.4}>
-                                    <Card><CardContent><Box display="flex" alignItems="center" justifyContent="space-between"><Box><Typography color="textSecondary" variant="caption">Avg Transaction</Typography><Typography variant="h4" fontWeight="bold" color="secondary.main">TSh {(summary.average_transaction_value || 0).toLocaleString()}</Typography></Box><TrendingUpIcon sx={{ fontSize: 40, color: 'secondary.main', opacity: 0.7 }} /></Box></CardContent></Card>
+                                <Grid item xs={12} sm={6} md={3}>
+                                    <Card sx={{ bgcolor: 'background.paper' }}>
+                                        <CardContent>
+                                            <Box display="flex" alignItems="center" justifyContent="space-between">
+                                                <Box>
+                                                    <Typography color="textSecondary" variant="caption">Avg Transaction</Typography>
+                                                    <Typography variant="h4" fontWeight="bold" color="warning.main">
+                                                        TSh {(summary.average_transaction_value || 0).toLocaleString()}
+                                                    </Typography>
+                                                </Box>
+                                                <TrendingUpIcon sx={{ fontSize: 40, color: 'warning.main', opacity: 0.7 }} />
+                                            </Box>
+                                        </CardContent>
+                                    </Card>
                                 </Grid>
                             </Grid>
 
@@ -562,16 +630,23 @@ export default function SalesReport() {
                                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>💳 Payment Methods</Typography>
                                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                                         {summary.payment_methods.map((method, idx) => (
-                                            <Chip key={idx} label={`${method.method}: TSh ${method.amount?.toLocaleString()} (${method.count} transactions)`} color={paymentMethodColors[method.method] || 'default'} size="small" />
+                                            <Chip
+                                                key={idx}
+                                                label={`${method.method}: TSh ${method.amount?.toLocaleString()} (${method.count} transactions)`}
+                                                color={paymentMethodColors[method.method] || 'default'}
+                                                size="small"
+                                            />
                                         ))}
                                     </Stack>
                                 </Box>
                             )}
 
-                            {/* Agent Performance WITH Collection Center Location */}
+                            {/* Agent Performance */}
                             {summary.agent_performance && summary.agent_performance.length > 0 && (
                                 <Box sx={{ mb: 3 }}>
-                                    <Typography variant="subtitle2" fontWeight="bold" gutterBottom>👤 Agent Performance</Typography>
+                                    <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
+                                        👤 Agent Performance ({summary.agent_performance.length})
+                                    </Typography>
                                     <TableContainer component={Paper} variant="outlined">
                                         <Table size="small">
                                             <TableHead>
@@ -588,14 +663,19 @@ export default function SalesReport() {
                                             <TableBody>
                                                 {summary.agent_performance.map((agent, idx) => (
                                                     <TableRow key={idx} hover>
-                                                        <TableCell>{agent.agent_name}</TableCell>
                                                         <TableCell>
-                                                            <Chip 
-                                                                icon={<StoreIcon />} 
-                                                                label={agent.collection_center_name} 
-                                                                size="small" 
-                                                                color="primary" 
-                                                                variant="outlined" 
+                                                            <Box display="flex" alignItems="center" gap={0.5}>
+                                                                <AgentIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+                                                                {agent.agent_name}
+                                                            </Box>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Chip
+                                                                icon={<StoreIcon />}
+                                                                label={agent.collection_center_name}
+                                                                size="small"
+                                                                color="primary"
+                                                                variant="outlined"
                                                             />
                                                         </TableCell>
                                                         <TableCell>
@@ -605,215 +685,17 @@ export default function SalesReport() {
                                                             </Box>
                                                         </TableCell>
                                                         <TableCell align="right">{agent.sales_count}</TableCell>
-                                                        <TableCell align="right"><Typography fontWeight="bold" color="success.main">TSh {agent.revenue.toLocaleString()}</Typography></TableCell>
-                                                        <TableCell align="right">TSh {(agent.profit || 0).toLocaleString()}</TableCell>
-                                                        <TableCell align="right">TSh {(agent.average_ticket || 0).toLocaleString()}</TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </TableContainer>
-                                </Box>
-                            )}
-
-                            {/* Category Performance */}
-                            {summary.category_performance && summary.category_performance.length > 0 && (
-                                <Box sx={{ mb: 3 }}>
-                                    <Typography variant="subtitle2" fontWeight="bold" gutterBottom>📁 Category Performance</Typography>
-                                    <TableContainer component={Paper} variant="outlined">
-                                        <Table size="small">
-                                            <TableHead>
-                                                <TableRow sx={{ bgcolor: 'action.hover' }}>
-                                                    <TableCell><b>Category</b></TableCell>
-                                                    <TableCell><b>Model</b></TableCell>
-                                                    <TableCell><b>SKU</b></TableCell>
-                                                    <TableCell align="right"><b>Qty Sold</b></TableCell>
-                                                    <TableCell align="right"><b>Revenue (TSh)</b></TableCell>
-                                                    <TableCell align="right"><b>Profit (TSh)</b></TableCell>
-                                                    <TableCell align="right"><b>Margin</b></TableCell>
-                                                </TableRow>
-                                            </TableHead>
-                                            <TableBody>
-                                                {summary.category_performance.map((category, idx) => (
-                                                    <TableRow key={idx} hover>
-                                                        <TableCell><CategoryIcon sx={{ fontSize: 14, mr: 0.5 }} /> {category.category_name}</TableCell>
-                                                        <TableCell>{category.model || 'N/A'}</TableCell>
-                                                        <TableCell>{category.sku || 'N/A'}</TableCell>
-                                                        <TableCell align="right">{category.quantity_sold}</TableCell>
-                                                        <TableCell align="right"><Typography fontWeight="bold" color="success.main">TSh {category.revenue.toLocaleString()}</Typography></TableCell>
-                                                        <TableCell align="right">TSh {(category.profit || 0).toLocaleString()}</TableCell>
                                                         <TableCell align="right">
-                                                            <Chip label={`${(category.profit_margin || 0).toFixed(2)}%`} size="small" color={category.profit_margin >= 30 ? 'success' : 'warning'} />
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </TableContainer>
-                                </Box>
-                            )}
-
-                            {/* Top Products - REMOVED Category column and Quantity Sold, ADDED SKU column */}
-                            {summary.top_products && summary.top_products.length > 0 && (
-                                <Box sx={{ mb: 3 }}>
-                                    <Typography variant="subtitle2" fontWeight="bold" gutterBottom>🏆 Top Products</Typography>
-                                    <TableContainer component={Paper} variant="outlined">
-                                        <Table size="small">
-                                            <TableHead>
-                                                <TableRow sx={{ bgcolor: 'action.hover' }}>
-                                                    <TableCell><b>Product Name</b></TableCell>
-                                                    <TableCell><b>Model</b></TableCell>
-                                                    <TableCell><b>SKU</b></TableCell>
-                                                    <TableCell><b>Color</b></TableCell>
-                                                    <TableCell><b>IMEI</b></TableCell>
-                                                    <TableCell align="right"><b>Revenue (TSh)</b></TableCell>
-                                                    <TableCell align="right"><b>Profit (TSh)</b></TableCell>
-                                                </TableRow>
-                                            </TableHead>
-                                            <TableBody>
-                                                {summary.top_products.map((product, idx) => (
-                                                    <TableRow key={idx} hover>
-                                                        <TableCell>
-                                                            <Box display="flex" alignItems="center" gap={0.5}>
-                                                                <SmartphoneIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-                                                                {product.category_name}
-                                                            </Box>
-                                                        </TableCell>
-                                                        <TableCell>{product.model || 'N/A'}</TableCell>
-                                                        <TableCell>
-                                                            <Chip label={product.sku || 'N/A'} size="small" variant="outlined" />
-                                                        </TableCell>
-                                                        <TableCell><Chip label={product.product_color} size="small" variant="outlined" /></TableCell>
-                                                        <TableCell>
-                                                            <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{product.product_imei}</Typography>
+                                                            <Typography fontWeight="bold" color="success.main">
+                                                                TSh {agent.revenue.toLocaleString()}
+                                                            </Typography>
                                                         </TableCell>
                                                         <TableCell align="right">
-                                                            <Typography fontWeight="bold" color="success.main">TSh {(product.revenue || 0).toLocaleString()}</Typography>
+                                                            TSh {(agent.profit || 0).toLocaleString()}
                                                         </TableCell>
                                                         <TableCell align="right">
-                                                            <Typography color="info.main">TSh {(product.profit || 0).toLocaleString()}</Typography>
+                                                            TSh {(agent.average_ticket || 0).toLocaleString()}
                                                         </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </TableContainer>
-                                </Box>
-                            )}
-
-                            {/* Top Customers */}
-                            {summary.top_customers && summary.top_customers.length > 0 && (
-                                <Box sx={{ mb: 3 }}>
-                                    <Typography variant="subtitle2" fontWeight="bold" gutterBottom>👥 Top Customers</Typography>
-                                    <TableContainer component={Paper} variant="outlined">
-                                        <Table size="small">
-                                            <TableHead>
-                                                <TableRow sx={{ bgcolor: 'action.hover' }}>
-                                                    <TableCell><b>Customer Name</b></TableCell>
-                                                    <TableCell><b>Phone</b></TableCell>
-                                                    <TableCell align="right"><b>Purchase Count</b></TableCell>
-                                                    <TableCell align="right"><b>Total Spent (TSh)</b></TableCell>
-                                                    <TableCell align="right"><b>Average Spent</b></TableCell>
-                                                </TableRow>
-                                            </TableHead>
-                                            <TableBody>
-                                                {summary.top_customers.map((customer, idx) => (
-                                                    <TableRow key={idx} hover>
-                                                        <TableCell><PersonIcon sx={{ fontSize: 14, mr: 0.5 }} /> {customer.customer_name}</TableCell>
-                                                        <TableCell>{customer.customer_phone || 'N/A'}</TableCell>
-                                                        <TableCell align="right">{customer.purchase_count}</TableCell>
-                                                        <TableCell align="right"><Typography fontWeight="bold" color="success.main">TSh {customer.total_spent.toLocaleString()}</Typography></TableCell>
-                                                        <TableCell align="right">TSh {(customer.average_spent || 0).toLocaleString()}</TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </TableContainer>
-                                </Box>
-                            )}
-
-                            {/* Collection Center Performance */}
-                            {summary.collection_center_performance && summary.collection_center_performance.length > 0 && (
-                                <Box sx={{ mb: 3 }}>
-                                    <Typography variant="subtitle2" fontWeight="bold" gutterBottom>🏪 Collection Center Performance</Typography>
-                                    <TableContainer component={Paper} variant="outlined">
-                                        <Table size="small">
-                                            <TableHead>
-                                                <TableRow sx={{ bgcolor: 'action.hover' }}>
-                                                    <TableCell><b>Collection Center</b></TableCell>
-                                                    <TableCell><b>Location</b></TableCell>
-                                                    <TableCell align="right"><b>Transactions</b></TableCell>
-                                                    <TableCell align="right"><b>Revenue (TSh)</b></TableCell>
-                                                    <TableCell align="right"><b>Profit (TSh)</b></TableCell>
-                                                    <TableCell align="right"><b>Margin</b></TableCell>
-                                                    <TableCell align="right"><b>Avg Transaction</b></TableCell>
-                                                </TableRow>
-                                            </TableHead>
-                                            <TableBody>
-                                                {summary.collection_center_performance.map((cc, idx) => (
-                                                    <TableRow key={idx} hover>
-                                                        <TableCell>
-                                                            <Box display="flex" alignItems="center" gap={0.5}>
-                                                                <StoreIcon sx={{ fontSize: 16, color: 'primary.main' }} />
-                                                                <Typography fontWeight="medium">{cc.collection_center_name}</Typography>
-                                                            </Box>
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <Box display="flex" alignItems="center" gap={0.5}>
-                                                                <LocationIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-                                                                {cc.location || 'N/A'}
-                                                            </Box>
-                                                        </TableCell>
-                                                        <TableCell align="right">
-                                                            <Chip label={cc.total_transactions} size="small" color="info" />
-                                                        </TableCell>
-                                                        <TableCell align="right">
-                                                            <Typography fontWeight="bold" color="success.main">TSh {cc.total_revenue.toLocaleString()}</Typography>
-                                                        </TableCell>
-                                                        <TableCell align="right">
-                                                            <Typography color="info.main">TSh {(cc.total_profit || 0).toLocaleString()}</Typography>
-                                                        </TableCell>
-                                                        <TableCell align="right">
-                                                            <Chip 
-                                                                label={`${(cc.profit_margin || 0).toFixed(2)}%`} 
-                                                                size="small" 
-                                                                color={cc.profit_margin >= 40 ? 'success' : cc.profit_margin >= 20 ? 'warning' : 'error'} 
-                                                            />
-                                                        </TableCell>
-                                                        <TableCell align="right">
-                                                            TSh {(cc.average_transaction_value || 0).toLocaleString()}
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </TableContainer>
-                                </Box>
-                            )}
-
-                            {/* Daily Breakdown */}
-                            {data.dailyBreakdown && data.dailyBreakdown.length > 0 && (
-                                <Box sx={{ mb: 3 }}>
-                                    <Typography variant="subtitle2" fontWeight="bold" gutterBottom>📊 Daily Breakdown</Typography>
-                                    <TableContainer component={Paper} variant="outlined">
-                                        <Table size="small">
-                                            <TableHead>
-                                                <TableRow sx={{ bgcolor: 'action.hover' }}>
-                                                    <TableCell><b>Date</b></TableCell>
-                                                    <TableCell><b>Day</b></TableCell>
-                                                    <TableCell align="right"><b>Transactions</b></TableCell>
-                                                    <TableCell align="right"><b>Revenue (TSh)</b></TableCell>
-                                                    <TableCell align="right"><b>Profit (TSh)</b></TableCell>
-                                                </TableRow>
-                                            </TableHead>
-                                            <TableBody>
-                                                {data.dailyBreakdown.map((day, idx) => (
-                                                    <TableRow key={idx} hover>
-                                                        <TableCell>{formatDate(day.date)}</TableCell>
-                                                        <TableCell>{day.day_name}</TableCell>
-                                                        <TableCell align="right">{day.transactions}</TableCell>
-                                                        <TableCell align="right"><Typography fontWeight="bold" color="success.main">TSh {(day.revenue || 0).toLocaleString()}</Typography></TableCell>
-                                                        <TableCell align="right">TSh {(day.profit || 0).toLocaleString()}</TableCell>
                                                     </TableRow>
                                                 ))}
                                             </TableBody>
@@ -830,15 +712,35 @@ export default function SalesReport() {
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 sx={{ mb: 2 }}
-                                className="no-print"
-                                InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon /></InputAdornment>) }}
+                                InputProps={{
+                                    startAdornment: (<InputAdornment position="start"><SearchIcon /></InputAdornment>),
+                                    endAdornment: searchTerm && (
+                                        <InputAdornment position="end">
+                                            <IconButton size="small" onClick={() => setSearchTerm('')}>
+                                                <CancelIcon fontSize="small" />
+                                            </IconButton>
+                                        </InputAdornment>
+                                    )
+                                }}
                             />
 
-                            {/* Sales Table WITH Collection Center Column */}
+                            {/* Sales Table */}
                             {data.sales && data.sales.length > 0 ? (
                                 <>
-                                    <Typography variant="subtitle2" fontWeight="bold" gutterBottom>📋 Sales Transactions ({filteredSales.length})</Typography>
-                                    <TableContainer>
+                                    <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <Typography variant="subtitle2" fontWeight="bold">
+                                            📋 Sales Transactions ({filteredSales.length})
+                                        </Typography>
+                                        {searchTerm && (
+                                            <Chip
+                                                label={`Found ${filteredSales.length} results`}
+                                                size="small"
+                                                color="info"
+                                                onDelete={() => setSearchTerm('')}
+                                            />
+                                        )}
+                                    </Box>
+                                    <TableContainer component={Paper} variant="outlined">
                                         <Table size="small">
                                             <TableHead>
                                                 <TableRow sx={{ bgcolor: 'action.hover' }}>
@@ -848,7 +750,6 @@ export default function SalesReport() {
                                                     <TableCell><b>Product</b></TableCell>
                                                     <TableCell><b>Model / SKU</b></TableCell>
                                                     <TableCell><b>IMEI</b></TableCell>
-                                                    <TableCell><b>Color</b></TableCell>
                                                     <TableCell align="right"><b>Amount</b></TableCell>
                                                     <TableCell><b>Payment</b></TableCell>
                                                     <TableCell><b>Agent</b></TableCell>
@@ -862,11 +763,11 @@ export default function SalesReport() {
                                                     const isExpanded = expandedRows[sale.sale_id];
                                                     const productName = getProductName(sale);
                                                     const productModel = getProductModel(sale);
-                                                    const productSku = getProductSku(sale);
+                                                    const productSku = getProductSku(sale);  // Now using product SKU
                                                     const productImei = getProductImei(sale);
                                                     const productColor = getProductColor(sale);
                                                     const collectionCenter = getCollectionCenterInfo(sale);
-                                                    
+
                                                     return (
                                                         <React.Fragment key={sale.sale_id}>
                                                             <TableRow hover>
@@ -892,7 +793,7 @@ export default function SalesReport() {
                                                                 <TableCell>
                                                                     <Box display="flex" alignItems="center" gap={0.5}>
                                                                         <SmartphoneIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-                                                                        <Tooltip title={`${productName}`}>
+                                                                        <Tooltip title={productName}>
                                                                             <Typography variant="body2" noWrap sx={{ maxWidth: 150 }}>{productName}</Typography>
                                                                         </Tooltip>
                                                                     </Box>
@@ -906,25 +807,29 @@ export default function SalesReport() {
                                                                 <TableCell>
                                                                     <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{productImei}</Typography>
                                                                 </TableCell>
-                                                                <TableCell>
-                                                                    <Chip label={productColor} size="small" variant="outlined" />
-                                                                </TableCell>
+
                                                                 <TableCell align="right">
-                                                                    <Typography fontWeight="bold" color="success.main">TSh {parseFloat(sale.total_amount).toLocaleString()}</Typography>
+                                                                    <Typography fontWeight="bold" color="success.main">
+                                                                        TSh {parseFloat(sale.total_amount).toLocaleString()}
+                                                                    </Typography>
                                                                 </TableCell>
                                                                 <TableCell>
-                                                                    <Chip label={sale.payment_method} size="small" color={paymentMethodColors[sale.payment_method] || 'default'} />
+                                                                    <Chip
+                                                                        label={sale.payment_method}
+                                                                        size="small"
+                                                                        color={paymentMethodColors[sale.payment_method] || 'default'}
+                                                                    />
                                                                 </TableCell>
                                                                 <TableCell>{getAgentName(sale)}</TableCell>
                                                                 <TableCell>
                                                                     {collectionCenter ? (
                                                                         <Tooltip title={`Location: ${collectionCenter.location}`}>
-                                                                            <Chip 
-                                                                                icon={<StoreIcon />} 
-                                                                                label={collectionCenter.name} 
-                                                                                size="small" 
-                                                                                color="primary" 
-                                                                                variant="outlined" 
+                                                                            <Chip
+                                                                                icon={<StoreIcon />}
+                                                                                label={collectionCenter.name}
+                                                                                size="small"
+                                                                                color="primary"
+                                                                                variant="outlined"
                                                                             />
                                                                         </Tooltip>
                                                                     ) : (
@@ -933,11 +838,11 @@ export default function SalesReport() {
                                                                 </TableCell>
                                                                 <TableCell>{formatDate(sale.created_at)}</TableCell>
                                                                 <TableCell>
-                                                                    <Chip 
-                                                                        label={sale.status} 
-                                                                        size="small" 
-                                                                        icon={sale.status === 'completed' ? <CheckCircleIcon /> : <PendingIcon />} 
-                                                                        color={sale.status === 'completed' ? 'success' : 'warning'} 
+                                                                    <Chip
+                                                                        label={sale.status}
+                                                                        size="small"
+                                                                        icon={sale.status === 'completed' ? <CheckCircleIcon /> : sale.status === 'pending' ? <PendingIcon /> : <CancelIcon />}
+                                                                        color={statusColors[sale.status] || 'default'}
                                                                     />
                                                                 </TableCell>
                                                             </TableRow>
@@ -952,15 +857,21 @@ export default function SalesReport() {
                                                                             <Grid container spacing={2}>
                                                                                 <Grid item xs={12} sm={4}>
                                                                                     <Typography variant="caption" color="textSecondary">Product ID</Typography>
-                                                                                    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{sale.product?.product_id || 'N/A'}</Typography>
+                                                                                    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                                                                                        {sale.product?.product_id || 'N/A'}
+                                                                                    </Typography>
                                                                                 </Grid>
                                                                                 <Grid item xs={12} sm={4}>
                                                                                     <Typography variant="caption" color="textSecondary">Buying Price</Typography>
-                                                                                    <Typography variant="body2" color="error.main">TSh {parseFloat(getProductBuyingPrice(sale)).toLocaleString()}</Typography>
+                                                                                    <Typography variant="body2" color="error.main">
+                                                                                        TSh {parseFloat(getProductBuyingPrice(sale)).toLocaleString()}
+                                                                                    </Typography>
                                                                                 </Grid>
                                                                                 <Grid item xs={12} sm={4}>
                                                                                     <Typography variant="caption" color="textSecondary">Profit</Typography>
-                                                                                    <Typography variant="body2" color="success.main">TSh {(parseFloat(sale.total_amount) - parseFloat(getProductBuyingPrice(sale))).toLocaleString()}</Typography>
+                                                                                    <Typography variant="body2" color="success.main">
+                                                                                        TSh {(parseFloat(sale.total_amount) - parseFloat(getProductBuyingPrice(sale))).toLocaleString()}
+                                                                                    </Typography>
                                                                                 </Grid>
                                                                                 {collectionCenter && (
                                                                                     <Grid item xs={12} sm={6}>
@@ -988,24 +899,28 @@ export default function SalesReport() {
                                             </TableBody>
                                         </Table>
                                     </TableContainer>
-                                    <TablePagination 
-                                        component="div" 
-                                        count={filteredSales.length} 
-                                        page={page} 
-                                        onPageChange={(e, p) => setPage(p)} 
-                                        rowsPerPage={rowsPerPage} 
-                                        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }} 
-                                        rowsPerPageOptions={[5, 10, 25, 50]} 
+                                    <TablePagination
+                                        component="div"
+                                        count={filteredSales.length}
+                                        page={page}
+                                        onPageChange={(e, p) => setPage(p)}
+                                        rowsPerPage={rowsPerPage}
+                                        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+                                        rowsPerPageOptions={[5, 10, 25, 50, 100]}
                                     />
                                 </>
                             ) : (
                                 <Box sx={{ p: 3, textAlign: 'center' }}>
-                                    <Typography color="textSecondary">No sales found for the selected period</Typography>
+                                    <ReceiptIcon sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
+                                    <Typography color="textSecondary">
+                                        {searchTerm ? 'No sales match your search criteria' : 'No sales found for the selected period'}
+                                    </Typography>
                                 </Box>
                             )}
                         </Box>
                     ) : (
                         <Box sx={{ p: 5, textAlign: 'center' }}>
+                            <ReceiptIcon sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
                             <Typography color="textSecondary">Select period and click "Load Report" to view sales data</Typography>
                         </Box>
                     )}

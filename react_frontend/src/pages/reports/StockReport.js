@@ -52,7 +52,6 @@ import {
     TableChart as ExcelIcon,
     TextSnippet as CsvIcon,
     Print as PrintIcon,
-    ColorLens as ColorIcon,
     QrCode as SkuIcon,
     Smartphone as ModelIcon,
     Warehouse as WarehouseIcon,
@@ -172,13 +171,13 @@ export default function StockReport() {
         const warehouses = getUniqueWarehouses();
         return warehouses.map(wh => {
             const whProducts = (data?.all_products || []).filter(p => p.warehouse_id === wh.id);
-            const totalBuying = whProducts.reduce((sum, p) => sum + (p.buying_price * p.quantity), 0);
-            const totalSelling = whProducts.reduce((sum, p) => sum + (p.selling_price * p.quantity), 0);
+            const totalBuying = whProducts.reduce((sum, p) => sum + (p.buying_price * 1), 0);
+            const totalSelling = whProducts.reduce((sum, p) => sum + (p.selling_price * 1), 0);
             const totalProfit = totalSelling - totalBuying;
             return {
                 ...wh,
                 productCount: whProducts.length,
-                totalUnits: whProducts.reduce((sum, p) => sum + p.quantity, 0),
+                totalUnits: whProducts.reduce((sum, p) => sum + 1, 0),
                 totalBuying,
                 totalSelling,
                 totalProfit
@@ -188,9 +187,9 @@ export default function StockReport() {
 
     const getExportData = () => {
         if (!data?.all_products) return [];
-        
+
         const filteredProducts = filterProductsByWarehouseAndStatusAndSearch(data.all_products);
-        
+
         return filteredProducts.map(product => {
             const profit = (parseFloat(product.selling_price) || 0) - (parseFloat(product.buying_price) || 0);
             return {
@@ -200,8 +199,6 @@ export default function StockReport() {
                 'Model': product.model || 'N/A',
                 'SKU': product.sku || 'N/A',
                 'IMEI': product.imei || 'N/A',
-                'Color': product.color || 'N/A',
-                'Quantity': product.quantity || 1,
                 'Stock Status': getStockStatusLabel(product.stock_status),
                 'Buying Price': formatCurrency(product.buying_price),
                 'Selling Price': formatCurrency(product.selling_price),
@@ -320,7 +317,7 @@ export default function StockReport() {
 
     const filterProductsByWarehouseAndStatusAndSearch = (products) => {
         let filtered = products;
-        
+
         if (warehouseFilter !== 'all') {
             filtered = filtered.filter(p => p.warehouse_id === warehouseFilter);
         }
@@ -329,9 +326,8 @@ export default function StockReport() {
         }
         if (searchTerm.trim() !== '') {
             const term = searchTerm.toLowerCase();
-            filtered = filtered.filter(p => 
+            filtered = filtered.filter(p =>
                 p.imei?.toLowerCase().includes(term) ||
-                p.color?.toLowerCase().includes(term) ||
                 p.category_name?.toLowerCase().includes(term) ||
                 p.model?.toLowerCase().includes(term) ||
                 p.sku?.toLowerCase().includes(term) ||
@@ -339,7 +335,7 @@ export default function StockReport() {
                 p.warehouse_location?.toLowerCase().includes(term)
             );
         }
-        
+
         return filtered;
     };
 
@@ -381,9 +377,9 @@ export default function StockReport() {
 
     const filteredProducts = filterProductsByWarehouseAndStatusAndSearch(allProducts);
     const sortedFilteredProducts = sortProducts(filteredProducts);
-    
-    const totalBuying = filteredProducts.reduce((sum, p) => sum + (p.buying_price * p.quantity), 0);
-    const totalSelling = filteredProducts.reduce((sum, p) => sum + (p.selling_price * p.quantity), 0);
+
+    const totalBuying = filteredProducts.reduce((sum, p) => sum + (p.buying_price * 1), 0);
+    const totalSelling = filteredProducts.reduce((sum, p) => sum + (p.selling_price * 1), 0);
     const totalProfit = totalSelling - totalBuying;
     const profitPercentage = totalBuying > 0 ? (totalProfit / totalBuying) * 100 : 0;
 
@@ -402,11 +398,11 @@ export default function StockReport() {
                         <Box>
                             <Tooltip title="Refresh Data">
                                 <span>
-                                    <Button 
-                                        variant="contained" 
-                                        startIcon={<RefreshIcon />} 
-                                        onClick={handleRefresh} 
-                                        disabled={loading} 
+                                    <Button
+                                        variant="contained"
+                                        startIcon={<RefreshIcon />}
+                                        onClick={handleRefresh}
+                                        disabled={loading}
                                         sx={{ mr: 1 }}
                                     >
                                         Refresh
@@ -414,9 +410,9 @@ export default function StockReport() {
                                 </span>
                             </Tooltip>
                             {allProducts.length > 0 && (
-                                <Button 
-                                    variant="outlined" 
-                                    startIcon={<FileDownloadIcon />} 
+                                <Button
+                                    variant="outlined"
+                                    startIcon={<FileDownloadIcon />}
                                     onClick={handleExportClick}
                                 >
                                     Export
@@ -431,7 +427,7 @@ export default function StockReport() {
                                     <ListItemIcon><CsvIcon color="primary" /></ListItemIcon>
                                     <ListItemText>CSV</ListItemText>
                                 </MenuItem>
-                                
+
                             </Menu>
                         </Box>
                     </Box>
@@ -451,7 +447,7 @@ export default function StockReport() {
 
                         {/* Summary Cards */}
                         <Grid container spacing={2} sx={{ mb: 3 }}>
-                            <Grid item xs={12} sm={6} md={2.4}>
+                            <Grid item xs={12} sm={6} md={4}>
                                 <Card sx={{ bgcolor: 'background.paper', boxShadow: 1 }}>
                                     <CardContent>
                                         <Box display="flex" alignItems="center" justifyContent="space-between">
@@ -464,12 +460,12 @@ export default function StockReport() {
                                     </CardContent>
                                 </Card>
                             </Grid>
-                            <Grid item xs={12} sm={6} md={2.4}>
+                            <Grid item xs={12} sm={6} md={4}>
                                 <Card sx={{ bgcolor: 'background.paper', boxShadow: 1 }}>
                                     <CardContent>
                                         <Box display="flex" alignItems="center" justifyContent="space-between">
                                             <Box>
-                                                <Typography color="textSecondary" variant="caption">Total Units</Typography>
+                                                <Typography color="textSecondary" variant="caption">Total Products</Typography>
                                                 <Typography variant="h4" fontWeight="bold" color="info.main">{summaryData.total_units}</Typography>
                                             </Box>
                                             <InventoryIcon sx={{ fontSize: 40, color: 'info.main', opacity: 0.7 }} />
@@ -477,33 +473,7 @@ export default function StockReport() {
                                     </CardContent>
                                 </Card>
                             </Grid>
-                            <Grid item xs={12} sm={6} md={2.4}>
-                                <Card sx={{ bgcolor: 'background.paper', boxShadow: 1 }}>
-                                    <CardContent>
-                                        <Box display="flex" alignItems="center" justifyContent="space-between">
-                                            <Box>
-                                                <Typography color="textSecondary" variant="caption">Total Value</Typography>
-                                                <Typography variant="h4" fontWeight="bold" color="success.main">{formatCurrency(summaryData.total_value)}</Typography>
-                                            </Box>
-                                            <MoneyIcon sx={{ fontSize: 40, color: 'success.main', opacity: 0.7 }} />
-                                        </Box>
-                                    </CardContent>
-                                </Card>
-                            </Grid>
-                            <Grid item xs={12} sm={6} md={2.4}>
-                                <Card sx={{ bgcolor: 'background.paper', boxShadow: 1 }}>
-                                    <CardContent>
-                                        <Box display="flex" alignItems="center" justifyContent="space-between">
-                                            <Box>
-                                                <Typography color="textSecondary" variant="caption">Avg Price</Typography>
-                                                <Typography variant="h4" fontWeight="bold" color="warning.main">{formatCurrency(summaryData.average_unit_price)}</Typography>
-                                            </Box>
-                                            <MoneyIcon sx={{ fontSize: 40, color: 'warning.main', opacity: 0.7 }} />
-                                        </Box>
-                                    </CardContent>
-                                </Card>
-                            </Grid>
-                            <Grid item xs={12} sm={6} md={2.4}>
+                            <Grid item xs={12} sm={6} md={4}>
                                 <Card sx={{ bgcolor: 'background.paper', boxShadow: 1 }}>
                                     <CardContent>
                                         <Box display="flex" alignItems="center" justifyContent="space-between">
@@ -521,9 +491,9 @@ export default function StockReport() {
                         {/* Financial Summary Cards - Total Buying, Selling, Expected Profit */}
                         <Grid container spacing={2} sx={{ mb: 3 }}>
                             <Grid item xs={12} md={4}>
-                                <Card sx={{ 
+                                <Card sx={{
                                     bgcolor: theme.palette.mode === 'dark' ? alpha('#f44336', 0.1) : '#ffebee',
-                                    borderLeft: 4, 
+                                    borderLeft: 4,
                                     borderColor: 'error.main',
                                     boxShadow: 1
                                 }}>
@@ -537,9 +507,9 @@ export default function StockReport() {
                                                     {formatCurrency(totalBuying)}
                                                 </Typography>
                                             </Box>
-                                            <Box sx={{ 
-                                                bgcolor: alpha(theme.palette.error.main, 0.1), 
-                                                borderRadius: 2, 
+                                            <Box sx={{
+                                                bgcolor: alpha(theme.palette.error.main, 0.1),
+                                                borderRadius: 2,
                                                 p: 1,
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -552,9 +522,9 @@ export default function StockReport() {
                                 </Card>
                             </Grid>
                             <Grid item xs={12} md={4}>
-                                <Card sx={{ 
+                                <Card sx={{
                                     bgcolor: theme.palette.mode === 'dark' ? alpha('#4caf50', 0.1) : '#e8f5e9',
-                                    borderLeft: 4, 
+                                    borderLeft: 4,
                                     borderColor: 'success.main',
                                     boxShadow: 1
                                 }}>
@@ -568,9 +538,9 @@ export default function StockReport() {
                                                     {formatCurrency(totalSelling)}
                                                 </Typography>
                                             </Box>
-                                            <Box sx={{ 
-                                                bgcolor: alpha(theme.palette.success.main, 0.1), 
-                                                borderRadius: 2, 
+                                            <Box sx={{
+                                                bgcolor: alpha(theme.palette.success.main, 0.1),
+                                                borderRadius: 2,
                                                 p: 1,
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -583,9 +553,9 @@ export default function StockReport() {
                                 </Card>
                             </Grid>
                             <Grid item xs={12} md={4}>
-                                <Card sx={{ 
+                                <Card sx={{
                                     bgcolor: theme.palette.mode === 'dark' ? alpha(totalProfit >= 0 ? '#4caf50' : '#f44336', 0.1) : (totalProfit >= 0 ? '#e8f5e9' : '#ffebee'),
-                                    borderLeft: 4, 
+                                    borderLeft: 4,
                                     borderColor: totalProfit >= 0 ? 'success.main' : 'error.main',
                                     boxShadow: 1
                                 }}>
@@ -602,9 +572,9 @@ export default function StockReport() {
                                                     ({profitPercentage.toFixed(2)}% margin)
                                                 </Typography>
                                             </Box>
-                                            <Box sx={{ 
-                                                bgcolor: alpha(totalProfit >= 0 ? theme.palette.success.main : theme.palette.error.main, 0.1), 
-                                                borderRadius: 2, 
+                                            <Box sx={{
+                                                bgcolor: alpha(totalProfit >= 0 ? theme.palette.success.main : theme.palette.error.main, 0.1),
+                                                borderRadius: 2,
                                                 p: 1,
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -666,7 +636,7 @@ export default function StockReport() {
                                             <TextField
                                                 fullWidth
                                                 size="small"
-                                                placeholder="🔍 Search by IMEI, Color, Product, Model, SKU..."
+                                                placeholder="🔍 Search by IMEI, Product, Model, SKU..."
                                                 value={searchTerm}
                                                 onChange={handleSearchChange}
                                                 InputProps={{
@@ -702,7 +672,7 @@ export default function StockReport() {
                                             </ToggleButtonGroup>
                                         </Grid>
                                     </Grid>
-                                    
+
                                     {viewMode === 'list' && (
                                         <Box display="flex" justifyContent="flex-end" alignItems="center" gap={2} mt={2}>
                                             <FormControl size="small" sx={{ minWidth: 120 }}>
@@ -714,8 +684,8 @@ export default function StockReport() {
                                                 </Select>
                                             </FormControl>
                                             <Tooltip title={sortOrder === 'asc' ? 'Sort Ascending' : 'Sort Descending'}>
-                                                <IconButton 
-                                                    size="small" 
+                                                <IconButton
+                                                    size="small"
                                                     onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
                                                     sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}
                                                 >
@@ -742,10 +712,10 @@ export default function StockReport() {
                             if (products.length === 0) return null;
                             return (
                                 <Card key={idx} sx={{ mb: 2, overflow: 'hidden', bgcolor: 'background.paper' }}>
-                                    <Box 
-                                        sx={{ 
-                                            p: 2, 
-                                            bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#f5f5f5', 
+                                    <Box
+                                        sx={{
+                                            p: 2,
+                                            bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#f5f5f5',
                                             cursor: 'pointer',
                                             display: 'flex',
                                             alignItems: 'center',
@@ -766,10 +736,10 @@ export default function StockReport() {
                                         </Box>
                                         <Box textAlign="right">
                                             <Typography variant="body2" fontWeight="bold" color="primary.main">
-                                                {products.reduce((sum, p) => sum + p.quantity, 0)} Units
+                                                {products.length} Products
                                             </Typography>
                                             <Typography variant="caption" color="success.main">
-                                                {formatCurrency(products.reduce((sum, p) => sum + (p.selling_price * p.quantity), 0))}
+                                                {formatCurrency(products.reduce((sum, p) => sum + (p.selling_price * 1), 0))}
                                             </Typography>
                                         </Box>
                                         <IconButton size="small">
@@ -785,8 +755,6 @@ export default function StockReport() {
                                                             <TableCell><b>Warehouse</b></TableCell>
                                                             <TableCell><b>Location</b></TableCell>
                                                             <TableCell><b>IMEI</b></TableCell>
-                                                            <TableCell><b>Color</b></TableCell>
-                                                            <TableCell align="right"><b>Qty</b></TableCell>
                                                             <TableCell><b>Status</b></TableCell>
                                                             <TableCell align="right"><b>Buying</b></TableCell>
                                                             <TableCell align="right"><b>Selling</b></TableCell>
@@ -811,22 +779,11 @@ export default function StockReport() {
                                                                         <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{p.imei}</Typography>
                                                                     </TableCell>
                                                                     <TableCell>
-                                                                        <Chip 
-                                                                            icon={<ColorIcon />} 
-                                                                            label={p.color} 
-                                                                            size="small" 
-                                                                            variant="outlined"
-                                                                        />
-                                                                    </TableCell>
-                                                                    <TableCell align="right">
-                                                                        <Chip label={p.quantity} size="small" color="primary" />
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        <Chip 
-                                                                            icon={getStockStatusIcon(p.stock_status)} 
-                                                                            label={getStockStatusLabel(p.stock_status)} 
-                                                                            size="small" 
-                                                                            color={getStockStatusColor(p.stock_status)} 
+                                                                        <Chip
+                                                                            icon={getStockStatusIcon(p.stock_status)}
+                                                                            label={getStockStatusLabel(p.stock_status)}
+                                                                            size="small"
+                                                                            color={getStockStatusColor(p.stock_status)}
                                                                         />
                                                                     </TableCell>
                                                                     <TableCell align="right">
@@ -857,13 +814,13 @@ export default function StockReport() {
                             let products = filterProductsByWarehouseAndStatusAndSearch(allProducts.filter(p => p.warehouse_id === wh.id));
                             const isExpanded = expandedWarehouses[wh.name];
                             if (products.length === 0) return null;
-                            const whTotal = products.reduce((sum, p) => sum + (p.buying_price * p.quantity), 0);
+                            const whTotal = products.reduce((sum, p) => sum + (p.buying_price * 1), 0);
                             return (
                                 <Card key={idx} sx={{ mb: 2, overflow: 'hidden', bgcolor: 'background.paper' }}>
-                                    <Box 
-                                        sx={{ 
-                                            p: 2, 
-                                            bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#f5f5f5', 
+                                    <Box
+                                        sx={{
+                                            p: 2,
+                                            bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#f5f5f5',
                                             cursor: 'pointer',
                                             display: 'flex',
                                             alignItems: 'center',
@@ -903,8 +860,6 @@ export default function StockReport() {
                                                             <TableCell><b>Model</b></TableCell>
                                                             <TableCell><b>SKU</b></TableCell>
                                                             <TableCell><b>IMEI</b></TableCell>
-                                                            <TableCell><b>Color</b></TableCell>
-                                                            <TableCell align="right"><b>Qty</b></TableCell>
                                                             <TableCell><b>Status</b></TableCell>
                                                             <TableCell align="right"><b>Buying</b></TableCell>
                                                             <TableCell align="right"><b>Selling</b></TableCell>
@@ -927,22 +882,11 @@ export default function StockReport() {
                                                                         <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{p.imei}</Typography>
                                                                     </TableCell>
                                                                     <TableCell>
-                                                                        <Chip 
-                                                                            icon={<ColorIcon />} 
-                                                                            label={p.color} 
-                                                                            size="small" 
-                                                                            variant="outlined"
-                                                                        />
-                                                                    </TableCell>
-                                                                    <TableCell align="right">
-                                                                        <Chip label={p.quantity} size="small" color="primary" />
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        <Chip 
-                                                                            icon={getStockStatusIcon(p.stock_status)} 
-                                                                            label={getStockStatusLabel(p.stock_status)} 
-                                                                            size="small" 
-                                                                            color={getStockStatusColor(p.stock_status)} 
+                                                                        <Chip
+                                                                            icon={getStockStatusIcon(p.stock_status)}
+                                                                            label={getStockStatusLabel(p.stock_status)}
+                                                                            size="small"
+                                                                            color={getStockStatusColor(p.stock_status)}
                                                                         />
                                                                     </TableCell>
                                                                     <TableCell align="right">
@@ -985,8 +929,6 @@ export default function StockReport() {
                                                         <TableCell><b>Model</b></TableCell>
                                                         <TableCell><b>SKU</b></TableCell>
                                                         <TableCell><b>IMEI</b></TableCell>
-                                                        <TableCell><b>Color</b></TableCell>
-                                                        <TableCell align="right"><b>Qty</b></TableCell>
                                                         <TableCell><b>Status</b></TableCell>
                                                         <TableCell align="right"><b>Buying</b></TableCell>
                                                         <TableCell align="right"><b>Selling</b></TableCell>
@@ -1021,22 +963,11 @@ export default function StockReport() {
                                                                     <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{p.imei}</Typography>
                                                                 </TableCell>
                                                                 <TableCell>
-                                                                    <Chip 
-                                                                        icon={<ColorIcon />} 
-                                                                        label={p.color} 
-                                                                        size="small" 
-                                                                        variant="outlined"
-                                                                    />
-                                                                </TableCell>
-                                                                <TableCell align="right">
-                                                                    <Chip label={p.quantity} size="small" color="primary" />
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Chip 
-                                                                        icon={getStockStatusIcon(p.stock_status)} 
-                                                                        label={getStockStatusLabel(p.stock_status)} 
-                                                                        size="small" 
-                                                                        color={getStockStatusColor(p.stock_status)} 
+                                                                    <Chip
+                                                                        icon={getStockStatusIcon(p.stock_status)}
+                                                                        label={getStockStatusLabel(p.stock_status)}
+                                                                        size="small"
+                                                                        color={getStockStatusColor(p.stock_status)}
                                                                     />
                                                                 </TableCell>
                                                                 <TableCell align="right">
