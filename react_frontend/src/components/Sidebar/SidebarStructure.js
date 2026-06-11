@@ -25,6 +25,7 @@ import {
   PeopleAlt as CustomersIcon,
   Receipt as InvoiceIcon,
   Analytics as AnalyticsIcon,
+  Storefront as StorefrontIcon,
 } from '@mui/icons-material';
 
 const addIf = (condition, item) => (condition ? [item] : []);
@@ -32,20 +33,27 @@ const addIf = (condition, item) => (condition ? [item] : []);
 export function getSidebarStructure(hasPermission) {
   const structure = [];
 
-  // ----- Dashboard / Agent Analytics -----
-  if (hasPermission('dashboard.view')) {
+  // ----- Dashboard / Agent Analytics / Branch Owner Analytics -----
+  if (hasPermission('dashboard.view')) { // Manager,Admin, Stock controllers
     structure.push({
       id: 0,
       label: 'Dashboard',
       link: '/app/dashboard',
       icon: <HomeIcon />,
     });
-  } else if (hasPermission('agent-dashboard.view')) {
+  } else if (hasPermission('agent-dashboard.view')) { // Sales Agent
     structure.push({
       id: 'agent-dashboard',
       label: 'Dashboard',
       link: '/app/agent-analytics',
       icon: <AnalyticsIcon />,
+    });
+  } else if (hasPermission('cc_center_dashboard.view')) { // Branch Owner
+    structure.push({
+      id: 'branch-owner-dashboard',
+      label: 'Dashboard',
+      link: '/app/branch-owner-analytics',
+      icon: <StorefrontIcon />,
     });
   }
 
@@ -262,40 +270,51 @@ export function getSidebarStructure(hasPermission) {
     });
   }
 
-  // ----- Reports ----- (NEW simplified version)
+  // ----- Reports -----
   const hasAnyReportPerm = hasPermission('reports.stock.view') || hasPermission('reports.inventory.view') ||
       hasPermission('reports.sales.view') || hasPermission('reports.receipts.view') ||
-      hasPermission('reports.customers.view') || hasPermission('reports.suppliers.view');
+      hasPermission('reports.customers.view') || hasPermission('reports.suppliers.view')  ||
+      hasPermission('branch-owner-reports.stock.view');;
 
   if (hasAnyReportPerm) {
     const reportChildren = [];
 
-    // purchase Reports Only
+    // Purchase Reports
     if (hasPermission('reports.purchases.view')) {
       reportChildren.push({
         label: 'Purchase Reports',
         children: [
           { label: 'Daily', link: '/app/reports/Purchase/daily' },
-
         ],
       });
     }
 
+    // Sales Reports
     if (hasPermission('reports.sales.view')) {
       reportChildren.push({
         label: 'Sales Reports',
         children: [
           { label: 'Daily', link: '/app/reports/sales/daily' },
-
         ],
       });
     }
 
+    // Stock Reports (original)
     if (hasPermission('reports.stock.view')) {
       reportChildren.push({
         label: 'Stock Reports',
         children: [
           { label: 'Daily', link: '/app/reports/stock/daily' },
+        ],
+      });
+    }
+
+
+    if (hasPermission('branch-owner-reports.stock.view')) {
+      reportChildren.push({
+        label: 'Branch Stock Report',
+        children: [
+          { label: 'Print Stock Report', link: '/app/reports/branch-owner-reports' },
         ],
       });
     }
@@ -315,7 +334,7 @@ export function getSidebarStructure(hasPermission) {
         { label: 'Users', link: '/app/settings/users' }),
     ...addIf(hasPermission('roles.view') || hasPermission('roles.create') || hasPermission('roles.edit') || hasPermission('roles.delete'),
         { label: 'Roles', link: '/app/settings/roles' }),
-    ...addIf( hasPermission('roles.assign_permissions'),
+    ...addIf(hasPermission('roles.assign_permissions'),
         { label: 'Permissions', link: '/app/settings/permissions' }),
     ...addIf(hasPermission('audit.view'), { label: 'Audit Trails', link: '/app/settings/audit' }),
     ...addIf(hasPermission('otp.view') || hasPermission('otp.cleanup'), { label: 'OTP Management', link: '/app/settings/otp' }),
@@ -335,7 +354,7 @@ export function getSidebarStructure(hasPermission) {
   return structure;
 }
 
-// Static structure for breadcrumbs (with Reports simplified to match dynamic sidebar)
+// Static structure for breadcrumbs (unchanged)
 const staticStructure = [
   { id: 0, label: 'Dashboard', link: '/app/dashboard', icon: <HomeIcon /> },
   { id: 'agent-dashboard-static', label: 'Agent Analytics', link: '/app/agent-analytics', icon: <AnalyticsIcon /> },

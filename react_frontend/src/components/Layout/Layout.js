@@ -52,7 +52,7 @@ import Calendar from '../../pages/calendar';
 import BreadCrumbs from '../../components/BreadCrumbs';
 
 import { useLayoutState } from "context/LayoutContext";
-import structure from '../Sidebar/SidebarStructure';
+import { getSidebarStructure } from '../Sidebar/SidebarStructure';
 
 // User & Permission pages
 import UsersList from "../../pages/user";
@@ -76,14 +76,16 @@ import CustomersList from "pages/customers/CustomersList";
 import AgentSales from "pages/sales/AgentSales";
 import StockMovementList from "pages/stock/StockMovementList";
 import SalesDailyReport from "pages/reports/SalesReport";
-
 import PurchaseReport from "pages/reports/PurchaseReport";
-
 import StockReport from "pages/reports/StockReport";
 import Invoices from "pages/invoices/Invoices";
 import InvoiceDetail from "pages/invoices/InvoiceDetail";
 import AnalyticsDashboard from "pages/dashboard/AnalyticsDashboard";
 import AgentAnalyticsDashboard from "pages/dashboard/components/AgentAnalyticsDashboard";
+import BranchOwnerStockReport from "pages/reports/BranchOwnerStockReport";
+import BranchOwnerAnalyticsDashboard from "pages/dashboard/components/BranchOwnerAnalyticsDashboard";
+
+import { usePermission } from 'hooks/usePermission'; // ✅ import permission hook
 
 function Layout() {
   const classes = useStyles();
@@ -95,10 +97,14 @@ function Layout() {
   };
   let layoutState = useLayoutState();
 
+  // ✅ Generate dynamic sidebar structure based on user permissions
+  const { hasPermission } = usePermission();
+  const dynamicStructure = getSidebarStructure(hasPermission);
+
   return (
       <div className={classes.root}>
         <Header />
-        <Sidebar structure={structure} />
+        <Sidebar structure={dynamicStructure} /> {/* ✅ use dynamic structure */}
         <div
             className={classnames(classes.content, {
               [classes.contentShift]: layoutState.isSidebarOpened,
@@ -185,17 +191,18 @@ function Layout() {
 
             <Route path="agent-analytics" element={<AgentAnalyticsDashboard />} />
 
-            {/* ✅ stock movements management route */}
+            {/* stock movements */}
             <Route path="stock-movements" element={<StockMovementList />} />
 
+            {/* Branch Owner Dashboard */}
+            <Route path="branch-owner-analytics" element={<BranchOwnerAnalyticsDashboard />} />
 
-            //             {/* ✅ salesreport route */}
+            {/* Branch Owner Stock Report */}
+            <Route path="reports/branch-owner-reports" element={<BranchOwnerStockReport />} />
+
+            {/* Reports */}
             <Route path="reports/sales/daily" element={<SalesDailyReport />} />
-
-            {/* ✅ Purchasereport route */}
             <Route path="reports/purchase/daily" element={<PurchaseReport />} />
-
-            {/* ✅ Stockreport route */}
             <Route path="reports/stock/daily" element={<StockReport />} />
 
             <Route path="dashboard" element={<AnalyticsDashboard />} />

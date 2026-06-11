@@ -1,8 +1,9 @@
-// src/components/Dashboard/AnalyticsDashboard.js
+// src/pages/dashboard/AnalyticsDashboard.js
 import React from 'react';
 import { usePermission } from 'hooks/usePermission';
 import WholeAnalytics from './components/WholeAnalytics';
 import AgentAnalyticsDashboard from './components/AgentAnalyticsDashboard';
+import BranchOwnerAnalyticsDashboard from './components/BranchOwnerAnalyticsDashboard';
 import { Box, Typography } from '@mui/material';
 
 function AccessDenied() {
@@ -22,7 +23,8 @@ export default function AnalyticsDashboard() {
     if (hasPermission('agent-dashboard.view')) {
         return <AgentAnalyticsDashboard />;
     }
-
-
+    if (hasPermission('cc_center_dashboard.view')) {
+        return <BranchOwnerAnalyticsDashboard />;
+    }
     return <AccessDenied />;
 }
