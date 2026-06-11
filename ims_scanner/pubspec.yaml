@@ -1,0 +1,49 @@
+name: ims_scanner
+description: Digital Mobile Scanner – Scan & manage products with IMEI.
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI & Icons
+  cupertino_icons: ^1.0.6
+  google_fonts: ^6.1.0
+  flutter_spinkit: ^5.2.0
+  fluttertoast: ^8.2.5
+
+  # State management & HTTP
+  provider: ^6.0.5
+  dio: ^5.3.2
+  logger: ^1.4.0
+  shared_preferences: ^2.2.2
+  fl_chart: ^0.69.0
+
+  # Media & scanning
+  image_picker: ^1.0.4
+  mobile_scanner: ^6.0.0
+  permission_handler: ^11.0.1
+
+  # Utilities
+  intl: ^0.20.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icons/app_icon.png"
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/icons/
