@@ -361,33 +361,60 @@ Route::prefix('collection-center-inventories')->group(function () {
         Route::get('/receipts/order/{saleId}', [ReceiptController::class, 'bySale']);
     });
    
+
     // v14 – Reports & Dashboard
 Route::prefix('v14')->group(function () {
-    
-   // Reports
+
+    /*
+    |--------------------------------------------------------------------------
+    | Reports
+    |--------------------------------------------------------------------------
+    */
     Route::prefix('reports')->group(function () {
-        
+
         // Stock Reports
         Route::get('stock', [ReportController::class, 'stockReport']);
-        
-        // 🆕 Branch Owner Stock Reports
+
+        // Branch Owner Reports
         Route::get('branch/stock', [BranchOwnerReportController::class, 'branchStockReport']);
         Route::get('branch/agent-stock', [BranchOwnerReportController::class, 'branchAgentStockReport']);
         Route::get('branch/agent-products', [BranchOwnerReportController::class, 'branchAgentProductsReport']);
-        
+
         // Purchase Reports
         Route::get('purchases', [ReportController::class, 'purchasesReport']);
-        
+
         // Sales Reports
         Route::get('sales', [ReportController::class, 'salesReport']);
         Route::get('sales/weekly', [ReportController::class, 'weeklySalesReport']);
         Route::get('sales/monthly', [ReportController::class, 'monthlySalesReport']);
         Route::get('sales/yearly', [ReportController::class, 'yearlySalesReport']);
         Route::get('sales/custom', [ReportController::class, 'customSalesReport']);
-  
 
-    });
+        // Inventory Reports
+        Route::get('inventory', [ReportController::class, 'inventoryReport']);
+        Route::get('inventory/movements', [ReportController::class, 'inventoryMovementsReport']);
 
+        // Supplier Reports
+        Route::get('suppliers', [ReportController::class, 'suppliersReport']);
+
+        // Customer Reports
+        Route::get('customers', [ReportController::class, 'customersReport']);
+
+        // Collection Center Reports
+        Route::get('collection-centers', [ReportController::class, 'collectionCentersReport']);
+
+        // Stock Distribution Reports
+        Route::get('stock-distributions', [ReportController::class, 'stockDistributionsReport']);
+
+        // Transfer Reports
+        Route::get('transfers', [ReportController::class, 'transferRequestsReport']);
+
+        // Dashboard Summary
+        Route::get('dashboard', [ReportController::class, 'dashboardSummary']);
+
+
+});
+    
     
 
     // Dashboard Analytics
