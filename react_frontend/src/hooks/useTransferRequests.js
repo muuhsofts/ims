@@ -19,7 +19,7 @@ export const useTransferRequests = () => {
                 throw new Error(response.data.message || 'Failed to fetch requests');
             }
         } catch (err) {
-            setError(err);
+            setError(err?.response?.data?.message || err.message || "An error occurred");
             showSnackbar({ type: 'error', message: err.message });
         } finally {
             setLoading(false);

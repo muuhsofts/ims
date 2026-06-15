@@ -30,7 +30,7 @@ export const useCustomers = () => {
                 setTotal(0);
             }
         } catch (err) {
-            setError(err);
+            setError(err?.response?.data?.message || err.message || "An error occurred");
             showSnackbar({ type: 'error', message: 'Failed to fetch customers' });
             setData([]);
             setTotal(0);
@@ -54,7 +54,7 @@ export const useCustomers = () => {
                 setTotal(0);
             }
         } catch (err) {
-            setError(err);
+            setError(err?.response?.data?.message || err.message || "An error occurred");
             showSnackbar({ type: 'error', message: 'Failed to fetch your customers' });
             setData([]);
             setTotal(0);
