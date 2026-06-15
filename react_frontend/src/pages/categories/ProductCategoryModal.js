@@ -3,13 +3,17 @@ import React, { useState, useEffect } from 'react';
 import {
     Dialog, DialogTitle, DialogContent, DialogActions,
     TextField, Button, MenuItem, Box, CircularProgress,
-    FormControl, InputLabel, Select, IconButton, Typography
+    FormControl, InputLabel, Select, IconButton, Typography,
+    useMediaQuery, useTheme
 } from '@mui/material';
 import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { showSnackbar } from 'utils/snackbar';
 import { useProductCategories } from '@/hooks/useProductCategories';
 
 export default function ProductCategoryModal({ open, onClose, category }) {
+    const theme = useTheme();
+    const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
     const { create, update } = useProductCategories();
     const [loading, setLoading] = useState(false);
     const [form, setForm] = useState({
@@ -19,10 +23,8 @@ export default function ProductCategoryModal({ open, onClose, category }) {
         skus: [''],
     });
 
-    // Reset form when modal opens for a new category or editing
     useEffect(() => {
         if (category) {
-            // Editing mode: populate form
             setForm({
                 category_name: category.category_name || '',
                 model: category.model || '',
@@ -30,7 +32,6 @@ export default function ProductCategoryModal({ open, onClose, category }) {
                 skus: category.sku && category.sku.length ? category.sku : [''],
             });
         } else {
-            // Create mode: reset to fresh state
             setForm({
                 category_name: '',
                 model: '',
@@ -38,7 +39,7 @@ export default function ProductCategoryModal({ open, onClose, category }) {
                 skus: [''],
             });
         }
-    }, [category, open]); // Also reset when modal opens
+    }, [category, open]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -61,7 +62,6 @@ export default function ProductCategoryModal({ open, onClose, category }) {
         setForm(prev => ({ ...prev, skus: newSkus }));
     };
 
-    // Reset form to default empty state (used after successful create)
     const resetForm = () => {
         setForm({
             category_name: '',
@@ -89,28 +89,14 @@ export default function ProductCategoryModal({ open, onClose, category }) {
         setLoading(true);
         try {
             if (category) {
-                // Update mode: close modal and refresh list
                 await update(category.category_id, payload);
                 showSnackbar({ type: 'success', message: 'Category updated' });
-                onClose(true); // true = refresh parent list
+                onClose(true);
             } else {
-                // Create mode: stay open, reset form, but still refresh the list behind
                 await create(payload);
                 showSnackbar({ type: 'success', message: 'Category created' });
-                // Refresh the parent list (so new category appears)
-                // but keep modal open for another entry
-                resetForm();
-                // Optional: call parent's refresh callback without closing
-                if (typeof onClose === 'function') {
-                    // We pass a special signal to parent to refresh but keep modal open
-                    // For simplicity, we call onClose with 'refresh' and modal remains open
-                    // But the parent's onClose usually closes. We'll use a separate callback.
-                    // Better: expose a refresh function from parent via prop.
-                    // For now, we can call onClose(false) to not close? That won't refresh.
-                    // Let's add a second prop: onRefresh. But to keep API simple,
-                    // I'll pass a custom flag: onClose('refresh')
-                    onClose('refresh');
-                }
+                // In create mode, close the modal and refresh the list
+                onClose(true);
             }
         } catch (err) {
             showSnackbar({ type: 'error', message: err.response?.data?.message || err.message });
@@ -120,9 +106,18 @@ export default function ProductCategoryModal({ open, onClose, category }) {
     };
 
     return (
-        <Dialog open={open} onClose={() => onClose(false)} maxWidth="sm" fullWidth>
+        <Dialog
+            open={open}
+            onClose={() => onClose(false)}
+            maxWidth="sm"
+            fullWidth
+            fullScreen={fullScreen}
+            PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
+        >
             <form onSubmit={handleSubmit}>
-                <DialogTitle>{category ? 'Edit Category' : 'Add New Category'}</DialogTitle>
+                <DialogTitle sx={{ pb: 1, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+                    {category ? 'Edit Category' : 'Add New Category'}
+                </DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
                         <TextField
@@ -132,6 +127,7 @@ export default function ProductCategoryModal({ open, onClose, category }) {
                             onChange={handleChange}
                             required
                             fullWidth
+                            size="small"
                         />
                         <TextField
                             label="Model"
@@ -139,8 +135,9 @@ export default function ProductCategoryModal({ open, onClose, category }) {
                             value={form.model}
                             onChange={handleChange}
                             fullWidth
+                            size="small"
                         />
-                        <FormControl fullWidth>
+                        <FormControl fullWidth size="small">
                             <InputLabel>Status</InputLabel>
                             <Select name="status" value={form.status} label="Status" onChange={handleChange}>
                                 <MenuItem value="active">Active</MenuItem>
@@ -168,7 +165,7 @@ export default function ProductCategoryModal({ open, onClose, category }) {
                         </Button>
                     </Box>
                 </DialogContent>
-                <DialogActions>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 } }}>
                     <Button onClick={() => onClose(false)} disabled={loading}>Cancel</Button>
                     <Button type="submit" variant="contained" disabled={loading}>
                         {loading ? <CircularProgress size={24} /> : (category ? 'Update' : 'Create')}

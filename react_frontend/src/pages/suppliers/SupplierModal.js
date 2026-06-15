@@ -13,11 +13,16 @@ import {
     FormControl,
     InputLabel,
     Select,
+    useMediaQuery,
+    useTheme
 } from '@mui/material';
 import { showSnackbar } from 'utils/snackbar';
 import { useSuppliers } from '@/hooks/useSuppliers';
 
 export default function SupplierModal({ open, onClose, supplier }) {
+    const theme = useTheme();
+    const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
     const { create, update } = useSuppliers();
     const [loading, setLoading] = useState(false);
     const [form, setForm] = useState({
@@ -28,7 +33,6 @@ export default function SupplierModal({ open, onClose, supplier }) {
         status: 'active',
     });
 
-    // Reset form when editing
     useEffect(() => {
         if (supplier) {
             setForm({
@@ -82,9 +86,18 @@ export default function SupplierModal({ open, onClose, supplier }) {
     };
 
     return (
-        <Dialog open={open} onClose={() => onClose(false)} maxWidth="sm" fullWidth>
+        <Dialog
+            open={open}
+            onClose={() => onClose(false)}
+            maxWidth="sm"
+            fullWidth
+            fullScreen={fullScreen}
+            PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
+        >
             <form onSubmit={handleSubmit}>
-                <DialogTitle>{supplier ? 'Edit Supplier' : 'Add New Supplier'}</DialogTitle>
+                <DialogTitle sx={{ pb: 1, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+                    {supplier ? 'Edit Supplier' : 'Add New Supplier'}
+                </DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
                         <TextField
@@ -95,6 +108,7 @@ export default function SupplierModal({ open, onClose, supplier }) {
                             required
                             fullWidth
                             autoFocus
+                            size="small"
                         />
                         <TextField
                             label="Contact Person"
@@ -102,6 +116,7 @@ export default function SupplierModal({ open, onClose, supplier }) {
                             value={form.contact_person}
                             onChange={handleChange}
                             fullWidth
+                            size="small"
                         />
                         <TextField
                             label="Phone"
@@ -109,6 +124,7 @@ export default function SupplierModal({ open, onClose, supplier }) {
                             value={form.phone}
                             onChange={handleChange}
                             fullWidth
+                            size="small"
                         />
                         <TextField
                             label="Email"
@@ -117,8 +133,9 @@ export default function SupplierModal({ open, onClose, supplier }) {
                             value={form.email}
                             onChange={handleChange}
                             fullWidth
+                            size="small"
                         />
-                        <FormControl fullWidth>
+                        <FormControl fullWidth size="small">
                             <InputLabel>Status</InputLabel>
                             <Select
                                 name="status"
@@ -133,7 +150,7 @@ export default function SupplierModal({ open, onClose, supplier }) {
                         </FormControl>
                     </Box>
                 </DialogContent>
-                <DialogActions>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 } }}>
                     <Button onClick={() => onClose(false)} disabled={loading}>Cancel</Button>
                     <Button type="submit" variant="contained" disabled={loading}>
                         {loading ? <CircularProgress size={24} /> : supplier ? 'Update' : 'Create'}

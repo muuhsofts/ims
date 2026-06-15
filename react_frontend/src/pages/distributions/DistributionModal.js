@@ -5,7 +5,7 @@ import {
     TextField, Button, Box, CircularProgress,
     FormControl, InputLabel, Select, MenuItem,
     Typography, IconButton, Divider, Chip, Tooltip,
-    LinearProgress
+    LinearProgress, useMediaQuery, useTheme
 } from '@mui/material';
 import {
     Add as AddIcon,
@@ -19,6 +19,9 @@ import { userService } from 'services/user.service';
 const emptyItem = () => ({ product_id: '', productInfo: null });
 
 export default function DistributionModal({ open, onClose }) {
+    const theme = useTheme();
+    const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
     const { create, getMyProducts } = useDistributions();
     const [loading, setLoading]               = useState(false);
     const [progress, setProgress]             = useState(0);
@@ -147,12 +150,13 @@ export default function DistributionModal({ open, onClose }) {
             open={open}
             onClose={() => !loading && onClose(false)}
             maxWidth={false}
+            fullScreen={fullScreen}
             PaperProps={{
                 sx: {
-                    width: 580,
+                    width: { xs: '100%', sm: 580 },
                     maxWidth: '95vw',
                     maxHeight: '88vh',
-                    borderRadius: 2,
+                    borderRadius: { xs: 0, sm: 2 },
                     overflow: 'hidden',
                     display: 'flex',
                     flexDirection: 'column',
@@ -212,7 +216,6 @@ export default function DistributionModal({ open, onClose }) {
                                             <MenuItem value="">Select product</MenuItem>
                                             {products.map(p => {
                                                 const taken = pickedIds.includes(p.product_id) && p.product_id !== item.product_id;
-                                                // Build a rich label with all available data
                                                 const labelParts = [
                                                     p.product_name,
                                                     p.imei ? `IMEI:${p.imei}` : null,
@@ -261,6 +264,7 @@ export default function DistributionModal({ open, onClose }) {
                             size="small"
                             onClick={addItem}
                             disabled={loadingOptions || loading || products.length === 0 || items.length >= products.length}
+                            fullWidth={fullScreen}
                         >
                             Add Another Product
                         </Button>
@@ -278,7 +282,7 @@ export default function DistributionModal({ open, onClose }) {
                     </Box>
                 </DialogContent>
 
-                <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+                <DialogActions sx={{ px: { xs: 2, sm: 3 }, py: 2, borderTop: '1px solid', borderColor: 'divider' }}>
                     <Button onClick={() => onClose(false)} disabled={loading}>Cancel</Button>
                     <Button
                         type="submit"

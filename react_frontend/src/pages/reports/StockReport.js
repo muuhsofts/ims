@@ -35,7 +35,9 @@ import {
     ListItemText,
     LinearProgress,
     useTheme,
-    alpha
+    alpha,
+    useMediaQuery,
+    Divider
 } from '@mui/material';
 import {
     Refresh as RefreshIcon,
@@ -70,18 +72,8 @@ import { showSnackbar } from 'utils/snackbar';
 import * as XLSX from 'xlsx';
 import dayjs from 'dayjs';
 
-const formatNumber = (number) => {
-    return number?.toLocaleString() || 0;
-};
-
-const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('sw-TZ', {
-        style: 'currency',
-        currency: 'TZS',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-    }).format(amount || 0);
-};
+const formatNumber = (number) => number?.toLocaleString() || 0;
+const formatCurrency = (amount) => new Intl.NumberFormat('sw-TZ', { style: 'currency', currency: 'TZS', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount || 0);
 
 const getStockStatusIcon = (status) => {
     switch (status) {
@@ -121,9 +113,11 @@ const getStockStatusLabel = (status) => {
 
 export default function StockReport() {
     const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+    const showTableView = useMediaQuery(theme.breakpoints.up('md')); // table only on desktop for list view
+
     const { hasPermission } = usePermission();
     const canView = hasPermission('reports.stock.view');
-
     const { data, loading, fetchData } = useCurrentStock();
     const [exportAnchorEl, setExportAnchorEl] = useState(null);
     const [expandedCategories, setExpandedCategories] = useState({});
@@ -140,9 +134,7 @@ export default function StockReport() {
     const printRef = useRef();
 
     useEffect(() => {
-        if (canView) {
-            fetchData();
-        }
+        if (canView) fetchData();
     }, [canView, fetchData]);
 
     const handleRefresh = () => {
@@ -174,53 +166,38 @@ export default function StockReport() {
             const totalBuying = whProducts.reduce((sum, p) => sum + (p.buying_price * 1), 0);
             const totalSelling = whProducts.reduce((sum, p) => sum + (p.selling_price * 1), 0);
             const totalProfit = totalSelling - totalBuying;
-            return {
-                ...wh,
-                productCount: whProducts.length,
-                totalUnits: whProducts.reduce((sum, p) => sum + 1, 0),
-                totalBuying,
-                totalSelling,
-                totalProfit
-            };
+            return { ...wh, productCount: whProducts.length, totalUnits: whProducts.length, totalBuying, totalSelling, totalProfit };
         });
     };
 
     const getExportData = () => {
         if (!data?.all_products) return [];
-
         const filteredProducts = filterProductsByWarehouseAndStatusAndSearch(data.all_products);
-
-        return filteredProducts.map(product => {
-            const profit = (parseFloat(product.selling_price) || 0) - (parseFloat(product.buying_price) || 0);
-            return {
-                'Warehouse': product.warehouse_name || 'Unknown',
-                'Location': product.warehouse_location || 'Unknown',
-                'Product': product.category_name || 'Unknown',
-                'Model': product.model || 'N/A',
-                'SKU': product.sku || 'N/A',
-                'IMEI': product.imei || 'N/A',
-                'Stock Status': getStockStatusLabel(product.stock_status),
-                'Buying Price': formatCurrency(product.buying_price),
-                'Selling Price': formatCurrency(product.selling_price),
-                'Expected Profit': formatCurrency(profit)
-            };
-        });
+        return filteredProducts.map(product => ({
+            'Warehouse': product.warehouse_name || 'Unknown',
+            'Location': product.warehouse_location || 'Unknown',
+            'Product': product.category_name || 'Unknown',
+            'Model': product.model || 'N/A',
+            'SKU': product.sku || 'N/A',
+            'IMEI': product.imei || 'N/A',
+            'Stock Status': getStockStatusLabel(product.stock_status),
+            'Buying Price': formatCurrency(product.buying_price),
+            'Selling Price': formatCurrency(product.selling_price),
+            'Expected Profit': formatCurrency(product.selling_price - product.buying_price)
+        }));
     };
 
     const exportToExcel = () => {
         try {
             const exportData = getExportData();
-            if (exportData.length === 0) {
-                showSnackbar({ type: 'warning', message: 'No data to export' });
-                return;
-            }
+            if (exportData.length === 0) throw new Error('No data');
             const worksheet = XLSX.utils.json_to_sheet(exportData);
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, 'Stock Report');
             XLSX.writeFile(workbook, `stock_report_${dayjs().format('DD-MM-YYYY_HH-mm')}.xlsx`);
             showSnackbar({ type: 'success', message: 'Report exported to Excel successfully!' });
         } catch (error) {
-            showSnackbar({ type: 'error', message: 'Failed to export to Excel' });
+            showSnackbar({ type: 'warning', message: 'No data to export' });
         }
         handleExportClose();
     };
@@ -228,17 +205,11 @@ export default function StockReport() {
     const exportToCSV = () => {
         try {
             const exportData = getExportData();
-            if (exportData.length === 0) {
-                showSnackbar({ type: 'warning', message: 'No data to export' });
-                return;
-            }
+            if (exportData.length === 0) throw new Error('No data');
             const headers = Object.keys(exportData[0]);
             const csvRows = [headers.join(',')];
             for (const row of exportData) {
-                const values = headers.map(header => {
-                    const value = row[header] || '';
-                    return `"${String(value).replace(/"/g, '""')}"`;
-                });
+                const values = headers.map(header => `"${String(row[header] || '').replace(/"/g, '""')}"`);
                 csvRows.push(values.join(','));
             }
             const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -249,81 +220,23 @@ export default function StockReport() {
             URL.revokeObjectURL(link.href);
             showSnackbar({ type: 'success', message: 'Report exported to CSV successfully!' });
         } catch (error) {
-            showSnackbar({ type: 'error', message: 'Failed to export to CSV' });
+            showSnackbar({ type: 'warning', message: 'No data to export' });
         }
         handleExportClose();
     };
 
-    const printReport = () => {
-        const printContent = printRef.current;
-        if (!printContent) return;
+    const handleExportClick = (event) => setExportAnchorEl(event.currentTarget);
+    const handleExportClose = () => setExportAnchorEl(null);
 
-        const printWindow = window.open('', '_blank');
-        printWindow.document.write(`
-            <html>
-                <head>
-                    <title>Stock Report</title>
-                    <style>
-                        * { margin: 0; padding: 0; box-sizing: border-box; }
-                        body { font-family: Arial, sans-serif; margin: 20px; padding: 20px; background: white; }
-                        .header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #4CAF50; }
-                        .summary { margin-bottom: 20px; padding: 15px; background: #f5f5f5; display: flex; justify-content: space-around; flex-wrap: wrap; }
-                        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 10px; }
-                        th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
-                        th { background-color: #4CAF50; color: white; font-weight: bold; }
-                        .footer { text-align: center; margin-top: 30px; font-size: 10px; color: #666; }
-                    </style>
-                </head>
-                <body>
-                    <div class="header">
-                        <h1>Stock Report</h1>
-                        <p>Generated: ${dayjs().format('DD/MM/YYYY HH:mm:ss')}</p>
-                    </div>
-                    ${printContent.innerHTML}
-                    <div class="footer">Report generated on ${dayjs().format('DD/MM/YYYY HH:mm:ss')}</div>
-                    <script>window.onload = function() { window.print(); setTimeout(window.close, 500); }</script>
-                </body>
-            </html>
-        `);
-        printWindow.document.close();
-        handleExportClose();
-    };
-
-    const handleExportClick = (event) => {
-        setExportAnchorEl(event.currentTarget);
-    };
-
-    const handleExportClose = () => {
-        setExportAnchorEl(null);
-    };
-
-    const toggleCategoryExpand = (categoryId) => {
-        setExpandedCategories(prev => ({ ...prev, [categoryId]: !prev[categoryId] }));
-    };
-
-    const toggleWarehouseExpand = (warehouseId) => {
-        setExpandedWarehouses(prev => ({ ...prev, [warehouseId]: !prev[warehouseId] }));
-    };
-
-    const handleSearchChange = (event) => {
-        setSearchTerm(event.target.value);
-        setPage(0);
-    };
-
-    const clearSearch = () => {
-        setSearchTerm('');
-        setPage(0);
-    };
+    const toggleCategoryExpand = (categoryId) => setExpandedCategories(prev => ({ ...prev, [categoryId]: !prev[categoryId] }));
+    const toggleWarehouseExpand = (warehouseId) => setExpandedWarehouses(prev => ({ ...prev, [warehouseId]: !prev[warehouseId] }));
+    const handleSearchChange = (event) => { setSearchTerm(event.target.value); setPage(0); };
+    const clearSearch = () => { setSearchTerm(''); setPage(0); };
 
     const filterProductsByWarehouseAndStatusAndSearch = (products) => {
         let filtered = products;
-
-        if (warehouseFilter !== 'all') {
-            filtered = filtered.filter(p => p.warehouse_id === warehouseFilter);
-        }
-        if (statusFilter !== 'all') {
-            filtered = filtered.filter(p => p.stock_status === statusFilter);
-        }
+        if (warehouseFilter !== 'all') filtered = filtered.filter(p => p.warehouse_id === warehouseFilter);
+        if (statusFilter !== 'all') filtered = filtered.filter(p => p.stock_status === statusFilter);
         if (searchTerm.trim() !== '') {
             const term = searchTerm.toLowerCase();
             filtered = filtered.filter(p =>
@@ -335,38 +248,32 @@ export default function StockReport() {
                 p.warehouse_location?.toLowerCase().includes(term)
             );
         }
-
         return filtered;
     };
 
     const sortProducts = (products) => {
         if (sortBy === 'product') {
             return [...products].sort((a, b) => {
-                const comparison = (a.category_name || '').localeCompare(b.category_name || '');
-                return sortOrder === 'asc' ? comparison : -comparison;
+                const comp = (a.category_name || '').localeCompare(b.category_name || '');
+                return sortOrder === 'asc' ? comp : -comp;
             });
         } else if (sortBy === 'price') {
             return [...products].sort((a, b) => {
-                const comparison = (a.selling_price || 0) - (b.selling_price || 0);
-                return sortOrder === 'asc' ? comparison : -comparison;
+                const comp = (a.selling_price || 0) - (b.selling_price || 0);
+                return sortOrder === 'asc' ? comp : -comp;
             });
         } else if (sortBy === 'profit') {
             return [...products].sort((a, b) => {
                 const profitA = (a.selling_price || 0) - (a.buying_price || 0);
                 const profitB = (b.selling_price || 0) - (b.buying_price || 0);
-                const comparison = profitA - profitB;
-                return sortOrder === 'asc' ? comparison : -comparison;
+                return sortOrder === 'asc' ? profitA - profitB : profitB - profitA;
             });
         }
         return products;
     };
 
     if (!canView) {
-        return (
-            <Box sx={{ p: 2 }}>
-                <Alert severity="error">You do not have permission to view stock reports.</Alert>
-            </Box>
-        );
+        return <Box sx={{ p: 2 }}><Alert severity="error">You do not have permission to view stock reports.</Alert></Box>;
     }
 
     const summaryData = data?.summary || { total_unique_products: 0, total_units: 0, total_value: 0, average_unit_price: 0 };
@@ -377,432 +284,191 @@ export default function StockReport() {
 
     const filteredProducts = filterProductsByWarehouseAndStatusAndSearch(allProducts);
     const sortedFilteredProducts = sortProducts(filteredProducts);
-
     const totalBuying = filteredProducts.reduce((sum, p) => sum + (p.buying_price * 1), 0);
     const totalSelling = filteredProducts.reduce((sum, p) => sum + (p.selling_price * 1), 0);
     const totalProfit = totalSelling - totalBuying;
     const profitPercentage = totalBuying > 0 ? (totalProfit / totalBuying) * 100 : 0;
-
     const paginatedProducts = sortedFilteredProducts.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 
+    // Card component for mobile List View
+    const ProductCard = ({ product }) => {
+        const profit = product.selling_price - product.buying_price;
+        return (
+            <Card sx={{ mb: 2, borderRadius: 2 }}>
+                <CardContent sx={{ p: 2 }}>
+                    <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
+                        <Box>
+                            <Typography variant="subtitle1" fontWeight="bold">{product.category_name}</Typography>
+                            <Typography variant="caption" color="text.secondary">{product.model} | {product.sku}</Typography>
+                        </Box>
+                        <Chip
+                            icon={getStockStatusIcon(product.stock_status)}
+                            label={getStockStatusLabel(product.stock_status)}
+                            size="small"
+                            color={getStockStatusColor(product.stock_status)}
+                        />
+                    </Box>
+                    <Divider sx={{ my: 1 }} />
+                    <Grid container spacing={1}>
+                        <Grid item xs={6}>
+                            <Typography variant="caption" color="text.secondary">Warehouse</Typography>
+                            <Typography variant="body2">{product.warehouse_name}</Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                            <Typography variant="caption" color="text.secondary">Location</Typography>
+                            <Typography variant="body2">{product.warehouse_location || 'N/A'}</Typography>
+                        </Grid>
+                        <Grid item xs={12}>
+                            <Typography variant="caption" color="text.secondary">IMEI</Typography>
+                            <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{product.imei}</Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                            <Typography variant="caption" color="text.secondary">Buying Price</Typography>
+                            <Typography variant="body2" color="error.main">{formatCurrency(product.buying_price)}</Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                            <Typography variant="caption" color="text.secondary">Selling Price</Typography>
+                            <Typography variant="body2" color="success.main">{formatCurrency(product.selling_price)}</Typography>
+                        </Grid>
+                        <Grid item xs={12}>
+                            <Typography variant="caption" color="text.secondary">Expected Profit</Typography>
+                            <Typography variant="body2" color={profit >= 0 ? 'success.main' : 'error.main'}>{formatCurrency(profit)}</Typography>
+                        </Grid>
+                    </Grid>
+                </CardContent>
+            </Card>
+        );
+    };
+
     return (
-        <Box sx={{ p: 2, bgcolor: 'background.default', minHeight: '100vh' }}>
-            <Paper sx={{ borderRadius: 2, overflow: 'hidden', bgcolor: 'background.paper' }}>
+        <Box sx={{ p: { xs: 1, sm: 2 }, bgcolor: 'background.default', minHeight: '100vh' }}>
+            <Paper sx={{ borderRadius: { xs: 1, sm: 2 }, overflow: 'hidden', bgcolor: 'background.paper' }}>
                 {/* Header */}
-                <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }} className="no-print">
+                <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: 1, borderColor: 'divider' }} className="no-print">
                     <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
-                        <Typography variant="h5" fontWeight="bold">
+                        <Typography variant="h5" fontWeight="bold" sx={{ fontSize: { xs: '1.5rem', sm: '1.75rem' } }}>
                             <InventoryIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                             Stock Report
                         </Typography>
                         <Box>
                             <Tooltip title="Refresh Data">
-                                <span>
-                                    <Button
-                                        variant="contained"
-                                        startIcon={<RefreshIcon />}
-                                        onClick={handleRefresh}
-                                        disabled={loading}
-                                        sx={{ mr: 1 }}
-                                    >
-                                        Refresh
-                                    </Button>
-                                </span>
+                                <Button variant="contained" startIcon={<RefreshIcon />} onClick={handleRefresh} disabled={loading} sx={{ mr: 1 }}>
+                                    Refresh
+                                </Button>
                             </Tooltip>
                             {allProducts.length > 0 && (
-                                <Button
-                                    variant="outlined"
-                                    startIcon={<FileDownloadIcon />}
-                                    onClick={handleExportClick}
-                                >
+                                <Button variant="outlined" startIcon={<FileDownloadIcon />} onClick={handleExportClick}>
                                     Export
                                 </Button>
                             )}
                             <Menu anchorEl={exportAnchorEl} open={Boolean(exportAnchorEl)} onClose={handleExportClose}>
-                                <MenuItem onClick={exportToExcel}>
-                                    <ListItemIcon><ExcelIcon color="success" /></ListItemIcon>
-                                    <ListItemText>Excel</ListItemText>
-                                </MenuItem>
-                                <MenuItem onClick={exportToCSV}>
-                                    <ListItemIcon><CsvIcon color="primary" /></ListItemIcon>
-                                    <ListItemText>CSV</ListItemText>
-                                </MenuItem>
-
+                                <MenuItem onClick={exportToExcel}><ListItemIcon><ExcelIcon color="success" /></ListItemIcon><ListItemText>Excel</ListItemText></MenuItem>
+                                <MenuItem onClick={exportToCSV}><ListItemIcon><CsvIcon color="primary" /></ListItemIcon><ListItemText>CSV</ListItemText></MenuItem>
                             </Menu>
                         </Box>
                     </Box>
                 </Box>
 
                 {loading ? (
-                    <Box sx={{ p: 5 }}>
-                        <LinearProgress />
-                        <Typography sx={{ textAlign: 'center', mt: 2 }}>Loading stock data...</Typography>
-                    </Box>
+                    <Box sx={{ p: 5 }}><LinearProgress /><Typography sx={{ textAlign: 'center', mt: 2 }}>Loading stock data...</Typography></Box>
                 ) : data ? (
-                    <Box ref={printRef} sx={{ p: 2 }}>
-                        {/* Period Info */}
-                        <Typography variant="subtitle1" color="primary" gutterBottom>
-                            📊 Current Stock Snapshot - {dayjs().format('DD/MM/YYYY HH:mm:ss')}
-                        </Typography>
+                    <Box ref={printRef} sx={{ p: { xs: 2, sm: 3 } }}>
+                        <Typography variant="subtitle1" color="primary" gutterBottom>📊 Current Stock Snapshot - {dayjs().format('DD/MM/YYYY HH:mm:ss')}</Typography>
 
                         {/* Summary Cards */}
                         <Grid container spacing={2} sx={{ mb: 3 }}>
-                            <Grid item xs={12} sm={6} md={4}>
-                                <Card sx={{ bgcolor: 'background.paper', boxShadow: 1 }}>
-                                    <CardContent>
-                                        <Box display="flex" alignItems="center" justifyContent="space-between">
-                                            <Box>
-                                                <Typography color="textSecondary" variant="caption">Unique Products</Typography>
-                                                <Typography variant="h4" fontWeight="bold" color="text.primary">{summaryData.total_unique_products}</Typography>
-                                            </Box>
-                                            <InventoryIcon sx={{ fontSize: 40, color: 'primary.main', opacity: 0.7 }} />
-                                        </Box>
-                                    </CardContent>
+                            <Grid item xs={6} sm={4} md={4}>
+                                <Card sx={{ bgcolor: 'background.paper', boxShadow: 1, borderRadius: 2 }}>
+                                    <CardContent sx={{ py: 1.5 }}><Box display="flex" justifyContent="space-between"><Box><Typography color="textSecondary" variant="caption">Unique Products</Typography><Typography variant="h5" fontWeight="bold">{summaryData.total_unique_products}</Typography></Box><InventoryIcon sx={{ fontSize: 32, color: 'primary.main', opacity: 0.7 }} /></Box></CardContent>
                                 </Card>
                             </Grid>
-                            <Grid item xs={12} sm={6} md={4}>
-                                <Card sx={{ bgcolor: 'background.paper', boxShadow: 1 }}>
-                                    <CardContent>
-                                        <Box display="flex" alignItems="center" justifyContent="space-between">
-                                            <Box>
-                                                <Typography color="textSecondary" variant="caption">Total Products</Typography>
-                                                <Typography variant="h4" fontWeight="bold" color="info.main">{summaryData.total_units}</Typography>
-                                            </Box>
-                                            <InventoryIcon sx={{ fontSize: 40, color: 'info.main', opacity: 0.7 }} />
-                                        </Box>
-                                    </CardContent>
+                            <Grid item xs={6} sm={4} md={4}>
+                                <Card sx={{ bgcolor: 'background.paper', boxShadow: 1, borderRadius: 2 }}>
+                                    <CardContent sx={{ py: 1.5 }}><Box display="flex" justifyContent="space-between"><Box><Typography color="textSecondary" variant="caption">Total Products</Typography><Typography variant="h5" fontWeight="bold">{summaryData.total_units}</Typography></Box><InventoryIcon sx={{ fontSize: 32, color: 'info.main', opacity: 0.7 }} /></Box></CardContent>
                                 </Card>
                             </Grid>
-                            <Grid item xs={12} sm={6} md={4}>
-                                <Card sx={{ bgcolor: 'background.paper', boxShadow: 1 }}>
-                                    <CardContent>
-                                        <Box display="flex" alignItems="center" justifyContent="space-between">
-                                            <Box>
-                                                <Typography color="textSecondary" variant="caption">Warehouses</Typography>
-                                                <Typography variant="h4" fontWeight="bold" color="secondary.main">{warehouses.length}</Typography>
-                                            </Box>
-                                            <WarehouseIcon sx={{ fontSize: 40, color: 'secondary.main', opacity: 0.7 }} />
-                                        </Box>
-                                    </CardContent>
+                            <Grid item xs={6} sm={4} md={4}>
+                                <Card sx={{ bgcolor: 'background.paper', boxShadow: 1, borderRadius: 2 }}>
+                                    <CardContent sx={{ py: 1.5 }}><Box display="flex" justifyContent="space-between"><Box><Typography color="textSecondary" variant="caption">Warehouses</Typography><Typography variant="h5" fontWeight="bold">{warehouses.length}</Typography></Box><WarehouseIcon sx={{ fontSize: 32, color: 'secondary.main', opacity: 0.7 }} /></Box></CardContent>
                                 </Card>
                             </Grid>
                         </Grid>
 
-                        {/* Financial Summary Cards - Total Buying, Selling, Expected Profit */}
+                        {/* Financial Summary */}
                         <Grid container spacing={2} sx={{ mb: 3 }}>
                             <Grid item xs={12} md={4}>
-                                <Card sx={{
-                                    bgcolor: theme.palette.mode === 'dark' ? alpha('#f44336', 0.1) : '#ffebee',
-                                    borderLeft: 4,
-                                    borderColor: 'error.main',
-                                    boxShadow: 1
-                                }}>
-                                    <CardContent>
-                                        <Box display="flex" alignItems="center" justifyContent="space-between">
-                                            <Box>
-                                                <Typography variant="caption" color="error.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                    <ShoppingCartIcon sx={{ fontSize: 16 }} /> Total Buying Price
-                                                </Typography>
-                                                <Typography variant="h4" fontWeight="bold" color="error.main">
-                                                    {formatCurrency(totalBuying)}
-                                                </Typography>
-                                            </Box>
-                                            <Box sx={{
-                                                bgcolor: alpha(theme.palette.error.main, 0.1),
-                                                borderRadius: 2,
-                                                p: 1,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center'
-                                            }}>
-                                                <ShoppingCartIcon sx={{ fontSize: 40, color: 'error.main', opacity: 0.7 }} />
-                                            </Box>
-                                        </Box>
-                                    </CardContent>
+                                <Card sx={{ bgcolor: alpha(theme.palette.error.main, 0.1), borderLeft: 4, borderColor: 'error.main', borderRadius: 2 }}>
+                                    <CardContent><Box display="flex" justifyContent="space-between"><Box><Typography variant="caption" color="error.main">Total Buying Price</Typography><Typography variant="h5" fontWeight="bold">{formatCurrency(totalBuying)}</Typography></Box><ShoppingCartIcon sx={{ fontSize: 32, color: 'error.main', opacity: 0.7 }} /></Box></CardContent>
                                 </Card>
                             </Grid>
                             <Grid item xs={12} md={4}>
-                                <Card sx={{
-                                    bgcolor: theme.palette.mode === 'dark' ? alpha('#4caf50', 0.1) : '#e8f5e9',
-                                    borderLeft: 4,
-                                    borderColor: 'success.main',
-                                    boxShadow: 1
-                                }}>
-                                    <CardContent>
-                                        <Box display="flex" alignItems="center" justifyContent="space-between">
-                                            <Box>
-                                                <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                    <PaidIcon sx={{ fontSize: 16 }} /> Total Selling Price
-                                                </Typography>
-                                                <Typography variant="h4" fontWeight="bold" color="success.main">
-                                                    {formatCurrency(totalSelling)}
-                                                </Typography>
-                                            </Box>
-                                            <Box sx={{
-                                                bgcolor: alpha(theme.palette.success.main, 0.1),
-                                                borderRadius: 2,
-                                                p: 1,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center'
-                                            }}>
-                                                <PaidIcon sx={{ fontSize: 40, color: 'success.main', opacity: 0.7 }} />
-                                            </Box>
-                                        </Box>
-                                    </CardContent>
+                                <Card sx={{ bgcolor: alpha(theme.palette.success.main, 0.1), borderLeft: 4, borderColor: 'success.main', borderRadius: 2 }}>
+                                    <CardContent><Box display="flex" justifyContent="space-between"><Box><Typography variant="caption" color="success.main">Total Selling Price</Typography><Typography variant="h5" fontWeight="bold">{formatCurrency(totalSelling)}</Typography></Box><PaidIcon sx={{ fontSize: 32, color: 'success.main', opacity: 0.7 }} /></Box></CardContent>
                                 </Card>
                             </Grid>
                             <Grid item xs={12} md={4}>
-                                <Card sx={{
-                                    bgcolor: theme.palette.mode === 'dark' ? alpha(totalProfit >= 0 ? '#4caf50' : '#f44336', 0.1) : (totalProfit >= 0 ? '#e8f5e9' : '#ffebee'),
-                                    borderLeft: 4,
-                                    borderColor: totalProfit >= 0 ? 'success.main' : 'error.main',
-                                    boxShadow: 1
-                                }}>
-                                    <CardContent>
-                                        <Box display="flex" alignItems="center" justifyContent="space-between">
-                                            <Box>
-                                                <Typography variant="caption" color={totalProfit >= 0 ? 'success.main' : 'error.main'} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                    <TrendingUpIcon sx={{ fontSize: 16 }} /> Expected Profit
-                                                </Typography>
-                                                <Typography variant="h4" fontWeight="bold" color={totalProfit >= 0 ? 'success.main' : 'error.main'}>
-                                                    {formatCurrency(totalProfit)}
-                                                </Typography>
-                                                <Typography variant="caption" color="textSecondary">
-                                                    ({profitPercentage.toFixed(2)}% margin)
-                                                </Typography>
-                                            </Box>
-                                            <Box sx={{
-                                                bgcolor: alpha(totalProfit >= 0 ? theme.palette.success.main : theme.palette.error.main, 0.1),
-                                                borderRadius: 2,
-                                                p: 1,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center'
-                                            }}>
-                                                <TrendingUpIcon sx={{ fontSize: 40, color: totalProfit >= 0 ? 'success.main' : 'error.main', opacity: 0.7 }} />
-                                            </Box>
-                                        </Box>
-                                    </CardContent>
+                                <Card sx={{ bgcolor: alpha(totalProfit >= 0 ? theme.palette.success.main : theme.palette.error.main, 0.1), borderLeft: 4, borderColor: totalProfit >= 0 ? 'success.main' : 'error.main', borderRadius: 2 }}>
+                                    <CardContent><Box display="flex" justifyContent="space-between"><Box><Typography variant="caption" color={totalProfit >= 0 ? 'success.main' : 'error.main'}>Expected Profit</Typography><Typography variant="h5" fontWeight="bold">{formatCurrency(totalProfit)}</Typography><Typography variant="caption">({profitPercentage.toFixed(2)}% margin)</Typography></Box><TrendingUpIcon sx={{ fontSize: 32, color: totalProfit >= 0 ? 'success.main' : 'error.main', opacity: 0.7 }} /></Box></CardContent>
                                 </Card>
                             </Grid>
                         </Grid>
 
-                        {/* Filters Section */}
-                        <Card sx={{ mb: 3, bgcolor: 'background.paper' }}>
+                        {/* Filters */}
+                        <Card sx={{ mb: 3 }}>
                             <CardContent>
                                 <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                                    <Typography variant="subtitle1" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        <FilterIcon />
-                                        Filters & Search
-                                    </Typography>
-                                    <IconButton size="small" onClick={() => setShowFilters(!showFilters)}>
-                                        <ExpandMoreIcon sx={{ transform: showFilters ? 'rotate(180deg)' : 'none', transition: 'transform 0.3s' }} />
-                                    </IconButton>
+                                    <Typography variant="subtitle1" fontWeight="bold"><FilterIcon /> Filters & Search</Typography>
+                                    <IconButton size="small" onClick={() => setShowFilters(!showFilters)}><ExpandMoreIcon sx={{ transform: showFilters ? 'rotate(180deg)' : 'none' }} /></IconButton>
                                 </Box>
                                 <Collapse in={showFilters}>
                                     <Grid container spacing={2}>
                                         <Grid item xs={12} md={3}>
-                                            <FormControl fullWidth size="small">
-                                                <InputLabel>🏢 Warehouse</InputLabel>
-                                                <Select value={warehouseFilter} onChange={(e) => setWarehouseFilter(e.target.value)}>
-                                                    <MenuItem value="all">All Warehouses</MenuItem>
-                                                    {warehouses.map(wh => (
-                                                        <MenuItem key={wh.id} value={wh.id}>
-                                                            <Box display="flex" alignItems="center" gap={1}>
-                                                                <WarehouseIcon fontSize="small" />
-                                                                {wh.name}
-                                                            </Box>
-                                                        </MenuItem>
-                                                    ))}
-                                                </Select>
-                                            </FormControl>
+                                            <FormControl fullWidth size="small"><InputLabel>🏢 Warehouse</InputLabel><Select value={warehouseFilter} onChange={(e) => setWarehouseFilter(e.target.value)}><MenuItem value="all">All Warehouses</MenuItem>{warehouses.map(wh => <MenuItem key={wh.id} value={wh.id}><WarehouseIcon fontSize="small" /> {wh.name}</MenuItem>)}</Select></FormControl>
                                         </Grid>
                                         <Grid item xs={12} md={3}>
-                                            <FormControl fullWidth size="small">
-                                                <InputLabel>📦 Stock Status</InputLabel>
-                                                <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                                                    <MenuItem value="all">All Status</MenuItem>
-                                                    <MenuItem value="in_stock">✅ In Stock</MenuItem>
-                                                    <MenuItem value="sold">💰 Sold</MenuItem>
-                                                    <MenuItem value="low_stock">⚠️ Low Stock</MenuItem>
-                                                    <MenuItem value="out_of_stock">❌ Out of Stock</MenuItem>
-                                                    <MenuItem value="transferred">🚚 Transferred</MenuItem>
-                                                    <MenuItem value="received">📥 Received</MenuItem>
-                                                </Select>
-                                            </FormControl>
+                                            <FormControl fullWidth size="small"><InputLabel>📦 Stock Status</InputLabel><Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><MenuItem value="all">All Status</MenuItem><MenuItem value="in_stock">✅ In Stock</MenuItem><MenuItem value="sold">💰 Sold</MenuItem><MenuItem value="low_stock">⚠️ Low Stock</MenuItem><MenuItem value="out_of_stock">❌ Out of Stock</MenuItem><MenuItem value="transferred">🚚 Transferred</MenuItem><MenuItem value="received">📥 Received</MenuItem></Select></FormControl>
                                         </Grid>
                                         <Grid item xs={12} md={3}>
-                                            <TextField
-                                                fullWidth
-                                                size="small"
-                                                placeholder="🔍 Search by IMEI, Product, Model, SKU..."
-                                                value={searchTerm}
-                                                onChange={handleSearchChange}
-                                                InputProps={{
-                                                    startAdornment: (
-                                                        <InputAdornment position="start">
-                                                            <SearchIcon />
-                                                        </InputAdornment>
-                                                    ),
-                                                    endAdornment: searchTerm && (
-                                                        <InputAdornment position="end">
-                                                            <IconButton size="small" onClick={clearSearch}>
-                                                                <ClearIcon />
-                                                            </IconButton>
-                                                        </InputAdornment>
-                                                    )
-                                                }}
-                                            />
+                                            <TextField fullWidth size="small" placeholder="🔍 Search by IMEI, Product, Model, SKU..." value={searchTerm} onChange={handleSearchChange} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>, endAdornment: searchTerm && <IconButton size="small" onClick={clearSearch}><ClearIcon /></IconButton> }} />
                                         </Grid>
                                         <Grid item xs={12} md={3}>
                                             <ToggleButtonGroup value={viewMode} exclusive onChange={(e, val) => val && setViewMode(val)} size="small" fullWidth>
-                                                <ToggleButton value="product">
-                                                    <ProductIcon sx={{ mr: 0.5 }} />
-                                                    Product
-                                                </ToggleButton>
-                                                <ToggleButton value="warehouse">
-                                                    <WarehouseIcon sx={{ mr: 0.5 }} />
-                                                    Warehouse
-                                                </ToggleButton>
-                                                <ToggleButton value="list">
-                                                    <TableRowsIcon sx={{ mr: 0.5 }} />
-                                                    List
-                                                </ToggleButton>
+                                                <ToggleButton value="product"><ProductIcon sx={{ mr: 0.5 }} />Product</ToggleButton>
+                                                <ToggleButton value="warehouse"><WarehouseIcon sx={{ mr: 0.5 }} />Warehouse</ToggleButton>
+                                                <ToggleButton value="list"><TableRowsIcon sx={{ mr: 0.5 }} />List</ToggleButton>
                                             </ToggleButtonGroup>
                                         </Grid>
                                     </Grid>
-
                                     {viewMode === 'list' && (
                                         <Box display="flex" justifyContent="flex-end" alignItems="center" gap={2} mt={2}>
-                                            <FormControl size="small" sx={{ minWidth: 120 }}>
-                                                <InputLabel>Sort By</InputLabel>
-                                                <Select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                                                    <MenuItem value="product">📦 Product</MenuItem>
-                                                    <MenuItem value="price">💰 Price</MenuItem>
-                                                    <MenuItem value="profit">📈 Profit</MenuItem>
-                                                </Select>
-                                            </FormControl>
-                                            <Tooltip title={sortOrder === 'asc' ? 'Sort Ascending' : 'Sort Descending'}>
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                                                    sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}
-                                                >
-                                                    {sortOrder === 'asc' ? <TrendingUpIcon /> : <TrendingDownIcon />}
-                                                </IconButton>
-                                            </Tooltip>
+                                            <FormControl size="small" sx={{ minWidth: 120 }}><InputLabel>Sort By</InputLabel><Select value={sortBy} onChange={(e) => setSortBy(e.target.value)}><MenuItem value="product">📦 Product</MenuItem><MenuItem value="price">💰 Price</MenuItem><MenuItem value="profit">📈 Profit</MenuItem></Select></FormControl>
+                                            <Tooltip title={sortOrder === 'asc' ? 'Sort Ascending' : 'Sort Descending'}><IconButton size="small" onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}>{sortOrder === 'asc' ? <TrendingUpIcon /> : <TrendingDownIcon />}</IconButton></Tooltip>
                                         </Box>
                                     )}
                                 </Collapse>
                             </CardContent>
                         </Card>
 
-                        {/* Search Results Summary */}
-                        {searchTerm && (
-                            <Alert severity="info" icon={<SearchIcon />} sx={{ mb: 2 }}>
-                                Found {filteredProducts.length} product(s) matching "{searchTerm}"
-                            </Alert>
-                        )}
+                        {searchTerm && <Alert severity="info" icon={<SearchIcon />} sx={{ mb: 2 }}>Found {filteredProducts.length} product(s) matching "{searchTerm}"</Alert>}
 
-                        {/* Product View */}
+                        {/* Product View (already collapsible cards, just make tables scrollable) */}
                         {viewMode === 'product' && stockByCategory.map((category, idx) => {
                             let products = filterProductsByWarehouseAndStatusAndSearch(category.products || []);
-                            const isExpanded = expandedCategories[category.category_name];
                             if (products.length === 0) return null;
+                            const isExpanded = expandedCategories[category.category_name];
                             return (
-                                <Card key={idx} sx={{ mb: 2, overflow: 'hidden', bgcolor: 'background.paper' }}>
-                                    <Box
-                                        sx={{
-                                            p: 2,
-                                            bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#f5f5f5',
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'action.selected' : '#eeeeee' }
-                                        }}
-                                        onClick={() => toggleCategoryExpand(category.category_name)}
-                                    >
-                                        <Box display="flex" alignItems="center" gap={2}>
-                                            <ProductIcon sx={{ color: 'primary.main', fontSize: 28 }} />
-                                            <Box>
-                                                <Typography variant="h6" fontWeight="bold">{category.category_name}</Typography>
-                                                <Stack direction="row" spacing={1} mt={0.5}>
-                                                    {category.model && <Chip icon={<ModelIcon />} label={category.model} size="small" variant="outlined" />}
-                                                    {category.sku && <Chip icon={<SkuIcon />} label={category.sku} size="small" variant="outlined" />}
-                                                </Stack>
-                                            </Box>
-                                        </Box>
-                                        <Box textAlign="right">
-                                            <Typography variant="body2" fontWeight="bold" color="primary.main">
-                                                {products.length} Products
-                                            </Typography>
-                                            <Typography variant="caption" color="success.main">
-                                                {formatCurrency(products.reduce((sum, p) => sum + (p.selling_price * 1), 0))}
-                                            </Typography>
-                                        </Box>
-                                        <IconButton size="small">
-                                            {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                                        </IconButton>
+                                <Card key={idx} sx={{ mb: 2, overflow: 'hidden' }}>
+                                    <Box sx={{ p: 2, bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#f5f5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} onClick={() => toggleCategoryExpand(category.category_name)}>
+                                        <Box display="flex" alignItems="center" gap={2}><ProductIcon sx={{ color: 'primary.main' }} /><Box><Typography variant="h6" fontWeight="bold">{category.category_name}</Typography><Stack direction="row" spacing={1}>{category.model && <Chip icon={<ModelIcon />} label={category.model} size="small" variant="outlined" />}{category.sku && <Chip icon={<SkuIcon />} label={category.sku} size="small" variant="outlined" />}</Stack></Box></Box>
+                                        <Box textAlign="right"><Typography variant="body2" fontWeight="bold">{products.length} Products</Typography><Typography variant="caption">{formatCurrency(products.reduce((sum, p) => sum + p.selling_price, 0))}</Typography></Box>
+                                        <IconButton size="small">{isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}</IconButton>
                                     </Box>
                                     <Collapse in={isExpanded}>
-                                        <Box sx={{ p: 0 }}>
-                                            <TableContainer>
-                                                <Table size="small">
-                                                    <TableHead>
-                                                        <TableRow sx={{ bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#e3f2fd' }}>
-                                                            <TableCell><b>Warehouse</b></TableCell>
-                                                            <TableCell><b>Location</b></TableCell>
-                                                            <TableCell><b>IMEI</b></TableCell>
-                                                            <TableCell><b>Status</b></TableCell>
-                                                            <TableCell align="right"><b>Buying</b></TableCell>
-                                                            <TableCell align="right"><b>Selling</b></TableCell>
-                                                            <TableCell align="right"><b>Profit</b></TableCell>
-                                                        </TableRow>
-                                                    </TableHead>
-                                                    <TableBody>
-                                                        {products.map((p, i) => {
-                                                            const profit = p.selling_price - p.buying_price;
-                                                            return (
-                                                                <TableRow key={i} hover>
-                                                                    <TableCell>
-                                                                        <Chip icon={<WarehouseIcon />} label={p.warehouse_name} size="small" variant="outlined" />
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        <Box display="flex" alignItems="center" gap={0.5}>
-                                                                            <LocationIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-                                                                            <Typography variant="body2">{p.warehouse_location || 'N/A'}</Typography>
-                                                                        </Box>
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{p.imei}</Typography>
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        <Chip
-                                                                            icon={getStockStatusIcon(p.stock_status)}
-                                                                            label={getStockStatusLabel(p.stock_status)}
-                                                                            size="small"
-                                                                            color={getStockStatusColor(p.stock_status)}
-                                                                        />
-                                                                    </TableCell>
-                                                                    <TableCell align="right">
-                                                                        <Typography fontWeight="bold" color="error.main">{formatCurrency(p.buying_price)}</Typography>
-                                                                    </TableCell>
-                                                                    <TableCell align="right">
-                                                                        <Typography fontWeight="bold" color="success.main">{formatCurrency(p.selling_price)}</Typography>
-                                                                    </TableCell>
-                                                                    <TableCell align="right">
-                                                                        <Typography fontWeight="bold" color={profit >= 0 ? 'success.main' : 'error.main'}>
-                                                                            {formatCurrency(profit)}
-                                                                        </Typography>
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            );
-                                                        })}
-                                                    </TableBody>
-                                                </Table>
-                                            </TableContainer>
+                                        <Box sx={{ overflowX: 'auto' }}>
+                                            <Table size="small">
+                                                <TableHead><TableRow sx={{ bgcolor: '#e3f2fd' }}><TableCell><b>Warehouse</b></TableCell><TableCell><b>Location</b></TableCell><TableCell><b>IMEI</b></TableCell><TableCell><b>Status</b></TableCell><TableCell align="right"><b>Buying</b></TableCell><TableCell align="right"><b>Selling</b></TableCell><TableCell align="right"><b>Profit</b></TableCell></TableRow></TableHead>
+                                                <TableBody>{products.map((p, i) => (<TableRow key={i} hover><TableCell><Chip icon={<WarehouseIcon />} label={p.warehouse_name} size="small" variant="outlined" /></TableCell><TableCell><LocationIcon sx={{ fontSize: 14 }} /> {p.warehouse_location || 'N/A'}</TableCell><TableCell sx={{ fontFamily: 'monospace' }}>{p.imei}</TableCell><TableCell><Chip icon={getStockStatusIcon(p.stock_status)} label={getStockStatusLabel(p.stock_status)} size="small" color={getStockStatusColor(p.stock_status)} /></TableCell><TableCell align="right">{formatCurrency(p.buying_price)}</TableCell><TableCell align="right">{formatCurrency(p.selling_price)}</TableCell><TableCell align="right" sx={{ color: p.selling_price - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency(p.selling_price - p.buying_price)}</TableCell></TableRow>))}</TableBody>
+                                            </Table>
                                         </Box>
                                     </Collapse>
                                 </Card>
@@ -812,201 +478,48 @@ export default function StockReport() {
                         {/* Warehouse View */}
                         {viewMode === 'warehouse' && warehouseSummary.map((wh, idx) => {
                             let products = filterProductsByWarehouseAndStatusAndSearch(allProducts.filter(p => p.warehouse_id === wh.id));
-                            const isExpanded = expandedWarehouses[wh.name];
                             if (products.length === 0) return null;
-                            const whTotal = products.reduce((sum, p) => sum + (p.buying_price * 1), 0);
+                            const isExpanded = expandedWarehouses[wh.name];
                             return (
-                                <Card key={idx} sx={{ mb: 2, overflow: 'hidden', bgcolor: 'background.paper' }}>
-                                    <Box
-                                        sx={{
-                                            p: 2,
-                                            bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#f5f5f5',
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'action.selected' : '#eeeeee' }
-                                        }}
-                                        onClick={() => toggleWarehouseExpand(wh.name)}
-                                    >
-                                        <Box display="flex" alignItems="center" gap={2}>
-                                            <WarehouseIcon sx={{ color: 'primary.main', fontSize: 28 }} />
-                                            <Box>
-                                                <Typography variant="h6" fontWeight="bold">{wh.name}</Typography>
-                                                <Typography variant="caption" color="textSecondary">
-                                                    <LocationIcon sx={{ fontSize: 12, verticalAlign: 'middle' }} /> {wh.location || 'N/A'}
-                                                </Typography>
-                                            </Box>
-                                        </Box>
-                                        <Box textAlign="right">
-                                            <Typography variant="body2" fontWeight="bold" color="primary.main">
-                                                {products.length} Products
-                                            </Typography>
-                                            <Typography variant="caption" color="success.main">
-                                                {formatCurrency(whTotal)}
-                                            </Typography>
-                                        </Box>
-                                        <IconButton size="small">
-                                            {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                                        </IconButton>
+                                <Card key={idx} sx={{ mb: 2, overflow: 'hidden' }}>
+                                    <Box sx={{ p: 2, bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#f5f5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} onClick={() => toggleWarehouseExpand(wh.name)}>
+                                        <Box display="flex" alignItems="center" gap={2}><WarehouseIcon sx={{ color: 'primary.main' }} /><Box><Typography variant="h6" fontWeight="bold">{wh.name}</Typography><Typography variant="caption"><LocationIcon sx={{ fontSize: 12 }} /> {wh.location || 'N/A'}</Typography></Box></Box>
+                                        <Box textAlign="right"><Typography variant="body2" fontWeight="bold">{products.length} Products</Typography><Typography variant="caption">{formatCurrency(products.reduce((sum, p) => sum + p.selling_price, 0))}</Typography></Box>
+                                        <IconButton size="small">{isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}</IconButton>
                                     </Box>
                                     <Collapse in={isExpanded}>
-                                        <Box sx={{ p: 0 }}>
-                                            <TableContainer>
-                                                <Table size="small">
-                                                    <TableHead>
-                                                        <TableRow sx={{ bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#e3f2fd' }}>
-                                                            <TableCell><b>Product</b></TableCell>
-                                                            <TableCell><b>Model</b></TableCell>
-                                                            <TableCell><b>SKU</b></TableCell>
-                                                            <TableCell><b>IMEI</b></TableCell>
-                                                            <TableCell><b>Status</b></TableCell>
-                                                            <TableCell align="right"><b>Buying</b></TableCell>
-                                                            <TableCell align="right"><b>Selling</b></TableCell>
-                                                            <TableCell align="right"><b>Profit</b></TableCell>
-                                                        </TableRow>
-                                                    </TableHead>
-                                                    <TableBody>
-                                                        {products.map((p, i) => {
-                                                            const profit = p.selling_price - p.buying_price;
-                                                            return (
-                                                                <TableRow key={i} hover>
-                                                                    <TableCell>
-                                                                        <Chip icon={<ProductIcon />} label={p.category_name} size="small" variant="outlined" />
-                                                                    </TableCell>
-                                                                    <TableCell>{p.model}</TableCell>
-                                                                    <TableCell>
-                                                                        <Chip label={p.sku} size="small" variant="outlined" />
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{p.imei}</Typography>
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        <Chip
-                                                                            icon={getStockStatusIcon(p.stock_status)}
-                                                                            label={getStockStatusLabel(p.stock_status)}
-                                                                            size="small"
-                                                                            color={getStockStatusColor(p.stock_status)}
-                                                                        />
-                                                                    </TableCell>
-                                                                    <TableCell align="right">
-                                                                        <Typography fontWeight="bold" color="error.main">{formatCurrency(p.buying_price)}</Typography>
-                                                                    </TableCell>
-                                                                    <TableCell align="right">
-                                                                        <Typography fontWeight="bold" color="success.main">{formatCurrency(p.selling_price)}</Typography>
-                                                                    </TableCell>
-                                                                    <TableCell align="right">
-                                                                        <Typography fontWeight="bold" color={profit >= 0 ? 'success.main' : 'error.main'}>
-                                                                            {formatCurrency(profit)}
-                                                                        </Typography>
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            );
-                                                        })}
-                                                    </TableBody>
-                                                </Table>
-                                            </TableContainer>
+                                        <Box sx={{ overflowX: 'auto' }}>
+                                            <Table size="small">
+                                                <TableHead><TableRow sx={{ bgcolor: '#e3f2fd' }}><TableCell><b>Product</b></TableCell><TableCell><b>Model</b></TableCell><TableCell><b>SKU</b></TableCell><TableCell><b>IMEI</b></TableCell><TableCell><b>Status</b></TableCell><TableCell align="right"><b>Buying</b></TableCell><TableCell align="right"><b>Selling</b></TableCell><TableCell align="right"><b>Profit</b></TableCell></TableRow></TableHead>
+                                                <TableBody>{products.map((p, i) => (<TableRow key={i} hover><TableCell>{p.category_name}</TableCell><TableCell>{p.model}</TableCell><TableCell><Chip label={p.sku} size="small" variant="outlined" /></TableCell><TableCell sx={{ fontFamily: 'monospace' }}>{p.imei}</TableCell><TableCell><Chip icon={getStockStatusIcon(p.stock_status)} label={getStockStatusLabel(p.stock_status)} size="small" color={getStockStatusColor(p.stock_status)} /></TableCell><TableCell align="right">{formatCurrency(p.buying_price)}</TableCell><TableCell align="right">{formatCurrency(p.selling_price)}</TableCell><TableCell align="right" sx={{ color: p.selling_price - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency(p.selling_price - p.buying_price)}</TableCell></TableRow>))}</TableBody>
+                                            </Table>
                                         </Box>
                                     </Collapse>
                                 </Card>
                             );
                         })}
 
-                        {/* List View */}
+                        {/* List View - Responsive: Table on desktop, Cards on mobile */}
                         {viewMode === 'list' && (
                             <>
-                                {paginatedProducts.length === 0 ? (
-                                    <Alert severity="warning">No products found matching your criteria.</Alert>
-                                ) : (
-                                    <>
-                                        <TableContainer component={Paper} variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                                {paginatedProducts.length === 0 ? <Alert severity="warning">No products found matching your criteria.</Alert> : (
+                                    showTableView ? (
+                                        <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
                                             <Table size="small">
-                                                <TableHead>
-                                                    <TableRow sx={{ bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#e3f2fd' }}>
-                                                        <TableCell><b>Warehouse</b></TableCell>
-                                                        <TableCell><b>Location</b></TableCell>
-                                                        <TableCell><b>Product</b></TableCell>
-                                                        <TableCell><b>Model</b></TableCell>
-                                                        <TableCell><b>SKU</b></TableCell>
-                                                        <TableCell><b>IMEI</b></TableCell>
-                                                        <TableCell><b>Status</b></TableCell>
-                                                        <TableCell align="right"><b>Buying</b></TableCell>
-                                                        <TableCell align="right"><b>Selling</b></TableCell>
-                                                        <TableCell align="right"><b>Profit</b></TableCell>
-                                                    </TableRow>
-                                                </TableHead>
-                                                <TableBody>
-                                                    {paginatedProducts.map((p, i) => {
-                                                        const profit = p.selling_price - p.buying_price;
-                                                        return (
-                                                            <TableRow key={i} hover>
-                                                                <TableCell>
-                                                                    <Chip icon={<WarehouseIcon />} label={p.warehouse_name} size="small" variant="outlined" />
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Box display="flex" alignItems="center" gap={0.5}>
-                                                                        <LocationIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-                                                                        {p.warehouse_location || 'N/A'}
-                                                                    </Box>
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Box display="flex" alignItems="center" gap={0.5}>
-                                                                        <ProductIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-                                                                        {p.category_name}
-                                                                    </Box>
-                                                                </TableCell>
-                                                                <TableCell>{p.model}</TableCell>
-                                                                <TableCell>
-                                                                    <Chip label={p.sku} size="small" variant="outlined" />
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{p.imei}</Typography>
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Chip
-                                                                        icon={getStockStatusIcon(p.stock_status)}
-                                                                        label={getStockStatusLabel(p.stock_status)}
-                                                                        size="small"
-                                                                        color={getStockStatusColor(p.stock_status)}
-                                                                    />
-                                                                </TableCell>
-                                                                <TableCell align="right">
-                                                                    <Typography fontWeight="bold" color="error.main">{formatCurrency(p.buying_price)}</Typography>
-                                                                </TableCell>
-                                                                <TableCell align="right">
-                                                                    <Typography fontWeight="bold" color="success.main">{formatCurrency(p.selling_price)}</Typography>
-                                                                </TableCell>
-                                                                <TableCell align="right">
-                                                                    <Typography fontWeight="bold" color={profit >= 0 ? 'success.main' : 'error.main'}>
-                                                                        {formatCurrency(profit)}
-                                                                    </Typography>
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        );
-                                                    })}
-                                                </TableBody>
+                                                <TableHead><TableRow sx={{ bgcolor: '#e3f2fd' }}><TableCell><b>Warehouse</b></TableCell><TableCell><b>Location</b></TableCell><TableCell><b>Product</b></TableCell><TableCell><b>Model</b></TableCell><TableCell><b>SKU</b></TableCell><TableCell><b>IMEI</b></TableCell><TableCell><b>Status</b></TableCell><TableCell align="right"><b>Buying</b></TableCell><TableCell align="right"><b>Selling</b></TableCell><TableCell align="right"><b>Profit</b></TableCell></TableRow></TableHead>
+                                                <TableBody>{paginatedProducts.map((p, i) => (<TableRow key={i} hover><TableCell>{p.warehouse_name}</TableCell><TableCell>{p.warehouse_location || 'N/A'}</TableCell><TableCell>{p.category_name}</TableCell><TableCell>{p.model}</TableCell><TableCell>{p.sku}</TableCell><TableCell sx={{ fontFamily: 'monospace' }}>{p.imei}</TableCell><TableCell><Chip icon={getStockStatusIcon(p.stock_status)} label={getStockStatusLabel(p.stock_status)} size="small" color={getStockStatusColor(p.stock_status)} /></TableCell><TableCell align="right">{formatCurrency(p.buying_price)}</TableCell><TableCell align="right">{formatCurrency(p.selling_price)}</TableCell><TableCell align="right" sx={{ color: p.selling_price - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency(p.selling_price - p.buying_price)}</TableCell></TableRow>))}</TableBody>
                                             </Table>
                                         </TableContainer>
-                                        <TablePagination
-                                            component="div"
-                                            count={filteredProducts.length}
-                                            page={page}
-                                            onPageChange={(e, p) => setPage(p)}
-                                            rowsPerPage={rowsPerPage}
-                                            onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
-                                            rowsPerPageOptions={[5, 10, 25, 50, 100]}
-                                            sx={{ bgcolor: 'background.paper' }}
-                                        />
-                                    </>
+                                    ) : (
+                                        <Box>{paginatedProducts.map((p, idx) => <ProductCard key={idx} product={p} />)}</Box>
+                                    )
                                 )}
+                                <TablePagination component="div" count={filteredProducts.length} page={page} onPageChange={(e, p) => setPage(p)} rowsPerPage={rowsPerPage} onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }} rowsPerPageOptions={[5, 10, 25, 50, 100]} sx={{ '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': { fontSize: { xs: '0.75rem', sm: '0.875rem' } } }} />
                             </>
                         )}
                     </Box>
                 ) : (
-                    <Box sx={{ p: 5, textAlign: 'center' }}>
-                        <InventoryIcon sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
-                        <Typography color="textSecondary">Click "Refresh" to load stock data</Typography>
-                    </Box>
+                    <Box sx={{ p: 5, textAlign: 'center' }}><InventoryIcon sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} /><Typography color="textSecondary">Click "Refresh" to load stock data</Typography></Box>
                 )}
             </Paper>
         </Box>

@@ -4,7 +4,8 @@ import {
     Dialog, DialogTitle, DialogContent, DialogActions,
     TextField, Button, MenuItem, Box, CircularProgress,
     FormControl, InputLabel, Select, Grid, Typography,
-    InputAdornment, Checkbox, FormControlLabel, FormGroup
+    InputAdornment, Checkbox, FormControlLabel, FormGroup,
+    useMediaQuery, useTheme
 } from '@mui/material';
 import { showSnackbar } from 'utils/snackbar';
 import { usePurchases } from '@/hooks/usePurchases';
@@ -12,10 +13,13 @@ import { supplierService } from 'services/supplier.service';
 import { productCategoryService } from 'services/product-category.service';
 
 export default function PurchaseModal({ open, onClose, purchase }) {
+    const theme = useTheme();
+    const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
     const { create, update } = usePurchases();
     const [loading, setLoading] = useState(false);
     const [suppliers, setSuppliers] = useState([]);
-    const [categories, setCategories] = useState([]); // will hold array from index endpoint
+    const [categories, setCategories] = useState([]);
     const [loadingDropdowns, setLoadingDropdowns] = useState(false);
     const [form, setForm] = useState({
         supplier_id: '',
@@ -35,13 +39,12 @@ export default function PurchaseModal({ open, onClose, purchase }) {
             try {
                 const [suppliersRes, categoriesRes] = await Promise.all([
                     supplierService.getSuppliersDropdown(),
-                    productCategoryService.getCategories({ per_page: 100 }) // index endpoint
+                    productCategoryService.getCategories({ per_page: 100 })
                 ]);
                 if (suppliersRes.data?.success) {
                     setSuppliers(suppliersRes.data.data);
                 }
                 if (categoriesRes.data?.success) {
-                    // The index response: { success, data: { data: [...] } }
                     const categoriesData = categoriesRes.data.data?.data || categoriesRes.data.data || [];
                     setCategories(categoriesData);
                 }
@@ -94,7 +97,6 @@ export default function PurchaseModal({ open, onClose, purchase }) {
             const price = name === 'unit_price' ? value : form.unit_price;
             newForm.subtotal = calculateSubtotal(qty, price);
         }
-        // When category changes, reset selected SKUs
         if (name === 'category_id') {
             newForm.selected_skus = [];
         }
@@ -168,17 +170,26 @@ export default function PurchaseModal({ open, onClose, purchase }) {
         }
     };
 
-    // Get selected category object
     const selectedCategory = categories.find(c => c.category_id === form.category_id);
     const availableSkus = selectedCategory?.sku || [];
 
     return (
-        <Dialog open={open} onClose={() => onClose(false)} maxWidth="sm" fullWidth>
+        <Dialog
+            open={open}
+            onClose={() => onClose(false)}
+            maxWidth="sm"
+            fullWidth
+            fullScreen={fullScreen}
+            PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
+        >
             <form onSubmit={handleSubmit}>
-                <DialogTitle>{purchase ? 'Edit Purchase' : 'Add New Purchase'}</DialogTitle>
+                <DialogTitle sx={{ pb: 1, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+                    {purchase ? 'Edit Purchase' : 'Add New Purchase'}
+                </DialogTitle>
+
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
-                        <FormControl fullWidth required disabled={loadingDropdowns}>
+                        <FormControl fullWidth required disabled={loadingDropdowns} size="small">
                             <InputLabel>Supplier</InputLabel>
                             <Select
                                 name="supplier_id"
@@ -195,7 +206,7 @@ export default function PurchaseModal({ open, onClose, purchase }) {
                             </Select>
                         </FormControl>
 
-                        <FormControl fullWidth required disabled={loadingDropdowns}>
+                        <FormControl fullWidth required disabled={loadingDropdowns} size="small">
                             <InputLabel>Product Category</InputLabel>
                             <Select
                                 name="category_id"
@@ -224,26 +235,29 @@ export default function PurchaseModal({ open, onClose, purchase }) {
                                     </Typography>
                                 ) : (
                                     <FormGroup>
-                                        {availableSkus.map((sku, idx) => (
-                                            <FormControlLabel
-                                                key={idx}
-                                                control={
-                                                    <Checkbox
-                                                        checked={form.selected_skus.includes(sku)}
-                                                        onChange={() => handleSkuToggle(sku)}
-                                                        size="small"
-                                                    />
-                                                }
-                                                label={sku}
-                                            />
-                                        ))}
+                                        <Box display="flex" flexWrap="wrap" gap={1}>
+                                            {availableSkus.map((sku, idx) => (
+                                                <FormControlLabel
+                                                    key={idx}
+                                                    control={
+                                                        <Checkbox
+                                                            checked={form.selected_skus.includes(sku)}
+                                                            onChange={() => handleSkuToggle(sku)}
+                                                            size="small"
+                                                        />
+                                                    }
+                                                    label={sku}
+                                                    sx={{ mr: 2 }}
+                                                />
+                                            ))}
+                                        </Box>
                                     </FormGroup>
                                 )}
                             </Box>
                         )}
 
                         <Grid container spacing={2}>
-                            <Grid item xs={6}>
+                            <Grid item xs={12} sm={6}>
                                 <TextField
                                     label="Quantity"
                                     name="quantity_ordered"
@@ -252,10 +266,11 @@ export default function PurchaseModal({ open, onClose, purchase }) {
                                     onChange={handleChange}
                                     required
                                     fullWidth
+                                    size="small"
                                     inputProps={{ min: 1, step: 1 }}
                                 />
                             </Grid>
-                            <Grid item xs={6}>
+                            <Grid item xs={12} sm={6}>
                                 <TextField
                                     label="Unit Price (TSh)"
                                     name="unit_price"
@@ -264,6 +279,7 @@ export default function PurchaseModal({ open, onClose, purchase }) {
                                     onChange={handleChange}
                                     required
                                     fullWidth
+                                    size="small"
                                     InputProps={{
                                         startAdornment: <InputAdornment position="start">TSh</InputAdornment>,
                                     }}
@@ -282,11 +298,12 @@ export default function PurchaseModal({ open, onClose, purchase }) {
                                 startAdornment: <InputAdornment position="start">TSh</InputAdornment>,
                             }}
                             fullWidth
+                            size="small"
                             disabled
                         />
 
                         {purchase && (
-                            <FormControl fullWidth>
+                            <FormControl fullWidth size="small">
                                 <InputLabel>Status</InputLabel>
                                 <Select
                                     name="status"
@@ -302,7 +319,8 @@ export default function PurchaseModal({ open, onClose, purchase }) {
                         )}
                     </Box>
                 </DialogContent>
-                <DialogActions>
+
+                <DialogActions sx={{ p: { xs: 2, sm: 3 } }}>
                     <Button onClick={() => onClose(false)} disabled={loading}>Cancel</Button>
                     <Button type="submit" variant="contained" disabled={loading || loadingDropdowns}>
                         {loading ? <CircularProgress size={24} /> : purchase ? 'Update' : 'Create'}

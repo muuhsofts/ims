@@ -13,12 +13,17 @@ import {
     FormControl,
     InputLabel,
     Select,
+    useMediaQuery,
+    useTheme
 } from '@mui/material';
 import { showSnackbar } from 'utils/snackbar';
 import { useCollectionCenters } from '@/hooks/useCollectionCenters';
 import { userService } from 'services/user.service';
 
 export default function CollectionCenterModal({ open, onClose, center }) {
+    const theme = useTheme();
+    const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
     const { create, update } = useCollectionCenters();
     const [loading, setLoading] = useState(false);
     const [users, setUsers] = useState([]);
@@ -26,11 +31,10 @@ export default function CollectionCenterModal({ open, onClose, center }) {
     const [form, setForm] = useState({
         cc_name: '',
         location: '',
-        owner_id: '',   // stores the selected user's ID
+        owner_id: '',
         status: 'active',
     });
 
-    // Fetch users dropdown (only name & id)
     useEffect(() => {
         if (!open) return;
         const fetchUsers = async () => {
@@ -52,7 +56,6 @@ export default function CollectionCenterModal({ open, onClose, center }) {
         fetchUsers();
     }, [open]);
 
-    // Reset form when editing
     useEffect(() => {
         if (center) {
             setForm({
@@ -108,9 +111,18 @@ export default function CollectionCenterModal({ open, onClose, center }) {
     };
 
     return (
-        <Dialog open={open} onClose={() => onClose(false)} maxWidth="sm" fullWidth>
+        <Dialog
+            open={open}
+            onClose={() => onClose(false)}
+            maxWidth="sm"
+            fullWidth
+            fullScreen={fullScreen}
+            PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
+        >
             <form onSubmit={handleSubmit}>
-                <DialogTitle>{center ? 'Edit Collection Center' : 'Add New Collection Center'}</DialogTitle>
+                <DialogTitle sx={{ pb: 1, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+                    {center ? 'Edit Collection Center' : 'Add New Collection Center'}
+                </DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
                         <TextField
@@ -121,6 +133,7 @@ export default function CollectionCenterModal({ open, onClose, center }) {
                             required
                             fullWidth
                             autoFocus
+                            size="small"
                         />
                         <TextField
                             label="Location"
@@ -128,8 +141,9 @@ export default function CollectionCenterModal({ open, onClose, center }) {
                             value={form.location}
                             onChange={handleChange}
                             fullWidth
+                            size="small"
                         />
-                        <FormControl fullWidth required>
+                        <FormControl fullWidth required size="small">
                             <InputLabel>Owner *</InputLabel>
                             <Select
                                 name="owner_id"
@@ -142,14 +156,13 @@ export default function CollectionCenterModal({ open, onClose, center }) {
                                     {loadingUsers ? 'Loading owners...' : 'Select an owner'}
                                 </MenuItem>
                                 {users.map((user) => (
-                                    // value is the ID, displayed text is only the name
                                     <MenuItem key={user.id} value={user.id}>
                                         {user.name}
                                     </MenuItem>
                                 ))}
                             </Select>
                         </FormControl>
-                        <FormControl fullWidth>
+                        <FormControl fullWidth size="small">
                             <InputLabel>Status</InputLabel>
                             <Select
                                 name="status"
@@ -164,7 +177,7 @@ export default function CollectionCenterModal({ open, onClose, center }) {
                         </FormControl>
                     </Box>
                 </DialogContent>
-                <DialogActions>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 } }}>
                     <Button onClick={() => onClose(false)} disabled={loading}>Cancel</Button>
                     <Button type="submit" variant="contained" disabled={loading || loadingUsers}>
                         {loading ? <CircularProgress size={24} /> : center ? 'Update' : 'Create'}

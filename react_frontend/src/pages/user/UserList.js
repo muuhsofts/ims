@@ -1,16 +1,20 @@
+// src/pages/users/UsersList.js
 import React, { useState, useEffect } from 'react';
 import {
     Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
     IconButton, InputAdornment, Menu, MenuItem, Paper, Table,
     TableBody, TableCell, TableContainer, TableHead, TablePagination,
-    TableRow, TableSortLabel, TextField, Typography, Switch, FormControlLabel
+    TableRow, TableSortLabel, TextField, Typography, Switch, FormControlLabel,
+    useTheme, useMediaQuery, Card, CardContent, Divider, CircularProgress, Tooltip
 } from '@mui/material';
 import {
     Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
     Delete as DeleteIcon, VerifiedUser as VerifiedIcon, Block as BlockIcon,
     LockOpen as LockOpenIcon, VpnKey, Email as EmailIcon,
     Refresh as RefreshIcon, Search as SearchIcon, Restore as RestoreIcon,
-    DeleteSweep as DeleteSweepIcon
+    DeleteSweep as DeleteSweepIcon, Person as PersonIcon,
+    Email as EmailOutlinedIcon, Phone as PhoneIcon,
+    Work as WorkIcon, LocationOn as LocationIcon
 } from '@mui/icons-material';
 
 import UserFormModal from './UserFormModal';
@@ -24,7 +28,7 @@ const headCells = [
     { id: 'email', label: 'Email' },
     { id: 'phone', label: 'Phone' },
     { id: 'role', label: 'Role' },
-    { id: 'cc', label: 'Collection Center' },    // new column
+    { id: 'cc', label: 'Collection Center' },
     { id: 'status', label: 'Status' },
     { id: 'email_verified', label: 'Email Verified' },
     { id: 'created_at', label: 'Created At' },
@@ -32,6 +36,10 @@ const headCells = [
 ];
 
 export default function UsersList() {
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+    const showTableView = useMediaQuery(theme.breakpoints.up('md'));
+
     const { items: users, loading, fetchAll, delete: deleteUser, update } = useUsers();
     const { hasPermission } = usePermission();
 
@@ -260,18 +268,112 @@ export default function UsersList() {
         }
     };
 
-    if (!canView) return <Typography>You do not have permission to view users.</Typography>;
+    if (!canView) return (
+        <Box sx={{ p: 2 }}>
+            <Paper sx={{ p: 3, textAlign: 'center' }}>
+                <Typography color="error">You do not have permission to view users.</Typography>
+            </Paper>
+        </Box>
+    );
 
     const currentData = showDeleted ? deletedUsers : (Array.isArray(users) ? users : []);
     const isLoading = showDeleted ? loadingDeleted : loading;
     const totalCount = showDeleted ? trashedTotal : users.length;
 
+    // Helper to format dates for cards
+    const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString() : '-';
+
+    // Card component for mobile/tablet view
+    const UserCard = ({ user, isDeletedView }) => {
+        const getStatusColor = (status) => {
+            switch (status) {
+                case 'active': return 'success';
+                case 'suspended': return 'error';
+                case 'inactive': return 'warning';
+                default: return 'default';
+            }
+        };
+
+        return (
+            <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
+                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <PersonIcon fontSize="small" color="action" />
+                            <Typography variant="body1" fontWeight="medium">
+                                {user.name}
+                            </Typography>
+                        </Box>
+                        <IconButton size="small" onClick={(e) => handleMenuOpen(e, user)}>
+                            <MoreVertIcon fontSize="small" />
+                        </IconButton>
+                    </Box>
+
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <EmailOutlinedIcon fontSize="small" color="action" />
+                        <Typography variant="body2">{user.email}</Typography>
+                    </Box>
+
+                    {user.phone && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                            <PhoneIcon fontSize="small" color="action" />
+                            <Typography variant="body2">{user.phone}</Typography>
+                        </Box>
+                    )}
+
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <WorkIcon fontSize="small" color="action" />
+                        <Typography variant="body2">
+                            {user.role?.display_name || user.role?.name || '-'}
+                        </Typography>
+                    </Box>
+
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <LocationIcon fontSize="small" color="action" />
+                        <Typography variant="body2">
+                            {user.collection_center?.cc_name || 'Unassigned'}
+                        </Typography>
+                    </Box>
+
+                    <Divider sx={{ my: 1 }} />
+
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                            {isDeletedView ? (
+                                <Chip label="Deleted" color="error" size="small" />
+                            ) : (
+                                <Chip
+                                    label={user.status}
+                                    color={getStatusColor(user.status)}
+                                    size="small"
+                                />
+                            )}
+                            {!isDeletedView && (
+                                user.email_verified_at ? (
+                                    <Chip label="Verified" color="success" size="small" icon={<VerifiedIcon />} />
+                                ) : (
+                                    <Chip label="Not Verified" size="small" />
+                                )
+                            )}
+                        </Box>
+                        <Typography variant="caption" color="text.secondary">
+                            Created: {formatDate(user.created_at)}
+                        </Typography>
+                    </Box>
+                </CardContent>
+            </Card>
+        );
+    };
+
     return (
-        <Box sx={{ width: '100%', p: 0, m: 0 }}>
-            <Paper sx={{ width: '100%', borderRadius: 1, overflow: 'hidden', boxShadow: 1 }}>
-                <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                        <Typography variant="h5">User Management</Typography>
+        <Box sx={{ width: '100%', p: { xs: 1, sm: 2 }, m: 0 }}>
+            <Paper sx={{ width: '100%', borderRadius: { xs: 1, sm: 2 }, overflow: 'hidden', boxShadow: { xs: 0, sm: 1 } }}>
+                {/* Header */}
+                <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: '1px solid', borderColor: 'divider' }}>
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={2} flexWrap="wrap" gap={1}>
+                        <Typography variant="h5" fontWeight="600" sx={{ fontSize: { xs: '1.5rem', sm: '1.75rem' } }}>
+                            User Management
+                        </Typography>
                         <Box display="flex" alignItems="center" gap={2}>
                             <FormControlLabel
                                 control={
@@ -282,15 +384,18 @@ export default function UsersList() {
                                             setPage(0);
                                         }}
                                         color="primary"
+                                        size={isMobile ? "small" : "medium"}
                                     />
                                 }
-                                label="Show Deleted Users"
+                                label="Show Deleted"
                             />
                             {canCreate && !showDeleted && (
                                 <Button
                                     variant="contained"
                                     startIcon={<AddIcon />}
                                     onClick={() => { setEditingUser(null); setOpenModal(true); }}
+                                    size={isMobile ? "small" : "medium"}
+                                    sx={{ borderRadius: 2 }}
                                 >
                                     Add User
                                 </Button>
@@ -298,14 +403,14 @@ export default function UsersList() {
                         </Box>
                     </Box>
 
-                    <Box display="flex" gap={2} flexWrap="wrap">
+                    <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
                         <TextField
                             label="Search"
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
-                            sx={{ minWidth: 250 }}
+                            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+                            sx={{ minWidth: { xs: '100%', sm: 250 }, flexGrow: { xs: 1, sm: 0 } }}
                         />
                         {!showDeleted && (
                             <>
@@ -315,7 +420,7 @@ export default function UsersList() {
                                     size="small"
                                     value={statusFilter}
                                     onChange={(e) => setStatusFilter(e.target.value)}
-                                    sx={{ minWidth: 160 }}
+                                    sx={{ minWidth: { xs: '100%', sm: 140 } }}
                                 >
                                     <MenuItem value="">All</MenuItem>
                                     <MenuItem value="active">Active</MenuItem>
@@ -329,7 +434,7 @@ export default function UsersList() {
                                     size="small"
                                     value={roleFilter}
                                     onChange={(e) => setRoleFilter(e.target.value)}
-                                    sx={{ minWidth: 160 }}
+                                    sx={{ minWidth: { xs: '100%', sm: 160 } }}
                                 >
                                     <MenuItem value="">All</MenuItem>
                                     <MenuItem value="32e83b1b-8e99-4870-979f-0196d4371711">ADMINISTRATOR</MenuItem>
@@ -341,80 +446,113 @@ export default function UsersList() {
                                 </TextField>
                             </>
                         )}
-                        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => showDeleted ? fetchDeletedUsers() : fetchAll()}>
+                        <Button
+                            variant="outlined"
+                            startIcon={<RefreshIcon />}
+                            onClick={() => showDeleted ? fetchDeletedUsers() : fetchAll()}
+                            size={isMobile ? "small" : "medium"}
+                        >
                             Refresh
                         </Button>
                     </Box>
                 </Box>
 
-                <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
-                    <Table sx={{ width: '100%', minWidth: 800 }}>
-                        <TableHead>
-                            <TableRow>
-                                {headCells.map((cell) => (
-                                    <TableCell key={cell.id} sx={{ whiteSpace: 'nowrap' }}>
-                                        {!cell.disableSort && !showDeleted ? (
-                                            <TableSortLabel
-                                                active={orderBy === cell.id}
-                                                direction={orderBy === cell.id ? order : 'asc'}
-                                                onClick={() => handleRequestSort(cell.id)}
-                                            >
-                                                {cell.label}
-                                            </TableSortLabel>
-                                        ) : cell.label}
-                                    </TableCell>
-                                ))}
-                            </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {isLoading ? (
-                                <TableRow><TableCell colSpan={headCells.length} align="center">Loading...</TableCell></TableRow>
-                            ) : currentData.length === 0 ? (
-                                <TableRow><TableCell colSpan={headCells.length} align="center">No users found</TableCell></TableRow>
-                            ) : (
-                                currentData.map((user) => (
-                                    <TableRow key={user.id} hover>
-                                        <TableCell>{user.name}</TableCell>
-                                        <TableCell>{user.email}</TableCell>
-                                        <TableCell>{user.phone || '-'}</TableCell>
-                                        <TableCell>{user.role?.display_name || user.role?.name || '-'}</TableCell>
-                                        <TableCell>{user.collection_center?.cc_name || '-'}</TableCell>
-                                        <TableCell>
-                                            {showDeleted ? (
-                                                <Chip label="Deleted" color="error" size="small" />
-                                            ) : (
-                                                <Chip
-                                                    label={user.status}
-                                                    color={user.status === 'active' ? 'success' : user.status === 'suspended' ? 'error' : 'default'}
-                                                    size="small"
-                                                />
-                                            )}
+                {/* Records: Cards on mobile/tablet, Table on desktop */}
+                {showTableView ? (
+                    <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
+                        <Table sx={{ width: '100%', minWidth: 800 }}>
+                            <TableHead>
+                                <TableRow>
+                                    {headCells.map((cell) => (
+                                        <TableCell key={cell.id} sx={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                                            {!cell.disableSort && !showDeleted ? (
+                                                <TableSortLabel
+                                                    active={orderBy === cell.id}
+                                                    direction={orderBy === cell.id ? order : 'asc'}
+                                                    onClick={() => handleRequestSort(cell.id)}
+                                                >
+                                                    {cell.label}
+                                                </TableSortLabel>
+                                            ) : cell.label}
                                         </TableCell>
-                                        <TableCell>
-                                            {!showDeleted && (user.email_verified_at ? (
-                                                <Chip label="Verified" color="success" size="small" icon={<VerifiedIcon />} />
-                                            ) : (
-                                                <Chip label="Not Verified" color="default" size="small" />
-                                            ))}
-                                        </TableCell>
-                                        <TableCell>
-                                            {showDeleted
-                                                ? new Date(user.deleted_at).toLocaleDateString()
-                                                : new Date(user.created_at).toLocaleDateString()}
-                                        </TableCell>
-                                        <TableCell align="center">
-                                            <IconButton size="small" onClick={(e) => handleMenuOpen(e, user)}>
-                                                <MoreVertIcon />
-                                            </IconButton>
+                                    ))}
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {isLoading ? (
+                                    <TableRow>
+                                        <TableCell colSpan={headCells.length} align="center">
+                                            <CircularProgress size={32} sx={{ my: 3 }} />
                                         </TableCell>
                                     </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
-                </TableContainer>
+                                ) : currentData.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={headCells.length} align="center">
+                                            <Typography sx={{ py: 3 }} color="text.secondary">No users found</Typography>
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    currentData.map((user) => (
+                                        <TableRow key={user.id} hover>
+                                            <TableCell>{user.name}</TableCell>
+                                            <TableCell>{user.email}</TableCell>
+                                            <TableCell>{user.phone || '-'}</TableCell>
+                                            <TableCell>{user.role?.display_name || user.role?.name || '-'}</TableCell>
+                                            <TableCell>{user.collection_center?.cc_name || '-'}</TableCell>
+                                            <TableCell>
+                                                {showDeleted ? (
+                                                    <Chip label="Deleted" color="error" size="small" />
+                                                ) : (
+                                                    <Chip
+                                                        label={user.status}
+                                                        color={user.status === 'active' ? 'success' : user.status === 'suspended' ? 'error' : 'default'}
+                                                        size="small"
+                                                    />
+                                                )}
+                                            </TableCell>
+                                            <TableCell>
+                                                {!showDeleted && (user.email_verified_at ? (
+                                                    <Chip label="Verified" color="success" size="small" icon={<VerifiedIcon />} />
+                                                ) : (
+                                                    <Chip label="Not Verified" size="small" />
+                                                ))}
+                                            </TableCell>
+                                            <TableCell>
+                                                {showDeleted
+                                                    ? formatDate(user.deleted_at)
+                                                    : formatDate(user.created_at)}
+                                            </TableCell>
+                                            <TableCell align="center">
+                                                <IconButton size="small" onClick={(e) => handleMenuOpen(e, user)}>
+                                                    <MoreVertIcon />
+                                                </IconButton>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
+                ) : (
+                    <Box sx={{ p: { xs: 2, sm: 3 } }}>
+                        {isLoading ? (
+                            <Box display="flex" justifyContent="center" py={4}>
+                                <CircularProgress />
+                            </Box>
+                        ) : currentData.length === 0 ? (
+                            <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
+                                <Typography color="text.secondary">No users found</Typography>
+                            </Paper>
+                        ) : (
+                            currentData.map((user) => (
+                                <UserCard key={user.id} user={user} isDeletedView={showDeleted} />
+                            ))
+                        )}
+                    </Box>
+                )}
 
-                <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
+                {/* Pagination */}
+                <Box sx={{ borderTop: '1px solid', borderColor: 'divider', py: { xs: 1, sm: 0 } }}>
                     <TablePagination
                         rowsPerPageOptions={[5, 10, 25, 50]}
                         component="div"
@@ -423,28 +561,43 @@ export default function UsersList() {
                         page={page}
                         onPageChange={(e, newPage) => setPage(newPage)}
                         onRowsPerPageChange={(e) => {
-                            setRowsPerPage(parseInt(e.target.value));
+                            setRowsPerPage(parseInt(e.target.value, 10));
                             setPage(0);
+                        }}
+                        sx={{
+                            '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
+                                fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                            },
+                            '.MuiTablePagination-actions': {
+                                ml: { xs: 0, sm: 1 }
+                            }
                         }}
                     />
                 </Box>
             </Paper>
 
-            <Menu anchorEl={actionMenu} open={Boolean(actionMenu)} onClose={handleMenuClose}>
+            {/* Action Menu */}
+            <Menu
+                anchorEl={actionMenu}
+                open={Boolean(actionMenu)}
+                onClose={handleMenuClose}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            >
                 {(() => {
                     const menuItems = [];
                     if (showDeleted) {
                         if (canRestore) {
                             menuItems.push(
                                 <MenuItem key="restore" onClick={() => handleAction('restore')}>
-                                    <RestoreIcon sx={{ mr: 1, color: 'success.main' }} /> Restore
+                                    <RestoreIcon sx={{ mr: 1, color: 'success.main', fontSize: 20 }} /> Restore
                                 </MenuItem>
                             );
                         }
                         if (canDelete) {
                             menuItems.push(
                                 <MenuItem key="force_delete" onClick={() => handleAction('force_delete')} sx={{ color: 'error.main' }}>
-                                    <DeleteSweepIcon sx={{ mr: 1 }} /> Permanently Delete
+                                    <DeleteSweepIcon sx={{ mr: 1, fontSize: 20 }} /> Permanently Delete
                                 </MenuItem>
                             );
                         }
@@ -452,49 +605,49 @@ export default function UsersList() {
                         if (canEdit) {
                             menuItems.push(
                                 <MenuItem key="edit" onClick={() => handleAction('edit')}>
-                                    <EditIcon sx={{ mr: 1 }} /> Edit
+                                    <EditIcon sx={{ mr: 1, fontSize: 20 }} /> Edit
                                 </MenuItem>
                             );
                         }
                         if (canActivate && selectedUser?.status !== 'active') {
                             menuItems.push(
                                 <MenuItem key="activate" onClick={() => handleAction('activate')}>
-                                    <VerifiedIcon sx={{ mr: 1, color: 'success.main' }} /> Activate
+                                    <VerifiedIcon sx={{ mr: 1, color: 'success.main', fontSize: 20 }} /> Activate
                                 </MenuItem>
                             );
                         }
                         if (canDeactivate && selectedUser?.status === 'active') {
                             menuItems.push(
                                 <MenuItem key="deactivate" onClick={() => handleAction('deactivate')}>
-                                    <BlockIcon sx={{ mr: 1, color: 'warning.main' }} /> Deactivate
+                                    <BlockIcon sx={{ mr: 1, color: 'warning.main', fontSize: 20 }} /> Deactivate
                                 </MenuItem>
                             );
                         }
                         if (canSuspend && selectedUser?.status !== 'suspended') {
                             menuItems.push(
                                 <MenuItem key="suspend" onClick={() => handleAction('suspend')}>
-                                    <LockOpenIcon sx={{ mr: 1, color: 'error.main' }} /> Suspend
+                                    <LockOpenIcon sx={{ mr: 1, color: 'error.main', fontSize: 20 }} /> Suspend
                                 </MenuItem>
                             );
                         }
                         if (canResetPassword) {
                             menuItems.push(
                                 <MenuItem key="reset_password" onClick={() => handleAction('reset_password')}>
-                                    <VpnKey sx={{ mr: 1 }} /> Reset Password
+                                    <VpnKey sx={{ mr: 1, fontSize: 20 }} /> Reset Password
                                 </MenuItem>
                             );
                         }
                         if (!selectedUser?.email_verified_at) {
                             menuItems.push(
                                 <MenuItem key="resend_otp" onClick={() => handleAction('resend_otp')}>
-                                    <EmailIcon sx={{ mr: 1 }} /> Resend OTP
+                                    <EmailIcon sx={{ mr: 1, fontSize: 20 }} /> Resend OTP
                                 </MenuItem>
                             );
                         }
                         if (canDelete) {
                             menuItems.push(
                                 <MenuItem key="delete" onClick={() => handleAction('delete')} sx={{ color: 'error.main' }}>
-                                    <DeleteIcon sx={{ mr: 1 }} /> Delete
+                                    <DeleteIcon sx={{ mr: 1, fontSize: 20 }} /> Delete
                                 </MenuItem>
                             );
                         }
@@ -509,10 +662,21 @@ export default function UsersList() {
                 user={editingUser}
             />
 
-            <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog(prev => ({ ...prev, open: false }))}>
-                <DialogTitle>{confirmDialog.title}</DialogTitle>
-                <DialogContent>{confirmDialog.message}</DialogContent>
-                <DialogActions>
+            {/* Confirmation Dialog */}
+            <Dialog
+                open={confirmDialog.open}
+                onClose={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
+                fullWidth
+                maxWidth="xs"
+                PaperProps={{
+                    sx: { m: { xs: 2, sm: 0 }, borderRadius: { xs: 2, sm: 1 } }
+                }}
+            >
+                <DialogTitle sx={{ pb: 1 }}>{confirmDialog.title}</DialogTitle>
+                <DialogContent>
+                    <Typography>{confirmDialog.message}</Typography>
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
                     <Button onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}>Cancel</Button>
                     <Button onClick={handleConfirm} color="error" variant="contained">Confirm</Button>
                 </DialogActions>

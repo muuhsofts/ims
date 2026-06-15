@@ -5,9 +5,9 @@ import {
     Paper, Table, TableBody, TableCell, TableContainer, TableHead,
     TableRow, TextField, Typography, CircularProgress, MenuItem,
     Autocomplete, Stack, IconButton, Tooltip, InputAdornment, Tabs, Tab,
-    TablePagination
+    TablePagination, Grid, Card, CardContent, Divider, useMediaQuery, useTheme
 } from '@mui/material';
-import { Refresh as RefreshIcon, Sell as SellIcon, Search as SearchIcon, Print as PrintIcon } from '@mui/icons-material';
+import { Refresh as RefreshIcon, Sell as SellIcon, Search as SearchIcon, Print as PrintIcon, Phone as PhoneIcon, Person as PersonIcon, AttachMoney as MoneyIcon, Receipt as ReceiptIcon } from '@mui/icons-material';
 import { useAgentSales } from 'hooks/useAgentSales';
 import { useCustomers } from 'hooks/useCustomers';
 import { usePermission } from '@/hooks/usePermission';
@@ -79,7 +79,6 @@ const formatPrice = (price) => {
     return new Intl.NumberFormat('en-TZ', { style: 'currency', currency: 'TZS' }).format(price);
 };
 
-// Helper to safely display null values
 const safeValue = (val) => (val ? val : 'N/A');
 
 // Print receipt (unchanged)
@@ -138,6 +137,11 @@ const printReceipt = (receipt, sale) => {
 };
 
 export default function AgentSales() {
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+    const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'md'));
+    const showTable = useMediaQuery(theme.breakpoints.up('md')); // Table on medium and up
+
     const { stock, loadingStock, fetchStock, createSale, saleLoading } = useAgentSales();
     const { data: customers, loading: customersLoading, fetchMyCustomers } = useCustomers();
     const { hasPermission } = usePermission();
@@ -243,10 +247,81 @@ export default function AgentSales() {
         return <Typography sx={{ p: 2 }}>You do not have permission to sell products.</Typography>;
     }
 
+    // Product Card for mobile/tablet POS view
+    const ProductCard = ({ item }) => (
+        <Card sx={{ mb: 2, borderRadius: 2 }}>
+            <CardContent sx={{ p: 2 }}>
+                <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                    <Typography variant="subtitle1" fontWeight="bold">{item.product_name || '—'}</Typography>
+                    <Chip label={`Qty: ${item.available_quantity}`} color="success" size="small" />
+                </Box>
+                <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block', my: 0.5 }}>IMEI: {item.imei || '—'}</Typography>
+                <Divider sx={{ my: 1 }} />
+                <Grid container spacing={1}>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Category</Typography><Typography variant="body2">{safeValue(item.category_name)}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Model</Typography><Typography variant="body2">{safeValue(item.model)}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">SKU</Typography><Typography variant="body2">{safeValue(item.sku)}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Price</Typography><Typography variant="body2" fontWeight="bold">{formatPrice(item.selling_price)}</Typography></Grid>
+                </Grid>
+                <Box mt={1}>
+                    <Button fullWidth variant="contained" startIcon={<SellIcon />} onClick={() => handleOpenDialog(item)} size="small">
+                        Sale
+                    </Button>
+                </Box>
+            </CardContent>
+        </Card>
+    );
+
+    // Sale Card for mobile/tablet Sales History
+    const SaleCard = ({ sale }) => (
+        <Card sx={{ mb: 2, borderRadius: 2 }}>
+            <CardContent sx={{ p: 2 }}>
+                <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                    <Typography variant="caption" color="text.secondary">{new Date(sale.created_at).toLocaleString()}</Typography>
+                    <Chip label={sale.status} color={sale.status === 'completed' ? 'success' : 'default'} size="small" />
+                </Box>
+                <Divider sx={{ my: 1 }} />
+                <Box display="flex" alignItems="center" gap={1} mb={1}>
+                    <PersonIcon fontSize="small" color="action" />
+                    <Typography variant="body2"><strong>{sale.customer?.customer_name || '—'}</strong></Typography>
+                </Box>
+                {sale.customer?.msisdn && (
+                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                        <PhoneIcon fontSize="small" color="action" />
+                        <Typography variant="body2">{sale.customer.msisdn}</Typography>
+                    </Box>
+                )}
+                <Box display="flex" alignItems="center" gap={1} mb={1}>
+                    <ReceiptIcon fontSize="small" color="action" />
+                    <Typography variant="body2">{sale.product?.product_name || '—'}</Typography>
+                </Box>
+                <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block', mb: 1 }}>IMEI: {sale.product?.imei || '—'}</Typography>
+                <Divider sx={{ my: 1 }} />
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                    <Box>
+                        <Typography variant="caption" color="text.secondary">Amount</Typography>
+                        <Typography variant="body2" fontWeight="bold">{formatPrice(sale.total_amount)}</Typography>
+                    </Box>
+                    <Box>
+                        <Typography variant="caption" color="text.secondary">Payment</Typography>
+                        <Chip label={sale.payment_method} size="small" />
+                    </Box>
+                    {sale.receipt ? (
+                        <IconButton size="small" onClick={() => printReceipt(sale.receipt, sale)}>
+                            <PrintIcon />
+                        </IconButton>
+                    ) : (
+                        <Typography variant="caption" color="text.secondary">No receipt</Typography>
+                    )}
+                </Box>
+            </CardContent>
+        </Card>
+    );
+
     return (
-        <Box sx={{ p: 2 }}>
+        <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
             <Paper sx={{ borderRadius: 2, overflow: 'hidden' }}>
-                <Tabs value={tabValue} onChange={handleTabChange} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                <Tabs value={tabValue} onChange={handleTabChange} sx={{ borderBottom: 1, borderColor: 'divider' }} variant="fullWidth">
                     <Tab label="Point of Sale" />
                     <Tab label="Sales History" />
                 </Tabs>
@@ -254,10 +329,10 @@ export default function AgentSales() {
                 {/* POS Tab */}
                 {tabValue === 0 && (
                     <Box>
-                        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-                            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                                <Typography variant="h5">Point of Sale</Typography>
-                                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchStock} disabled={loadingStock}>
+                        <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: 1, borderColor: 'divider' }}>
+                            <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} gap={2} mb={2}>
+                                <Typography variant="h5" sx={{ fontSize: { xs: '1.5rem', sm: '1.75rem' } }}>Point of Sale</Typography>
+                                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchStock} disabled={loadingStock} fullWidth={isMobile}>
                                     Refresh Stock
                                 </Button>
                             </Box>
@@ -273,146 +348,182 @@ export default function AgentSales() {
                                         </InputAdornment>
                                     ),
                                 }}
-                                sx={{ mb: 2, width: { xs: '100%', sm: 350 } }}
+                                fullWidth
                             />
                         </Box>
 
-                        <TableContainer>
-                            <Table>
-                                <TableHead>
-                                    <TableRow>
-                                        <TableCell>Product Name</TableCell>
-                                        <TableCell>IMEI</TableCell>
-                                        {/* Color column removed */}
-                                        <TableCell>Category</TableCell>
-                                        <TableCell>Model</TableCell>
-                                        <TableCell>SKU</TableCell>
-                                        <TableCell>Selling Price</TableCell>
-                                        <TableCell align="center">Qty</TableCell>
-                                        <TableCell align="center">Actions</TableCell>
-                                    </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                    {loadingStock ? (
-                                        <TableRow><TableCell colSpan={8} align="center"><CircularProgress size={28} /></TableCell></TableRow>
-                                    ) : filteredStock.length === 0 ? (
-                                        <TableRow><TableCell colSpan={8} align="center">
-                                            {productFilter ? 'No products match your filter.' : 'No available stock. Please ask admin to assign products.'}
-                                        </TableCell></TableRow>
-                                    ) : (
-                                        filteredStock.map((item, idx) => (
-                                            <TableRow key={idx} hover>
-                                                <TableCell>
-                                                    <Typography variant="body2" fontWeight={500}>{item.product_name || '—'}</Typography>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Typography variant="body2" fontFamily="monospace">{item.imei || '—'}</Typography>
-                                                </TableCell>
-                                                {/* Color cell removed */}
-                                                <TableCell>{safeValue(item.category_name)}</TableCell>
-                                                <TableCell>{safeValue(item.model)}</TableCell>
-                                                <TableCell>{safeValue(item.sku)}</TableCell>
-                                                <TableCell>{formatPrice(item.selling_price)}</TableCell>
-                                                <TableCell align="center">
-                                                    <Chip label={item.available_quantity} color="success" size="small" />
-                                                </TableCell>
-                                                <TableCell align="center">
-                                                    <Tooltip title="Sell this product">
-                                                        <IconButton color="primary" onClick={() => handleOpenDialog(item)}>
-                                                            <SellIcon />
-                                                        </IconButton>
-                                                    </Tooltip>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
-                                    )}
-                                </TableBody>
-                            </Table>
-                        </TableContainer>
+                        {showTable ? (
+                            // Desktop Table View
+                            <TableContainer>
+                                <Table>
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell>Product Name</TableCell>
+                                            <TableCell>IMEI</TableCell>
+                                            <TableCell>Category</TableCell>
+                                            <TableCell>Model</TableCell>
+                                            <TableCell>SKU</TableCell>
+                                            <TableCell>Selling Price</TableCell>
+                                            <TableCell align="center">Qty</TableCell>
+                                            <TableCell align="center">Actions</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {loadingStock ? (
+                                            <TableRow><TableCell colSpan={8} align="center"><CircularProgress size={28} /></TableCell></TableRow>
+                                        ) : filteredStock.length === 0 ? (
+                                            <TableRow><TableCell colSpan={8} align="center">
+                                                {productFilter ? 'No products match your filter.' : 'No available stock. Please ask admin to assign products.'}
+                                            </TableCell></TableRow>
+                                        ) : (
+                                            filteredStock.map((item, idx) => (
+                                                <TableRow key={idx} hover>
+                                                    <TableCell><Typography variant="body2" fontWeight={500}>{item.product_name || '—'}</Typography></TableCell>
+                                                    <TableCell><Typography variant="body2" fontFamily="monospace">{item.imei || '—'}</Typography></TableCell>
+                                                    <TableCell>{safeValue(item.category_name)}</TableCell>
+                                                    <TableCell>{safeValue(item.model)}</TableCell>
+                                                    <TableCell>{safeValue(item.sku)}</TableCell>
+                                                    <TableCell>{formatPrice(item.selling_price)}</TableCell>
+                                                    <TableCell align="center"><Chip label={item.available_quantity} color="success" size="small" /></TableCell>
+                                                    <TableCell align="center">
+                                                        <Tooltip title="Sell this product">
+                                                            <IconButton color="primary" onClick={() => handleOpenDialog(item)}>
+                                                                <SellIcon />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
+                        ) : (
+                            // Mobile/Tablet Card View
+                            <Box sx={{ p: 2 }}>
+                                {loadingStock ? (
+                                    <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+                                ) : filteredStock.length === 0 ? (
+                                    <Paper sx={{ p: 3, textAlign: 'center' }}>
+                                        <Typography>{productFilter ? 'No products match your filter.' : 'No available stock. Please ask admin to assign products.'}</Typography>
+                                    </Paper>
+                                ) : (
+                                    filteredStock.map((item, idx) => <ProductCard key={idx} item={item} />)
+                                )}
+                            </Box>
+                        )}
                     </Box>
                 )}
 
                 {/* Sales History Tab */}
                 {tabValue === 1 && (
                     <Box>
-                        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Typography variant="h5">Sales History</Typography>
-                            <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchSales} disabled={salesLoading}>
+                        <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexDirection: { xs: 'column', sm: 'row' }, gap: 2 }}>
+                            <Typography variant="h5" sx={{ fontSize: { xs: '1.5rem', sm: '1.75rem' } }}>Sales History</Typography>
+                            <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchSales} disabled={salesLoading} fullWidth={isMobile}>
                                 Refresh
                             </Button>
                         </Box>
-                        <TableContainer>
-                            <Table>
-                                <TableHead>
-                                    <TableRow>
-                                        {headCellsSales.map(cell => (
-                                            <TableCell key={cell.id}>{cell.label}</TableCell>
-                                        ))}
-                                    </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                    {salesLoading ? (
-                                        <TableRow><TableCell colSpan={7} align="center"><CircularProgress size={28} /></TableCell></TableRow>
-                                    ) : unauthorized ? (
-                                        <TableRow>
-                                            <TableCell colSpan={7} align="center">
-                                                <Typography color="error">
-                                                    You are not authorized to view sales history. Only sales agents can access this page.
-                                                </Typography>
-                                            </TableCell>
-                                        </TableRow>
-                                    ) : sales.length === 0 ? (
-                                        <TableRow><TableCell colSpan={7} align="center">No sales found</TableCell></TableRow>
-                                    ) : (
-                                        sales.map((sale) => (
-                                            <TableRow key={sale.sale_id || sale.id} hover>
-                                                <TableCell>{new Date(sale.created_at).toLocaleString()}</TableCell>
-                                                <TableCell>
-                                                    {sale.customer?.customer_name || '—'}<br />
-                                                    <small>{sale.customer?.msisdn || ''}</small>
-                                                </TableCell>
-                                                <TableCell>
-                                                    {sale.product?.product_name || '—'}<br />
-                                                    <small>IMEI: {sale.product?.imei || '—'}</small>
-                                                </TableCell>
-                                                <TableCell>{formatPrice(sale.total_amount)}</TableCell>
-                                                <TableCell><Chip label={sale.payment_method} size="small" /></TableCell>
-                                                <TableCell>
-                                                    <Chip label={sale.status} color={sale.status === 'completed' ? 'success' : 'default'} size="small" />
-                                                </TableCell>
-                                                <TableCell>
-                                                    {sale.receipt ? (
-                                                        <Tooltip title="Print Receipt">
-                                                            <IconButton size="small" onClick={() => printReceipt(sale.receipt, sale)}>
-                                                                <PrintIcon />
-                                                            </IconButton>
-                                                        </Tooltip>
-                                                    ) : (
-                                                        <Typography variant="caption" color="text.secondary">No receipt</Typography>
-                                                    )}
-                                                </TableCell>
+
+                        {showTable ? (
+                            // Desktop Table View
+                            <>
+                                <TableContainer>
+                                    <Table>
+                                        <TableHead>
+                                            <TableRow>
+                                                {headCellsSales.map(cell => <TableCell key={cell.id}>{cell.label}</TableCell>)}
                                             </TableRow>
-                                        ))
-                                    )}
-                                </TableBody>
-                            </Table>
-                        </TableContainer>
-                        {!unauthorized && (
-                            <TablePagination
-                                rowsPerPageOptions={[5, 10, 25]}
-                                component="div"
-                                count={total}
-                                rowsPerPage={salesRowsPerPage}
-                                page={salesPage}
-                                onPageChange={(e, p) => setSalesPage(p)}
-                                onRowsPerPageChange={(e) => { setSalesRowsPerPage(parseInt(e.target.value, 10)); setSalesPage(0); }}
-                            />
+                                        </TableHead>
+                                        <TableBody>
+                                            {salesLoading ? (
+                                                <TableRow><TableCell colSpan={7} align="center"><CircularProgress size={28} /></TableCell></TableRow>
+                                            ) : unauthorized ? (
+                                                <TableRow><TableCell colSpan={7} align="center"><Typography color="error">You are not authorized to view sales history. Only sales agents can access this page.</Typography></TableCell></TableRow>
+                                            ) : sales.length === 0 ? (
+                                                <TableRow><TableCell colSpan={7} align="center">No sales found</TableCell></TableRow>
+                                            ) : (
+                                                sales.map((sale) => (
+                                                    <TableRow key={sale.sale_id || sale.id} hover>
+                                                        <TableCell>{new Date(sale.created_at).toLocaleString()}</TableCell>
+                                                        <TableCell>
+                                                            {sale.customer?.customer_name || '—'}<br />
+                                                            <small>{sale.customer?.msisdn || ''}</small>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {sale.product?.product_name || '—'}<br />
+                                                            <small>IMEI: {sale.product?.imei || '—'}</small>
+                                                        </TableCell>
+                                                        <TableCell>{formatPrice(sale.total_amount)}</TableCell>
+                                                        <TableCell><Chip label={sale.payment_method} size="small" /></TableCell>
+                                                        <TableCell><Chip label={sale.status} color={sale.status === 'completed' ? 'success' : 'default'} size="small" /></TableCell>
+                                                        <TableCell>
+                                                            {sale.receipt ? (
+                                                                <Tooltip title="Print Receipt">
+                                                                    <IconButton size="small" onClick={() => printReceipt(sale.receipt, sale)}>
+                                                                        <PrintIcon />
+                                                                    </IconButton>
+                                                                </Tooltip>
+                                                            ) : (
+                                                                <Typography variant="caption" color="text.secondary">No receipt</Typography>
+                                                            )}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                                {!unauthorized && (
+                                    <TablePagination
+                                        rowsPerPageOptions={[5, 10, 25]}
+                                        component="div"
+                                        count={total}
+                                        rowsPerPage={salesRowsPerPage}
+                                        page={salesPage}
+                                        onPageChange={(e, p) => setSalesPage(p)}
+                                        onRowsPerPageChange={(e) => { setSalesRowsPerPage(parseInt(e.target.value, 10)); setSalesPage(0); }}
+                                    />
+                                )}
+                            </>
+                        ) : (
+                            // Mobile/Tablet Card View
+                            <Box sx={{ p: 2 }}>
+                                {salesLoading ? (
+                                    <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+                                ) : unauthorized ? (
+                                    <Paper sx={{ p: 3, textAlign: 'center' }}><Typography color="error">You are not authorized to view sales history. Only sales agents can access this page.</Typography></Paper>
+                                ) : sales.length === 0 ? (
+                                    <Paper sx={{ p: 3, textAlign: 'center' }}><Typography>No sales found</Typography></Paper>
+                                ) : (
+                                    <>
+                                        {sales.map((sale) => <SaleCard key={sale.sale_id || sale.id} sale={sale} />)}
+                                        <Box display="flex" justifyContent="center" mt={2}>
+                                            <TablePagination
+                                                rowsPerPageOptions={[5, 10, 25]}
+                                                component="div"
+                                                count={total}
+                                                rowsPerPage={salesRowsPerPage}
+                                                page={salesPage}
+                                                onPageChange={(e, p) => setSalesPage(p)}
+                                                onRowsPerPageChange={(e) => { setSalesRowsPerPage(parseInt(e.target.value, 10)); setSalesPage(0); }}
+                                                labelRowsPerPage="Rows:"
+                                                sx={{
+                                                    '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
+                                                        fontSize: '0.8rem'
+                                                    }
+                                                }}
+                                            />
+                                        </Box>
+                                    </>
+                                )}
+                            </Box>
                         )}
                     </Box>
                 )}
             </Paper>
 
-            {/* Sale Dialog – Color removed from product details */}
+            {/* Sale Dialog – unchanged (already responsive) */}
             <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
                 <DialogTitle>Complete Sale</DialogTitle>
                 <DialogContent>
@@ -424,7 +535,6 @@ export default function AgentSales() {
                                     <Typography variant="body2"><strong>Product:</strong> {selectedProduct.product_name || '—'}</Typography>
                                     <Typography variant="body2"><strong>SKU:</strong> {safeValue(selectedProduct.sku)}</Typography>
                                     <Typography variant="body2"><strong>IMEI:</strong> {selectedProduct.imei || '—'}</Typography>
-                                    {/* Color line removed */}
                                     <Typography variant="body2"><strong>Category:</strong> {safeValue(selectedProduct.category_name)}</Typography>
                                     <Typography variant="body2"><strong>Model:</strong> {safeValue(selectedProduct.model)}</Typography>
                                 </Box>

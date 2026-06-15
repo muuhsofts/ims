@@ -1,4 +1,4 @@
-// src/pages/reports/PurchasesReport.js - With Model/SKU as Stack (like SalesReport)
+// src/pages/reports/PurchasesReport.js - Responsive with Card/Table toggle
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box,
@@ -33,7 +33,10 @@ import {
     Tooltip,
     Collapse,
     LinearProgress,
-    Stack
+    Stack,
+    useTheme,
+    useMediaQuery,
+    Divider
 } from '@mui/material';
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -101,6 +104,11 @@ const formatDateForAPI = (date) => {
 };
 
 export default function PurchasesReport() {
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+    const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'md'));
+    const showTableView = useMediaQuery(theme.breakpoints.up('md')); // Table on medium and up
+
     const { hasPermission } = usePermission();
     const canView = hasPermission('reports.purchases.view');
 
@@ -321,7 +329,6 @@ export default function PurchasesReport() {
 
             if (response.data?.success) {
                 const reportData = response.data.data;
-
                 setData({
                     period: getPeriodDisplay(),
                     filter: reportData.filter || {},
@@ -391,20 +398,139 @@ export default function PurchasesReport() {
         total_quantity: 0,
         total_amount: 0,
         average_order_value: 0,
-        by_supplier: [],
         by_status: []
     };
     const currentYear = new Date().getFullYear();
     const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
+    // Card component for mobile/tablet view
+    const PurchaseCard = ({ purchase }) => {
+        const isExpanded = expandedRows[purchase.purchase_id];
+        const categoryName = purchase.category?.category_name || 'Unknown';
+        const modelName = purchase.category?.model || 'Unknown';
+        const skuName = purchase.selected_skus || 'Unknown';
+
+        return (
+            <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
+                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                    {/* Header: Supplier and Status */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <SupplierIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+                            <Typography variant="subtitle1" fontWeight="bold">
+                                {purchase.supplier?.supplier_name || 'Unknown'}
+                            </Typography>
+                        </Box>
+                        <Chip
+                            label={purchase.status}
+                            size="small"
+                            color={statusColors[purchase.status] || 'default'}
+                            icon={purchase.status === 'completed' ? <CheckCircleIcon /> : purchase.status === 'pending' ? <PendingIcon /> : <CancelIcon />}
+                        />
+                    </Box>
+
+                    {/* Contact Info */}
+                    <Grid container spacing={1} sx={{ mb: 1 }}>
+                        <Grid item xs={12} sm={6}>
+                            <Box display="flex" alignItems="center" gap={0.5}>
+                                <PersonIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                                <Typography variant="body2">
+                                    {purchase.supplier?.contact_person || 'Unknown'}
+                                </Typography>
+                            </Box>
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                            <Box display="flex" alignItems="center" gap={0.5}>
+                                <PhoneIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                                <Typography variant="body2">
+                                    {purchase.supplier?.supplier_phone || purchase.supplier?.phone || 'Unknown'}
+                                </Typography>
+                            </Box>
+                        </Grid>
+                    </Grid>
+
+                    {/* Category, Model, SKU */}
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
+                        <Chip icon={<CategoryIcon />} label={categoryName} size="small" variant="outlined" />
+                        {modelName !== 'Unknown' && (
+                            <Chip icon={<SmartphoneIcon />} label={modelName} size="small" variant="outlined" />
+                        )}
+                        {skuName !== 'Unknown' && (
+                            <Chip label={skuName} size="small" color="info" variant="outlined" />
+                        )}
+                    </Box>
+
+                    {/* Quantity, Unit Price, Subtotal */}
+                    <Grid container spacing={2} sx={{ mb: 1.5 }}>
+                        <Grid item xs={4}>
+                            <Typography variant="caption" color="textSecondary">Quantity</Typography>
+                            <Typography variant="body1" fontWeight="bold">{purchase.quantity_ordered}</Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                            <Typography variant="caption" color="textSecondary">Unit Price</Typography>
+                            <Typography variant="body2">TSh {parseFloat(purchase.unit_price).toLocaleString()}</Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                            <Typography variant="caption" color="textSecondary">Subtotal</Typography>
+                            <Typography variant="body2" fontWeight="bold" color="success.main">
+                                TSh {parseFloat(purchase.subtotal).toLocaleString()}
+                            </Typography>
+                        </Grid>
+                    </Grid>
+
+                    {/* Date */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="caption" color="textSecondary">
+                            Date: {formatDate(purchase.created_at)}
+                        </Typography>
+                        <Button
+                            size="small"
+                            endIcon={isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                            onClick={() => toggleRowExpand(purchase.purchase_id)}
+                        >
+                            Details
+                        </Button>
+                    </Box>
+
+                    {/* Expandable Details */}
+                    <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                        <Divider sx={{ my: 1.5 }} />
+                        <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <InventoryIcon fontSize="small" /> Additional Details
+                        </Typography>
+                        <Grid container spacing={1}>
+                            <Grid item xs={12}>
+                                <Typography variant="caption" color="textSecondary">Supplier Email</Typography>
+                                <Typography variant="body2">
+                                    <EmailIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'middle' }} />
+                                    {purchase.supplier?.email || 'N/A'}
+                                </Typography>
+                            </Grid>
+                            <Grid item xs={12}>
+                                <Typography variant="caption" color="textSecondary">Created At</Typography>
+                                <Typography variant="body2">{formatDate(purchase.created_at)}</Typography>
+                            </Grid>
+                            {purchase.notes && (
+                                <Grid item xs={12}>
+                                    <Typography variant="caption" color="textSecondary">Notes</Typography>
+                                    <Typography variant="body2">{purchase.notes}</Typography>
+                                </Grid>
+                            )}
+                        </Grid>
+                    </Collapse>
+                </CardContent>
+            </Card>
+        );
+    };
+
     return (
         <LocalizationProvider dateAdapter={AdapterDayjs}>
-            <Box sx={{ p: 2, bgcolor: 'background.default', minHeight: '100vh' }}>
-                <Paper sx={{ borderRadius: 2, overflow: 'hidden' }}>
+            <Box sx={{ p: { xs: 1, sm: 2 }, bgcolor: 'background.default', minHeight: '100vh' }}>
+                <Paper sx={{ borderRadius: { xs: 1, sm: 2 }, overflow: 'hidden' }}>
                     {/* Header */}
-                    <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }} className="no-print">
+                    <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }} className="no-print">
                         <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
-                            <Typography variant="h5" fontWeight="bold">
+                            <Typography variant="h5" fontWeight="bold" sx={{ fontSize: { xs: '1.5rem', sm: '1.75rem' } }}>
                                 <ReceiptIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                                 Purchases Report
                             </Typography>
@@ -525,7 +651,7 @@ export default function PurchasesReport() {
                             )}
                         </Grid>
 
-                        {/* Status Filter */}
+                        {/* Status Filter & Load Button */}
                         <Grid container spacing={2} sx={{ mb: 2 }}>
                             <Grid item xs={12} sm={6}>
                                 <FormControl fullWidth size="small">
@@ -559,136 +685,81 @@ export default function PurchasesReport() {
                             <Typography sx={{ textAlign: 'center', mt: 2 }}>Loading purchases report...</Typography>
                         </Box>
                     ) : data ? (
-                        <Box sx={{ p: 2 }}>
+                        <Box sx={{ p: { xs: 2, sm: 3 } }}>
                             <Typography variant="subtitle1" color="primary" gutterBottom>
                                 📅 Period: {data.period}
                             </Typography>
 
-                            {/* Summary Cards */}
+                            {/* Summary Cards - Responsive */}
                             <Grid container spacing={2} sx={{ mb: 3 }}>
-                                <Grid item xs={12} sm={6} md={3}>
-                                    <Card sx={{ bgcolor: 'background.paper' }}>
-                                        <CardContent>
+                                <Grid item xs={6} sm={6} md={3}>
+                                    <Card sx={{ bgcolor: 'background.paper', borderRadius: 2 }}>
+                                        <CardContent sx={{ py: 1.5 }}>
                                             <Box display="flex" alignItems="center" justifyContent="space-between">
                                                 <Box>
                                                     <Typography color="textSecondary" variant="caption">Total Purchases</Typography>
-                                                    <Typography variant="h4" fontWeight="bold">{summaryData.total_purchases || 0}</Typography>
+                                                    <Typography variant="h5" fontWeight="bold">{summaryData.total_purchases || 0}</Typography>
                                                 </Box>
-                                                <ReceiptIcon sx={{ fontSize: 40, color: 'primary.main', opacity: 0.7 }} />
+                                                <ReceiptIcon sx={{ fontSize: 32, color: 'primary.main', opacity: 0.7 }} />
                                             </Box>
                                         </CardContent>
                                     </Card>
                                 </Grid>
-                                <Grid item xs={12} sm={6} md={3}>
-                                    <Card sx={{ bgcolor: 'background.paper' }}>
-                                        <CardContent>
+                                <Grid item xs={6} sm={6} md={3}>
+                                    <Card sx={{ bgcolor: 'background.paper', borderRadius: 2 }}>
+                                        <CardContent sx={{ py: 1.5 }}>
                                             <Box display="flex" alignItems="center" justifyContent="space-between">
                                                 <Box>
                                                     <Typography color="textSecondary" variant="caption">Total Quantity</Typography>
-                                                    <Typography variant="h4" fontWeight="bold" color="info.main">{summaryData.total_quantity || 0}</Typography>
+                                                    <Typography variant="h5" fontWeight="bold" color="info.main">{summaryData.total_quantity || 0}</Typography>
                                                 </Box>
-                                                <InventoryIcon sx={{ fontSize: 40, color: 'info.main', opacity: 0.7 }} />
+                                                <InventoryIcon sx={{ fontSize: 32, color: 'info.main', opacity: 0.7 }} />
                                             </Box>
                                         </CardContent>
                                     </Card>
                                 </Grid>
-                                <Grid item xs={12} sm={6} md={3}>
-                                    <Card sx={{ bgcolor: 'background.paper' }}>
-                                        <CardContent>
+                                <Grid item xs={6} sm={6} md={3}>
+                                    <Card sx={{ bgcolor: 'background.paper', borderRadius: 2 }}>
+                                        <CardContent sx={{ py: 1.5 }}>
                                             <Box display="flex" alignItems="center" justifyContent="space-between">
                                                 <Box>
                                                     <Typography color="textSecondary" variant="caption">Total Amount</Typography>
-                                                    <Typography variant="h4" fontWeight="bold" color="success.main">
+                                                    <Typography variant="h5" fontWeight="bold" color="success.main">
                                                         TSh {(summaryData.total_amount || 0).toLocaleString()}
                                                     </Typography>
                                                 </Box>
-                                                <MoneyIcon sx={{ fontSize: 40, color: 'success.main', opacity: 0.7 }} />
+                                                <MoneyIcon sx={{ fontSize: 32, color: 'success.main', opacity: 0.7 }} />
                                             </Box>
                                         </CardContent>
                                     </Card>
                                 </Grid>
-                                <Grid item xs={12} sm={6} md={3}>
-                                    <Card sx={{ bgcolor: 'background.paper' }}>
-                                        <CardContent>
+                                <Grid item xs={6} sm={6} md={3}>
+                                    <Card sx={{ bgcolor: 'background.paper', borderRadius: 2 }}>
+                                        <CardContent sx={{ py: 1.5 }}>
                                             <Box display="flex" alignItems="center" justifyContent="space-between">
                                                 <Box>
                                                     <Typography color="textSecondary" variant="caption">Average Order</Typography>
-                                                    <Typography variant="h4" fontWeight="bold" color="warning.main">
+                                                    <Typography variant="h5" fontWeight="bold" color="warning.main">
                                                         TSh {(summaryData.average_order_value || 0).toLocaleString()}
                                                     </Typography>
                                                 </Box>
-                                                <TrendingUpIcon sx={{ fontSize: 40, color: 'warning.main', opacity: 0.7 }} />
+                                                <TrendingUpIcon sx={{ fontSize: 32, color: 'warning.main', opacity: 0.7 }} />
                                             </Box>
                                         </CardContent>
                                     </Card>
                                 </Grid>
                             </Grid>
 
-                            {/* By Supplier Section */}
-                            {summaryData.by_supplier?.length > 0 && (
-                                <Box sx={{ mb: 3 }}>
-                                    <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                                        🏢 By Supplier ({summaryData.by_supplier.length})
-                                    </Typography>
-                                    <TableContainer component={Paper} variant="outlined">
-                                        <Table size="small">
-                                            <TableHead>
-                                                <TableRow sx={{ bgcolor: 'action.hover' }}>
-                                                    <TableCell><b>Supplier Name</b></TableCell>
-                                                    <TableCell><b>Contact Person</b></TableCell>
-                                                    <TableCell><b>Phone</b></TableCell>
-                                                    <TableCell><b>Email</b></TableCell>
-                                                    <TableCell align="right"><b>Quantity</b></TableCell>
-                                                    <TableCell align="right"><b>Amount (TSh)</b></TableCell>
-                                                    <TableCell align="right"><b>%</b></TableCell>
-                                                </TableRow>
-                                            </TableHead>
-                                            <TableBody>
-                                                {summaryData.by_supplier.map((supplier, idx) => (
-                                                    <TableRow key={idx} hover>
-                                                        <TableCell>
-                                                            <SupplierIcon sx={{ fontSize: 16, mr: 1, verticalAlign: 'middle' }} />
-                                                            {supplier.supplier_name}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <PersonIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'middle' }} />
-                                                            {supplier.contact_person || 'Unknown'}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <PhoneIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'middle' }} />
-                                                            {supplier.phone || supplier.supplier_phone || 'Unknown'}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <EmailIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'middle' }} />
-                                                            {supplier.email || 'Unknown'}
-                                                        </TableCell>
-                                                        <TableCell align="right">{supplier.quantity}</TableCell>
-                                                        <TableCell align="right">
-                                                            <Typography fontWeight="bold" color="success.main">
-                                                                TSh {supplier.amount.toLocaleString()}
-                                                            </Typography>
-                                                        </TableCell>
-                                                        <TableCell align="right">
-                                                            <Chip label={`${supplier.percentage}%`} size="small" color="primary" />
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </TableContainer>
-                                </Box>
-                            )}
-
                             {/* Search */}
                             <TextField
-                                placeholder="🔍 Search by supplier name, contact person, phone, email, category, model, SKU or status..."
+                                placeholder="🔍 Search by supplier, contact, phone, email, category, model, SKU or status..."
                                 size="small"
                                 fullWidth
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 sx={{ mb: 2 }}
                                 InputProps={{
-                                    startAdornment: (<InputAdornment position="start"><SearchIcon /></InputAdornment>),
+                                    startAdornment: (<InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>),
                                     endAdornment: searchTerm && (
                                         <InputAdornment position="end">
                                             <IconButton size="small" onClick={() => setSearchTerm('')}>
@@ -699,10 +770,10 @@ export default function PurchasesReport() {
                                 }}
                             />
 
-                            {/* Purchases Table - WITH Model/SKU as Stack like SalesReport */}
+                            {/* Results */}
                             {data.purchases.length > 0 ? (
                                 <>
-                                    <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
                                         <Typography variant="subtitle2" fontWeight="bold">
                                             📋 Purchase Orders ({filteredPurchases.length})
                                         </Typography>
@@ -715,152 +786,141 @@ export default function PurchasesReport() {
                                             />
                                         )}
                                     </Box>
-                                    <TableContainer component={Paper} variant="outlined">
-                                        <Table size="small">
-                                            <TableHead>
-                                                <TableRow sx={{ bgcolor: 'action.hover' }}>
-                                                    <TableCell width={40}></TableCell>
-                                                    <TableCell><b>Supplier</b></TableCell>
-                                                    <TableCell><b>Contact Person</b></TableCell>
-                                                    <TableCell><b>Phone</b></TableCell>
-                                                    <TableCell><b>Category</b></TableCell>
-                                                    <TableCell><b>Model / SKU</b></TableCell>
-                                                    <TableCell align="right"><b>Qty</b></TableCell>
-                                                    <TableCell align="right"><b>Unit Price</b></TableCell>
-                                                    <TableCell align="right"><b>Subtotal</b></TableCell>
-                                                    <TableCell><b>Status</b></TableCell>
-                                                    <TableCell><b>Date</b></TableCell>
-                                                </TableRow>
-                                            </TableHead>
-                                            <TableBody>
-                                                {paginatedPurchases.map((purchase) => {
-                                                    const isExpanded = expandedRows[purchase.purchase_id];
-                                                    const categoryName = purchase.category?.category_name || 'Unknown';
-                                                    const modelName = purchase.category?.model || 'Unknown';
-                                                    const skuName = purchase.selected_skus || 'Unknown';
 
-                                                    return (
-                                                        <React.Fragment key={purchase.purchase_id}>
-                                                            <TableRow hover>
-                                                                <TableCell>
-                                                                    <IconButton size="small" onClick={() => toggleRowExpand(purchase.purchase_id)}>
-                                                                        {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                                                                    </IconButton>
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Box display="flex" alignItems="center" gap={1}>
-                                                                        <SupplierIcon sx={{ fontSize: 16, color: 'primary.main' }} />
-                                                                        <Typography variant="body2">{purchase.supplier?.supplier_name || 'Unknown'}</Typography>
-                                                                    </Box>
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Box display="flex" alignItems="center" gap={1}>
-                                                                        <PersonIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-                                                                        <Typography variant="body2">{purchase.supplier?.contact_person || 'Unknown'}</Typography>
-                                                                    </Box>
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Box display="flex" alignItems="center" gap={1}>
-                                                                        <PhoneIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-                                                                        <Typography variant="body2">
-                                                                            {purchase.supplier?.supplier_phone || purchase.supplier?.phone || 'Unknown'}
-                                                                        </Typography>
-                                                                    </Box>
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Chip
-                                                                        icon={<CategoryIcon />}
-                                                                        label={categoryName}
-                                                                        size="small"
-                                                                        variant="outlined"
-                                                                    />
-                                                                </TableCell>
-                                                                {/* Model / SKU as Stack - LIKE SALES REPORT */}
-                                                                <TableCell>
-                                                                    <Stack direction="row" spacing={0.5}>
-                                                                        {modelName !== 'Unknown' && (
-                                                                            <Chip
-                                                                                icon={<SmartphoneIcon />}
-                                                                                label={modelName}
-                                                                                size="small"
-                                                                                variant="outlined"
-                                                                            />
-                                                                        )}
-                                                                        {skuName !== 'Unknown' && (
-                                                                            <Chip
-                                                                                label={skuName}
-                                                                                size="small"
-                                                                                color="info"
-                                                                                variant="outlined"
-                                                                            />
-                                                                        )}
-                                                                    </Stack>
-                                                                </TableCell>
-                                                                <TableCell align="right">
-                                                                    <Typography fontWeight="bold">{purchase.quantity_ordered}</Typography>
-                                                                </TableCell>
-                                                                <TableCell align="right">
-                                                                    TSh {parseFloat(purchase.unit_price).toLocaleString()}
-                                                                </TableCell>
-                                                                <TableCell align="right">
-                                                                    <Typography fontWeight="bold" color="success.main">
-                                                                        TSh {parseFloat(purchase.subtotal).toLocaleString()}
-                                                                    </Typography>
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Chip
-                                                                        label={purchase.status}
-                                                                        size="small"
-                                                                        color={statusColors[purchase.status] || 'default'}
-                                                                        icon={purchase.status === 'completed' ? <CheckCircleIcon /> : purchase.status === 'pending' ? <PendingIcon /> : <CancelIcon />}
-                                                                    />
-                                                                </TableCell>
-                                                                <TableCell>{formatDate(purchase.created_at)}</TableCell>
-                                                            </TableRow>
-                                                            {/* Expanded Row for Details */}
-                                                            <TableRow>
-                                                                <TableCell colSpan={11} sx={{ p: 0 }}>
-                                                                    <Collapse in={isExpanded}>
-                                                                        <Box sx={{ p: 2, bgcolor: '#f5f5f5' }}>
-                                                                            <Typography variant="subtitle2" gutterBottom>
-                                                                                <InventoryIcon sx={{ fontSize: 16, mr: 0.5 }} />
-                                                                                Purchase Details:
-                                                                            </Typography>
-                                                                            <Grid container spacing={2}>
-                                                                                <Grid item xs={12} sm={4}>
-                                                                                    <Typography variant="caption" color="textSecondary">Purchase ID</Typography>
-                                                                                    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                                                                                        {purchase.purchase_id}
-                                                                                    </Typography>
-                                                                                </Grid>
-                                                                                <Grid item xs={12} sm={4}>
-                                                                                    <Typography variant="caption" color="textSecondary">Supplier Email</Typography>
-                                                                                    <Typography variant="body2">
-                                                                                        <EmailIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'middle' }} />
-                                                                                        {purchase.supplier?.email || 'N/A'}
-                                                                                    </Typography>
-                                                                                </Grid>
-                                                                                <Grid item xs={12} sm={4}>
-                                                                                    <Typography variant="caption" color="textSecondary">Created At</Typography>
-                                                                                    <Typography variant="body2">{formatDate(purchase.created_at)}</Typography>
-                                                                                </Grid>
-                                                                                {purchase.notes && (
-                                                                                    <Grid item xs={12}>
-                                                                                        <Typography variant="caption" color="textSecondary">Notes</Typography>
-                                                                                        <Typography variant="body2">{purchase.notes}</Typography>
-                                                                                    </Grid>
-                                                                                )}
-                                                                            </Grid>
+                                    {/* Table View (Desktop) */}
+                                    {showTableView ? (
+                                        <TableContainer component={Paper} variant="outlined">
+                                            <Table size="small">
+                                                <TableHead>
+                                                    <TableRow sx={{ bgcolor: 'action.hover' }}>
+                                                        <TableCell width={40}></TableCell>
+                                                        <TableCell><b>Supplier</b></TableCell>
+                                                        <TableCell><b>Contact Person</b></TableCell>
+                                                        <TableCell><b>Phone</b></TableCell>
+                                                        <TableCell><b>Category</b></TableCell>
+                                                        <TableCell><b>Model / SKU</b></TableCell>
+                                                        <TableCell align="right"><b>Qty</b></TableCell>
+                                                        <TableCell align="right"><b>Unit Price</b></TableCell>
+                                                        <TableCell align="right"><b>Subtotal</b></TableCell>
+                                                        <TableCell><b>Status</b></TableCell>
+                                                        <TableCell><b>Date</b></TableCell>
+                                                    </TableRow>
+                                                </TableHead>
+                                                <TableBody>
+                                                    {paginatedPurchases.map((purchase) => {
+                                                        const isExpanded = expandedRows[purchase.purchase_id];
+                                                        const categoryName = purchase.category?.category_name || 'Unknown';
+                                                        const modelName = purchase.category?.model || 'Unknown';
+                                                        const skuName = purchase.selected_skus || 'Unknown';
+
+                                                        return (
+                                                            <React.Fragment key={purchase.purchase_id}>
+                                                                <TableRow hover>
+                                                                    <TableCell>
+                                                                        <IconButton size="small" onClick={() => toggleRowExpand(purchase.purchase_id)}>
+                                                                            {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                                                                        </IconButton>
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <Box display="flex" alignItems="center" gap={1}>
+                                                                            <SupplierIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+                                                                            <Typography variant="body2">{purchase.supplier?.supplier_name || 'Unknown'}</Typography>
                                                                         </Box>
-                                                                    </Collapse>
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        </React.Fragment>
-                                                    );
-                                                })}
-                                            </TableBody>
-                                        </Table>
-                                    </TableContainer>
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <Box display="flex" alignItems="center" gap={1}>
+                                                                            <PersonIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                                                                            <Typography variant="body2">{purchase.supplier?.contact_person || 'Unknown'}</Typography>
+                                                                        </Box>
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <Box display="flex" alignItems="center" gap={1}>
+                                                                            <PhoneIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                                                                            <Typography variant="body2">
+                                                                                {purchase.supplier?.supplier_phone || purchase.supplier?.phone || 'Unknown'}
+                                                                            </Typography>
+                                                                        </Box>
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <Chip icon={<CategoryIcon />} label={categoryName} size="small" variant="outlined" />
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <Stack direction="row" spacing={0.5}>
+                                                                            {modelName !== 'Unknown' && (
+                                                                                <Chip icon={<SmartphoneIcon />} label={modelName} size="small" variant="outlined" />
+                                                                            )}
+                                                                            {skuName !== 'Unknown' && (
+                                                                                <Chip label={skuName} size="small" color="info" variant="outlined" />
+                                                                            )}
+                                                                        </Stack>
+                                                                    </TableCell>
+                                                                    <TableCell align="right">
+                                                                        <Typography fontWeight="bold">{purchase.quantity_ordered}</Typography>
+                                                                    </TableCell>
+                                                                    <TableCell align="right">
+                                                                        TSh {parseFloat(purchase.unit_price).toLocaleString()}
+                                                                    </TableCell>
+                                                                    <TableCell align="right">
+                                                                        <Typography fontWeight="bold" color="success.main">
+                                                                            TSh {parseFloat(purchase.subtotal).toLocaleString()}
+                                                                        </Typography>
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <Chip
+                                                                            label={purchase.status}
+                                                                            size="small"
+                                                                            color={statusColors[purchase.status] || 'default'}
+                                                                            icon={purchase.status === 'completed' ? <CheckCircleIcon /> : purchase.status === 'pending' ? <PendingIcon /> : <CancelIcon />}
+                                                                        />
+                                                                    </TableCell>
+                                                                    <TableCell>{formatDate(purchase.created_at)}</TableCell>
+                                                                </TableRow>
+                                                                <TableRow>
+                                                                    <TableCell colSpan={11} sx={{ p: 0 }}>
+                                                                        <Collapse in={isExpanded}>
+                                                                            <Box sx={{ p: 2, bgcolor: '#f5f5f5' }}>
+                                                                                <Typography variant="subtitle2" gutterBottom>
+                                                                                    <InventoryIcon sx={{ fontSize: 16, mr: 0.5 }} />
+                                                                                    Purchase Details:
+                                                                                </Typography>
+                                                                                <Grid container spacing={2}>
+                                                                                    <Grid item xs={12} sm={6}>
+                                                                                        <Typography variant="caption" color="textSecondary">Supplier Email</Typography>
+                                                                                        <Typography variant="body2">
+                                                                                            <EmailIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'middle' }} />
+                                                                                            {purchase.supplier?.email || 'N/A'}
+                                                                                        </Typography>
+                                                                                    </Grid>
+                                                                                    <Grid item xs={12} sm={6}>
+                                                                                        <Typography variant="caption" color="textSecondary">Created At</Typography>
+                                                                                        <Typography variant="body2">{formatDate(purchase.created_at)}</Typography>
+                                                                                    </Grid>
+                                                                                    {purchase.notes && (
+                                                                                        <Grid item xs={12}>
+                                                                                            <Typography variant="caption" color="textSecondary">Notes</Typography>
+                                                                                            <Typography variant="body2">{purchase.notes}</Typography>
+                                                                                        </Grid>
+                                                                                    )}
+                                                                                </Grid>
+                                                                            </Box>
+                                                                        </Collapse>
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            </React.Fragment>
+                                                        );
+                                                    })}
+                                                </TableBody>
+                                            </Table>
+                                        </TableContainer>
+                                    ) : (
+                                        // Card View (Mobile/Tablet)
+                                        <Box>
+                                            {paginatedPurchases.map((purchase) => (
+                                                <PurchaseCard key={purchase.purchase_id} purchase={purchase} />
+                                            ))}
+                                        </Box>
+                                    )}
+
                                     <TablePagination
                                         component="div"
                                         count={filteredPurchases.length}
@@ -869,6 +929,11 @@ export default function PurchasesReport() {
                                         rowsPerPage={rowsPerPage}
                                         onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
                                         rowsPerPageOptions={[5, 10, 25, 50, 100]}
+                                        sx={{
+                                            '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
+                                                fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                                            }
+                                        }}
                                     />
                                 </>
                             ) : (

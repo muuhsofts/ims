@@ -4,7 +4,7 @@ import {
     Dialog, DialogTitle, DialogContent, DialogActions,
     Button, Box, CircularProgress, Checkbox, FormControlLabel,
     Typography, Divider, TextField, InputAdornment,
-    Accordion, AccordionSummary, AccordionDetails
+    Accordion, AccordionSummary, AccordionDetails, useMediaQuery, useTheme
 } from '@mui/material';
 import { Search as SearchIcon, ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
 import { roleService } from 'services/role.service';
@@ -13,7 +13,7 @@ import { showSnackbar } from 'utils/snackbar';
 
 // Helper: extract group name from permission name (e.g., "agent.sale.create" → "agent")
 const getGroupName = (permName) => {
-    const parts = permName.split(/[._-]/); // split by dot, underscore or dash
+    const parts = permName.split(/[._-]/);
     return parts[0] || 'other';
 };
 
@@ -25,7 +25,6 @@ const groupPermissions = (permissions) => {
         if (!groups[group]) groups[group] = [];
         groups[group].push(perm);
     });
-    // Sort groups alphabetically
     return Object.keys(groups).sort().reduce((acc, key) => {
         acc[key] = groups[key];
         return acc;
@@ -33,8 +32,11 @@ const groupPermissions = (permissions) => {
 };
 
 export default function RolePermissionsModal({ open, onClose, role }) {
+    const theme = useTheme();
+    const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
     const [loading, setLoading] = useState(false);
-    const [allPermissions, setAllPermissions] = useState([]);      // raw permissions from API
+    const [allPermissions, setAllPermissions] = useState([]);
     const [selectedPermissionIds, setSelectedPermissionIds] = useState([]);
     const [search, setSearch] = useState('');
 
@@ -47,12 +49,10 @@ export default function RolePermissionsModal({ open, onClose, role }) {
     const loadData = async () => {
         setLoading(true);
         try {
-            // Load all permissions
             const permRes = await permissionService.getPermissions({ per_page: 1000 });
             const all = permRes.data?.success ? permRes.data.data.data : [];
             setAllPermissions(all);
 
-            // Load role's current permissions
             const rolePermRes = await roleService.getRolePermissions(role.id);
             const current = rolePermRes.data?.success ? rolePermRes.data.data : [];
             const currentIds = current.map(p => p.id);
@@ -86,18 +86,25 @@ export default function RolePermissionsModal({ open, onClose, role }) {
         }
     };
 
-    // Filter permissions based on search (by name or display_name)
     const filteredPermissions = allPermissions.filter(p =>
         p.name.toLowerCase().includes(search.toLowerCase()) ||
         p.display_name.toLowerCase().includes(search.toLowerCase())
     );
 
-    // Group filtered permissions
     const groupedPermissions = groupPermissions(filteredPermissions);
 
     return (
-        <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-            <DialogTitle>
+        <Dialog
+            open={open}
+            onClose={onClose}
+            maxWidth="md"
+            fullWidth
+            fullScreen={fullScreen}
+            PaperProps={{
+                sx: { borderRadius: { xs: 0, sm: 2 } }
+            }}
+        >
+            <DialogTitle sx={{ pb: 1, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
                 Manage Permissions for "{role?.display_name || role?.name}"
             </DialogTitle>
             <DialogContent>
@@ -111,7 +118,7 @@ export default function RolePermissionsModal({ open, onClose, role }) {
                         InputProps={{
                             startAdornment: (
                                 <InputAdornment position="start">
-                                    <SearchIcon />
+                                    <SearchIcon fontSize="small" />
                                 </InputAdornment>
                             )
                         }}
@@ -123,13 +130,13 @@ export default function RolePermissionsModal({ open, onClose, role }) {
                         <CircularProgress />
                     </Box>
                 ) : (
-                    <Box sx={{ maxHeight: 500, overflowY: 'auto' }}>
+                    <Box sx={{ maxHeight: { xs: '60vh', sm: 500 }, overflowY: 'auto' }}>
                         {Object.keys(groupedPermissions).length === 0 ? (
-                            <Typography>No permissions found</Typography>
+                            <Typography sx={{ textAlign: 'center', py: 3 }}>No permissions found</Typography>
                         ) : (
                             Object.entries(groupedPermissions).map(([groupName, perms]) => (
-                                <Accordion key={groupName} defaultExpanded>
-                                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                                <Accordion key={groupName} defaultExpanded disableGutters>
+                                    <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: { xs: 1, sm: 2 } }}>
                                         <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
                                             {groupName.charAt(0).toUpperCase() + groupName.slice(1)}
                                             <Typography component="span" variant="body2" sx={{ ml: 1, color: 'text.secondary' }}>
@@ -137,8 +144,8 @@ export default function RolePermissionsModal({ open, onClose, role }) {
                                             </Typography>
                                         </Typography>
                                     </AccordionSummary>
-                                    <AccordionDetails>
-                                        <Box sx={{ display: 'flex', flexDirection: 'column', ml: 2 }}>
+                                    <AccordionDetails sx={{ px: { xs: 1, sm: 2 }, pt: 0 }}>
+                                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                                             {perms.map((perm) => (
                                                 <FormControlLabel
                                                     key={perm.id}
@@ -146,6 +153,7 @@ export default function RolePermissionsModal({ open, onClose, role }) {
                                                         <Checkbox
                                                             checked={selectedPermissionIds.includes(perm.id)}
                                                             onChange={() => handleToggle(perm.id)}
+                                                            size="small"
                                                         />
                                                     }
                                                     label={
@@ -153,12 +161,16 @@ export default function RolePermissionsModal({ open, onClose, role }) {
                                                             <Typography variant="body2">
                                                                 {perm.display_name}
                                                             </Typography>
-                                                            <Typography variant="caption" color="text.secondary">
+                                                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                                                                 {perm.name}
                                                             </Typography>
                                                         </Box>
                                                     }
-                                                    sx={{ mb: 0.5, alignItems: 'flex-start' }}
+                                                    sx={{
+                                                        alignItems: 'flex-start',
+                                                        m: 0,
+                                                        '& .MuiFormControlLabel-label': { width: '100%' }
+                                                    }}
                                                 />
                                             ))}
                                         </Box>
@@ -169,7 +181,7 @@ export default function RolePermissionsModal({ open, onClose, role }) {
                     </Box>
                 )}
             </DialogContent>
-            <DialogActions>
+            <DialogActions sx={{ p: { xs: 2, sm: 3 } }}>
                 <Button onClick={onClose}>Cancel</Button>
                 <Button onClick={handleSave} variant="contained" disabled={loading}>
                     Save Changes

@@ -4,13 +4,16 @@ import {
     Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
     IconButton, InputAdornment, Menu, MenuItem, Paper, Table,
     TableBody, TableCell, TableContainer, TableHead, TablePagination,
-    TableRow, TextField, Typography, CircularProgress, Switch, FormControlLabel
+    TableRow, TextField, Typography, CircularProgress, Switch, FormControlLabel,
+    Card, CardContent, Divider, useMediaQuery, useTheme
 } from '@mui/material';
 import {
     Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
     Delete as DeleteIcon, Refresh as RefreshIcon, Search as SearchIcon,
     Restore as RestoreIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon,
-    DeleteSweep as ForceDeleteIcon
+    DeleteSweep as ForceDeleteIcon, Business as SupplierIcon,
+    Person as PersonIcon, Phone as PhoneIcon, Email as EmailIcon,
+    CalendarToday as CalendarIcon
 } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
@@ -28,6 +31,10 @@ const headCells = [
 ];
 
 export default function SupplierList() {
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+    const showTableView = useMediaQuery(theme.breakpoints.up('md'));
+
     const { hasPermission } = usePermission();
     const canView = hasPermission('suppliers.view');
     const canCreate = hasPermission('suppliers.create');
@@ -79,20 +86,26 @@ export default function SupplierList() {
         setSelectedSupplier(null);
     };
 
-    const handleEdit = () => {
-        setEditingSupplier(selectedSupplier);
+    // Direct handlers for card view (pass supplier object directly)
+    const handleEditSupplier = (supplier) => {
+        setEditingSupplier(supplier);
         setModalOpen(true);
-        handleMenuClose();
+        if (actionMenu) handleMenuClose();
     };
 
-    const handleDelete = () => {
+    const handleDeleteSupplier = (supplier) => {
+        const supplierId = supplier.supplier_id;
+        if (!supplierId) {
+            showSnackbar({ type: 'error', message: 'Supplier ID missing' });
+            return;
+        }
         setConfirmDialog({
             open: true,
             title: 'Delete Supplier',
-            message: `Are you sure you want to delete "${selectedSupplier?.supplier_name}"? (Soft delete)`,
+            message: `Are you sure you want to delete "${supplier.supplier_name}"? (Soft delete)`,
             action: async () => {
                 try {
-                    await remove(selectedSupplier.supplier_id);
+                    await remove(supplierId);
                     showSnackbar({ type: 'success', message: 'Supplier deleted successfully' });
                     fetchSuppliers();
                 } catch (err) {
@@ -100,17 +113,19 @@ export default function SupplierList() {
                 }
             }
         });
-        handleMenuClose();
+        if (actionMenu) handleMenuClose();
     };
 
-    const handleRestore = () => {
+    const handleRestoreSupplier = (supplier) => {
+        const supplierId = supplier.supplier_id;
+        if (!supplierId) return;
         setConfirmDialog({
             open: true,
             title: 'Restore Supplier',
-            message: `Are you sure you want to restore "${selectedSupplier?.supplier_name}"?`,
+            message: `Are you sure you want to restore "${supplier.supplier_name}"?`,
             action: async () => {
                 try {
-                    await restore(selectedSupplier.supplier_id);
+                    await restore(supplierId);
                     showSnackbar({ type: 'success', message: 'Supplier restored successfully' });
                     fetchSuppliers();
                 } catch (err) {
@@ -118,17 +133,19 @@ export default function SupplierList() {
                 }
             }
         });
-        handleMenuClose();
+        if (actionMenu) handleMenuClose();
     };
 
-    const handleForceDelete = () => {
+    const handleForceDeleteSupplier = (supplier) => {
+        const supplierId = supplier.supplier_id;
+        if (!supplierId) return;
         setConfirmDialog({
             open: true,
             title: 'Permanently Delete Supplier',
-            message: `Are you sure you want to permanently delete "${selectedSupplier?.supplier_name}"? This cannot be undone.`,
+            message: `Are you sure you want to permanently delete "${supplier.supplier_name}"? This cannot be undone.`,
             action: async () => {
                 try {
-                    await forceDelete(selectedSupplier.supplier_id);
+                    await forceDelete(supplierId);
                     showSnackbar({ type: 'success', message: 'Supplier permanently deleted' });
                     fetchSuppliers();
                 } catch (err) {
@@ -136,19 +153,18 @@ export default function SupplierList() {
                 }
             }
         });
-        handleMenuClose();
+        if (actionMenu) handleMenuClose();
     };
 
-    const handleToggleStatus = () => {
-        if (!selectedSupplier) return;
-        const newStatus = selectedSupplier.status === 'active' ? 'inactive' : 'active';
+    const handleToggleStatusSupplier = (supplier) => {
+        const newStatus = supplier.status === 'active' ? 'inactive' : 'active';
         setConfirmDialog({
             open: true,
             title: `${newStatus === 'active' ? 'Activate' : 'Deactivate'} Supplier`,
-            message: `Are you sure you want to ${newStatus === 'active' ? 'activate' : 'deactivate'} "${selectedSupplier.supplier_name}"?`,
+            message: `Are you sure you want to ${newStatus === 'active' ? 'activate' : 'deactivate'} "${supplier.supplier_name}"?`,
             action: async () => {
                 try {
-                    await changeStatus(selectedSupplier.supplier_id, newStatus);
+                    await changeStatus(supplier.supplier_id, newStatus);
                     showSnackbar({ type: 'success', message: `Supplier ${newStatus}d successfully` });
                     fetchSuppliers();
                 } catch (err) {
@@ -156,7 +172,24 @@ export default function SupplierList() {
                 }
             }
         });
-        handleMenuClose();
+        if (actionMenu) handleMenuClose();
+    };
+
+    // Wrappers for table view (using selectedSupplier state)
+    const handleEditFromTable = () => {
+        if (selectedSupplier) handleEditSupplier(selectedSupplier);
+    };
+    const handleDeleteFromTable = () => {
+        if (selectedSupplier) handleDeleteSupplier(selectedSupplier);
+    };
+    const handleRestoreFromTable = () => {
+        if (selectedSupplier) handleRestoreSupplier(selectedSupplier);
+    };
+    const handleForceDeleteFromTable = () => {
+        if (selectedSupplier) handleForceDeleteSupplier(selectedSupplier);
+    };
+    const handleToggleStatusFromTable = () => {
+        if (selectedSupplier) handleToggleStatusSupplier(selectedSupplier);
     };
 
     const handleModalClose = (refresh) => {
@@ -181,13 +214,109 @@ export default function SupplierList() {
 
     const suppliers = Array.isArray(data) ? data : [];
 
+    // Card component for mobile/tablet view
+    const SupplierCard = ({ supplier, canEdit, canChangeStatus, canDelete, canRestore, canForceDelete, onEdit, onDelete, onRestore, onForceDelete, onToggleStatus }) => {
+        const isDeleted = !!supplier.deleted_at;
+
+        return (
+            <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
+                <CardContent sx={{ p: 2 }}>
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                        <Box display="flex" alignItems="center" gap={1}>
+                            <SupplierIcon fontSize="small" color="primary" />
+                            <Typography variant="subtitle1" fontWeight="bold">
+                                {supplier.supplier_name}
+                            </Typography>
+                        </Box>
+                        {isDeleted ? (
+                            <Chip label="Deleted" color="error" size="small" />
+                        ) : (
+                            <Chip
+                                label={supplier.status}
+                                color={supplier.status === 'active' ? 'success' : supplier.status === 'suspended' ? 'error' : 'default'}
+                                size="small"
+                            />
+                        )}
+                    </Box>
+
+                    <Divider sx={{ my: 1 }} />
+
+                    {supplier.contact_person && (
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                            <PersonIcon fontSize="small" color="action" />
+                            <Typography variant="body2"><strong>Contact:</strong> {supplier.contact_person}</Typography>
+                        </Box>
+                    )}
+                    {supplier.phone && (
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                            <PhoneIcon fontSize="small" color="action" />
+                            <Typography variant="body2"><strong>Phone:</strong> {supplier.phone}</Typography>
+                        </Box>
+                    )}
+                    {supplier.email && (
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                            <EmailIcon fontSize="small" color="action" />
+                            <Typography variant="body2"><strong>Email:</strong> {supplier.email}</Typography>
+                        </Box>
+                    )}
+
+                    <Box display="flex" alignItems="center" gap={1} mb={2}>
+                        <CalendarIcon fontSize="small" color="action" />
+                        <Typography variant="caption" color="text.secondary">
+                            Created: {new Date(supplier.created_at).toLocaleString()}
+                        </Typography>
+                    </Box>
+
+                    <Divider sx={{ my: 1.5 }} />
+
+                    <Box display="flex" flexDirection="column" gap={1}>
+                        {!isDeleted && canEdit && (
+                            <Button fullWidth variant="outlined" startIcon={<EditIcon />} onClick={() => onEdit(supplier)}>
+                                Edit
+                            </Button>
+                        )}
+                        {!isDeleted && canChangeStatus && (
+                            <Button
+                                fullWidth
+                                variant="outlined"
+                                color={supplier.status === 'active' ? 'warning' : 'success'}
+                                startIcon={supplier.status === 'active' ? <BlockIcon /> : <CheckCircleIcon />}
+                                onClick={() => onToggleStatus(supplier)}
+                            >
+                                {supplier.status === 'active' ? 'Deactivate' : 'Activate'}
+                            </Button>
+                        )}
+                        {isDeleted && canRestore && (
+                            <Button fullWidth variant="outlined" color="success" startIcon={<RestoreIcon />} onClick={() => onRestore(supplier)}>
+                                Restore
+                            </Button>
+                        )}
+                        {isDeleted && canForceDelete && (
+                            <Button fullWidth variant="outlined" color="error" startIcon={<ForceDeleteIcon />} onClick={() => onForceDelete(supplier)}>
+                                Permanently Delete
+                            </Button>
+                        )}
+                        {!isDeleted && canDelete && (
+                            <Button fullWidth variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => onDelete(supplier)}>
+                                Delete
+                            </Button>
+                        )}
+                    </Box>
+                </CardContent>
+            </Card>
+        );
+    };
+
     return (
-        <Box sx={{ width: '100%', p: 0, m: 0 }}>
-            <Paper sx={{ width: '100%', borderRadius: 1, overflow: 'hidden', boxShadow: 1 }}>
-                <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                        <Typography variant="h5">Suppliers</Typography>
-                        <Box display="flex" alignItems="center" gap={2}>
+        <Box sx={{ width: '100%', p: { xs: 1, sm: 2, md: 3 }, m: 0 }}>
+            <Paper sx={{ width: '100%', borderRadius: { xs: 1, sm: 2 }, overflow: 'hidden', boxShadow: 1 }}>
+                {/* Header & Filters */}
+                <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: 1, borderColor: 'divider' }}>
+                    <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} gap={2} mb={2}>
+                        <Typography variant="h5" sx={{ fontSize: { xs: '1.5rem', sm: '1.75rem' } }}>
+                            Suppliers
+                        </Typography>
+                        <Box display="flex" alignItems="center" gap={2} flexWrap="wrap">
                             <FormControlLabel
                                 control={
                                     <Switch
@@ -199,73 +328,103 @@ export default function SupplierList() {
                                 label="Show Deleted"
                             />
                             {canCreate && !showDeleted && (
-                                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setModalOpen(true)}>
+                                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setModalOpen(true)} fullWidth={isMobile}>
                                     New Supplier
                                 </Button>
                             )}
                         </Box>
                     </Box>
-                    <Box display="flex" gap={2} flexWrap="wrap">
+                    <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} gap={2}>
                         <TextField
                             label="Search by name, contact or email"
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
-                            sx={{ minWidth: 250 }}
+                            sx={{ flex: 1, minWidth: { xs: '100%', sm: 250 } }}
                         />
-                        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchSuppliers}>
+                        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchSuppliers} fullWidth={isMobile}>
                             Refresh
                         </Button>
                     </Box>
                 </Box>
 
-                <TableContainer sx={{ overflowX: 'auto' }}>
-                    <Table sx={{ minWidth: 800 }}>
-                        <TableHead>
-                            <TableRow>
-                                {headCells.map((cell) => (
-                                    <TableCell key={cell.id}>{cell.label}</TableCell>
-                                ))}
-                            </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {loading ? (
-                                <TableRow><TableCell colSpan={headCells.length} align="center"><CircularProgress size={24} /></TableCell></TableRow>
-                            ) : suppliers.length === 0 ? (
-                                <TableRow><TableCell colSpan={headCells.length} align="center">No suppliers found</TableCell></TableRow>
-                            ) : (
-                                suppliers.map((supplier) => (
-                                    <TableRow key={supplier.supplier_id} hover>
-                                        <TableCell>{supplier.supplier_name}</TableCell>
-                                        <TableCell>{supplier.contact_person || '-'}</TableCell>
-                                        <TableCell>{supplier.phone || '-'}</TableCell>
-                                        <TableCell>{supplier.email || '-'}</TableCell>
-                                        <TableCell>
-                                            {supplier.deleted_at ? (
-                                                <Chip label="Deleted" color="error" size="small" />
-                                            ) : (
-                                                <Chip
-                                                    label={supplier.status}
-                                                    color={supplier.status === 'active' ? 'success' : supplier.status === 'suspended' ? 'error' : 'default'}
-                                                    size="small"
-                                                />
-                                            )}
-                                        </TableCell>
-                                        <TableCell>{new Date(supplier.created_at).toLocaleString()}</TableCell>
-                                        <TableCell>
-                                            <IconButton size="small" onClick={(e) => handleMenuOpen(e, supplier)}>
-                                                <MoreVertIcon />
-                                            </IconButton>
-                                        </TableCell>
-                                    </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
-                </TableContainer>
+                {/* Table or Card View */}
+                {showTableView ? (
+                    <TableContainer sx={{ overflowX: 'auto' }}>
+                        <Table sx={{ minWidth: 800 }}>
+                            <TableHead>
+                                <TableRow>
+                                    {headCells.map((cell) => (
+                                        <TableCell key={cell.id}>{cell.label}</TableCell>
+                                    ))}
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {loading ? (
+                                    <TableRow><TableCell colSpan={headCells.length} align="center"><CircularProgress size={32} sx={{ my: 3 }} /></TableCell></TableRow>
+                                ) : suppliers.length === 0 ? (
+                                    <TableRow><TableCell colSpan={headCells.length} align="center">No suppliers found</TableCell></TableRow>
+                                ) : (
+                                    suppliers.map((supplier) => (
+                                        <TableRow key={supplier.supplier_id} hover>
+                                            <TableCell>{supplier.supplier_name}</TableCell>
+                                            <TableCell>{supplier.contact_person || '-'}</TableCell>
+                                            <TableCell>{supplier.phone || '-'}</TableCell>
+                                            <TableCell>{supplier.email || '-'}</TableCell>
+                                            <TableCell>
+                                                {supplier.deleted_at ? (
+                                                    <Chip label="Deleted" color="error" size="small" />
+                                                ) : (
+                                                    <Chip
+                                                        label={supplier.status}
+                                                        color={supplier.status === 'active' ? 'success' : supplier.status === 'suspended' ? 'error' : 'default'}
+                                                        size="small"
+                                                    />
+                                                )}
+                                            </TableCell>
+                                            <TableCell>{new Date(supplier.created_at).toLocaleString()}</TableCell>
+                                            <TableCell>
+                                                <IconButton size="small" onClick={(e) => handleMenuOpen(e, supplier)}>
+                                                    <MoreVertIcon />
+                                                </IconButton>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
+                ) : (
+                    // Mobile/Tablet Card View
+                    <Box sx={{ p: { xs: 2, sm: 3 } }}>
+                        {loading ? (
+                            <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+                        ) : suppliers.length === 0 ? (
+                            <Paper sx={{ p: 3, textAlign: 'center' }}>No suppliers found</Paper>
+                        ) : (
+                            suppliers.map((supplier) => (
+                                <SupplierCard
+                                    key={supplier.supplier_id}
+                                    supplier={supplier}
+                                    canEdit={canEdit}
+                                    canChangeStatus={canChangeStatus}
+                                    canDelete={canDelete}
+                                    canRestore={canRestore}
+                                    canForceDelete={canForceDelete}
+                                    onEdit={handleEditSupplier}
+                                    onDelete={handleDeleteSupplier}
+                                    onRestore={handleRestoreSupplier}
+                                    onForceDelete={handleForceDeleteSupplier}
+                                    onToggleStatus={handleToggleStatusSupplier}
+                                />
+                            ))
+                        )}
+                    </Box>
+                )}
 
-                <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
+                {/* Pagination */}
+                <Box sx={{ borderTop: 1, borderColor: 'divider', py: { xs: 1, sm: 0 } }}>
                     <TablePagination
                         rowsPerPageOptions={[5, 10, 25, 50]}
                         component="div"
@@ -277,18 +436,22 @@ export default function SupplierList() {
                             setRowsPerPage(parseInt(e.target.value, 10));
                             setPage(0);
                         }}
+                        sx={{
+                            '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
+                                fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                            }
+                        }}
                     />
                 </Box>
             </Paper>
 
+            {/* Action Menu (only for table view) */}
             <Menu anchorEl={actionMenu} open={Boolean(actionMenu)} onClose={handleMenuClose}>
                 {selectedSupplier && !selectedSupplier.deleted_at && canEdit && (
-                    <MenuItem onClick={handleEdit}>
-                        <EditIcon sx={{ mr: 1 }} /> Edit
-                    </MenuItem>
+                    <MenuItem onClick={handleEditFromTable}><EditIcon sx={{ mr: 1 }} /> Edit</MenuItem>
                 )}
                 {selectedSupplier && !selectedSupplier.deleted_at && canChangeStatus && (
-                    <MenuItem onClick={handleToggleStatus}>
+                    <MenuItem onClick={handleToggleStatusFromTable}>
                         {selectedSupplier.status === 'active' ? (
                             <><BlockIcon sx={{ mr: 1, color: 'warning.main' }} /> Deactivate</>
                         ) : (
@@ -297,28 +460,23 @@ export default function SupplierList() {
                     </MenuItem>
                 )}
                 {selectedSupplier && selectedSupplier.deleted_at && canRestore && (
-                    <MenuItem onClick={handleRestore}>
-                        <RestoreIcon sx={{ mr: 1, color: 'success.main' }} /> Restore
-                    </MenuItem>
+                    <MenuItem onClick={handleRestoreFromTable}><RestoreIcon sx={{ mr: 1, color: 'success.main' }} /> Restore</MenuItem>
                 )}
                 {selectedSupplier && selectedSupplier.deleted_at && canForceDelete && (
-                    <MenuItem onClick={handleForceDelete} sx={{ color: 'error.main' }}>
-                        <ForceDeleteIcon sx={{ mr: 1 }} /> Permanently Delete
-                    </MenuItem>
+                    <MenuItem onClick={handleForceDeleteFromTable} sx={{ color: 'error.main' }}><ForceDeleteIcon sx={{ mr: 1 }} /> Permanently Delete</MenuItem>
                 )}
                 {selectedSupplier && !selectedSupplier.deleted_at && canDelete && (
-                    <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>
-                        <DeleteIcon sx={{ mr: 1 }} /> Delete
-                    </MenuItem>
+                    <MenuItem onClick={handleDeleteFromTable} sx={{ color: 'error.main' }}><DeleteIcon sx={{ mr: 1 }} /> Delete</MenuItem>
                 )}
             </Menu>
 
             <SupplierModal open={modalOpen} onClose={handleModalClose} supplier={editingSupplier} />
 
-            <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}>
-                <DialogTitle>{confirmDialog.title}</DialogTitle>
-                <DialogContent>{confirmDialog.message}</DialogContent>
-                <DialogActions>
+            {/* Confirm Dialog */}
+            <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog((prev) => ({ ...prev, open: false }))} fullWidth maxWidth="xs">
+                <DialogTitle sx={{ pb: 1 }}>{confirmDialog.title}</DialogTitle>
+                <DialogContent><Typography>{confirmDialog.message}</Typography></DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
                     <Button onClick={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}>Cancel</Button>
                     <Button onClick={handleConfirm} color="error" variant="contained">Confirm</Button>
                 </DialogActions>

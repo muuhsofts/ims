@@ -2,7 +2,8 @@
 import React from 'react';
 import {
     Dialog, DialogTitle, DialogContent, DialogActions,
-    Button, Box, Chip, Typography, Grid, Card, CardContent
+    Button, Box, Chip, Typography, Grid, Card, CardContent,
+    useMediaQuery, useTheme
 } from '@mui/material';
 import {
     SwapHoriz as TransferIcon,
@@ -14,7 +15,6 @@ import {
     CalendarToday as CalendarIcon,
     Notes as NotesIcon,
     RequestPage as RequestIcon
-    // QuantityIcon removed as requested
 } from '@mui/icons-material';
 
 const movementTypeConfig = {
@@ -27,26 +27,36 @@ const movementTypeConfig = {
 };
 
 const InfoItem = ({ icon: Icon, label, value }) => (
-    <Box display="flex" alignItems="center" gap={1} mb={1.5}>
+    <Box display="flex" alignItems="center" gap={1} mb={1.5} flexWrap="wrap">
         <Icon fontSize="small" color="action" />
         <Typography variant="caption" color="text.secondary" sx={{ minWidth: 100 }}>
             {label}:
         </Typography>
-        <Typography variant="body2" fontWeight="medium">
+        <Typography variant="body2" fontWeight="medium" sx={{ wordBreak: 'break-word' }}>
             {value || '-'}
         </Typography>
     </Box>
 );
 
 export default function StockMovementModal({ open, onClose, movement }) {
+    const theme = useTheme();
+    const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
     if (!movement) return null;
 
     const config = movementTypeConfig[movement.movement_type] || movementTypeConfig.transfer;
 
     return (
-        <Dialog open={open} onClose={() => onClose(false)} maxWidth="md" fullWidth>
-            <DialogTitle sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
-                <Box display="flex" alignItems="center" justifyContent="space-between">
+        <Dialog
+            open={open}
+            onClose={() => onClose(false)}
+            maxWidth="md"
+            fullWidth
+            fullScreen={fullScreen}
+            PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
+        >
+            <DialogTitle sx={{ borderBottom: '1px solid', borderColor: 'divider', pb: 1 }}>
+                <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
                     <Box display="flex" alignItems="center" gap={1}>
                         <TransferIcon color={config.color} />
                         <Typography variant="h6">Stock Movement Details</Typography>
@@ -55,7 +65,7 @@ export default function StockMovementModal({ open, onClose, movement }) {
                 </Box>
             </DialogTitle>
 
-            <DialogContent sx={{ mt: 2 }}>
+            <DialogContent sx={{ mt: { xs: 1, sm: 2 } }}>
                 {/* Product Information */}
                 <Card variant="outlined" sx={{ mb: 3 }}>
                     <CardContent>
@@ -73,12 +83,11 @@ export default function StockMovementModal({ open, onClose, movement }) {
                                 <InfoItem icon={SkuIcon} label="SKU" value={movement.sku} />
                             </Grid>
                             <Grid item xs={12} md={6}>
-                                <InfoItem icon={CategoryIcon} label="Category" value={movement.brand} />
+                                <InfoItem icon={CategoryIcon} label="Brand" value={movement.brand} />
                             </Grid>
                             <Grid item xs={12} md={6}>
                                 <InfoItem icon={CategoryIcon} label="Model" value={movement.model} />
                             </Grid>
-                            {/* Quantity field removed as requested */}
                         </Grid>
                     </CardContent>
                 </Card>
@@ -132,7 +141,7 @@ export default function StockMovementModal({ open, onClose, movement }) {
                 </Card>
             </DialogContent>
 
-            <DialogActions sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+            <DialogActions sx={{ p: { xs: 2, sm: 3 }, borderTop: '1px solid', borderColor: 'divider' }}>
                 <Button onClick={() => onClose(false)} variant="contained" color="primary">
                     Close
                 </Button>

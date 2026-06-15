@@ -4,7 +4,7 @@ import {
     Dialog, DialogTitle, DialogContent, DialogActions,
     TextField, Button, Box, CircularProgress,
     FormControl, InputLabel, Select, MenuItem,
-    Autocomplete, Chip
+    Autocomplete, Chip, useMediaQuery, useTheme
 } from '@mui/material';
 import { showSnackbar } from 'utils/snackbar';
 import { useInventory } from '@/hooks/useInventory';
@@ -12,6 +12,9 @@ import { productService } from 'services/product.service';
 import { warehouseService } from 'services/warehouse.service';
 
 export default function InventoryModal({ open, onClose, inventory }) {
+    const theme = useTheme();
+    const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
     const { create, update } = useInventory();
     const [loading, setLoading] = useState(false);
     const [warehouses, setWarehouses] = useState([]);
@@ -33,7 +36,6 @@ export default function InventoryModal({ open, onClose, inventory }) {
                     productService.getProductsDropdown()
                 ]);
                 if (warehousesRes.data?.success) {
-                    // Expected format: { id, label }
                     setWarehouses(warehousesRes.data.data);
                 }
                 if (productsRes.data?.success) {
@@ -105,14 +107,22 @@ export default function InventoryModal({ open, onClose, inventory }) {
         }
     };
 
-    // Map products to Autocomplete options
     const productOptions = products.map(p => ({ id: p.id, label: p.label }));
     const selectedProducts = productOptions.filter(opt => form.product_ids.includes(opt.id));
 
     return (
-        <Dialog open={open} onClose={() => onClose(false)} maxWidth="sm" fullWidth>
+        <Dialog
+            open={open}
+            onClose={() => onClose(false)}
+            maxWidth="sm"
+            fullWidth
+            fullScreen={fullScreen}
+            PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
+        >
             <form onSubmit={handleSubmit}>
-                <DialogTitle>{inventory ? 'Edit Inventory' : 'Add New Inventory'}</DialogTitle>
+                <DialogTitle sx={{ pb: 1, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+                    {inventory ? 'Edit Inventory' : 'Add New Inventory'}
+                </DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
                         <Autocomplete
@@ -127,11 +137,12 @@ export default function InventoryModal({ open, onClose, inventory }) {
                                     label="Select Products"
                                     placeholder="Choose products"
                                     disabled={loadingOptions}
+                                    size="small"
                                 />
                             )}
                             renderTags={(value, getTagProps) =>
                                 value.map((option, index) => (
-                                    <Chip label={option.label} {...getTagProps({ index })} />
+                                    <Chip label={option.label} {...getTagProps({ index })} size="small" />
                                 ))
                             }
                             fullWidth
@@ -144,6 +155,7 @@ export default function InventoryModal({ open, onClose, inventory }) {
                                 value={form.warehouse_id}
                                 label="Warehouse"
                                 onChange={handleChange}
+                                size="small"
                             >
                                 <MenuItem value="">Select warehouse</MenuItem>
                                 {warehouses.map(wh => (
@@ -155,7 +167,7 @@ export default function InventoryModal({ open, onClose, inventory }) {
                         </FormControl>
                     </Box>
                 </DialogContent>
-                <DialogActions>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 } }}>
                     <Button onClick={() => onClose(false)} disabled={loading}>Cancel</Button>
                     <Button type="submit" variant="contained" disabled={loading || loadingOptions}>
                         {loading ? <CircularProgress size={24} /> : inventory ? 'Update' : 'Create'}

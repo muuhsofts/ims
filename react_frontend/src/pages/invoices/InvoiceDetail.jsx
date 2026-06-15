@@ -1,21 +1,25 @@
+// src/pages/invoices/InvoiceDetail.js
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useInvoices } from 'context/InvoiceContext';
-import { Card, CardContent, Typography, Button, Box, Chip, Divider, CircularProgress } from '@mui/material';
-import { Download, ArrowBack } from '@mui/icons-material';
+import {
+    Card, CardContent, Typography, Button, Box, Chip, Divider,
+    CircularProgress, Paper, useMediaQuery, useTheme, Stack
+} from '@mui/material';
+import { Download, ArrowBack, Receipt, Person, Phone, AttachMoney, Payment, DateRange, Info } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 
 export default function InvoiceDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const { data: invoicesData, fetchOne, downloadInvoice } = useInvoices();
     const [invoice, setInvoice] = useState(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (id) {
-            fetchOne(id);
-        }
+        if (id) fetchOne(id);
     }, [id]);
 
     useEffect(() => {
@@ -56,48 +60,111 @@ export default function InvoiceDetail() {
         );
     }
 
+    // Helper for detail rows
+    const DetailRow = ({ icon, label, value }) => (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.75, flexWrap: 'wrap' }}>
+            {icon}
+            <Typography variant="body1" sx={{ fontWeight: 500, minWidth: 110 }}>
+                {label}:
+            </Typography>
+            <Typography variant="body1" sx={{ wordBreak: 'break-word', flex: 1 }}>
+                {value || '—'}
+            </Typography>
+        </Box>
+    );
+
     return (
-        <Box>
-            <Button startIcon={<ArrowBack />} onClick={() => navigate('/app/invoices')} sx={{ mb: 2 }}>
+        <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
+            <Button
+                startIcon={<ArrowBack />}
+                onClick={() => navigate('/app/invoices')}
+                sx={{ mb: 2, borderRadius: 2 }}
+                variant="outlined"
+                size={isMobile ? "small" : "medium"}
+            >
                 Back
             </Button>
-            <Card>
-                <CardContent>
-                    <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap">
-                        <Typography variant="h5">Invoice #{invoice.receipt_number}</Typography>
-                        <Button variant="contained" startIcon={<Download />} onClick={handleDownload}>
+
+            <Card sx={{ borderRadius: 3, overflow: 'hidden' }}>
+                <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                    {/* Header: title + download button */}
+                    <Box sx={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: { xs: 'flex-start', sm: 'center' },
+                        flexDirection: { xs: 'column', sm: 'row' },
+                        gap: 2,
+                        mb: 2
+                    }}>
+                        <Typography variant="h5" component="h1" fontWeight="bold">
+                            <Receipt sx={{ mr: 1, verticalAlign: 'middle' }} />
+                            Invoice #{invoice.receipt_number}
+                        </Typography>
+                        <Button
+                            variant="contained"
+                            startIcon={<Download />}
+                            onClick={handleDownload}
+                            size={isMobile ? "small" : "medium"}
+                            sx={{ borderRadius: 2, alignSelf: { xs: 'stretch', sm: 'auto' } }}
+                        >
                             Download PDF
                         </Button>
                     </Box>
+
                     <Divider sx={{ my: 2 }} />
-                    <Typography variant="body1" gutterBottom>
-                        <strong>Customer:</strong> {invoice.customer_name}
-                    </Typography>
-                    <Typography variant="body1" gutterBottom>
-                        <strong>Phone:</strong> {invoice.customer_phone || 'N/A'}
-                    </Typography>
-                    <Typography variant="body1" gutterBottom>
-                        <strong>Total Amount:</strong> ${invoice.total_amount?.toFixed(2)}
-                    </Typography>
-                    <Typography variant="body1" gutterBottom>
-                        <strong>Payment Method:</strong> {invoice.payment_method}
-                    </Typography>
-                    <Typography variant="body1" gutterBottom>
-                        <strong>Status:</strong> <Chip label={invoice.payment_status} color={invoice.payment_status === 'paid' ? 'success' : 'warning'} size="small" />
-                    </Typography>
-                    <Typography variant="body1" gutterBottom>
-                        <strong>Date:</strong> {new Date(invoice.created_at).toLocaleString()}
-                    </Typography>
-                    {invoice.created_by && (
-                        <Typography variant="body1" gutterBottom>
-                            <strong>Created By:</strong> {invoice.creator?.name || 'Unknown'}
-                        </Typography>
-                    )}
-                    {invoice.order_id && (
-                        <Typography variant="body1" gutterBottom>
-                            <strong>Sale ID:</strong> {invoice.order_id}
-                        </Typography>
-                    )}
+
+                    <Stack spacing={1.5}>
+                        <DetailRow
+                            icon={<Person color="action" fontSize="small" />}
+                            label="Customer"
+                            value={invoice.customer_name}
+                        />
+                        <DetailRow
+                            icon={<Phone color="action" fontSize="small" />}
+                            label="Phone"
+                            value={invoice.customer_phone}
+                        />
+                        <DetailRow
+                            icon={<AttachMoney color="action" fontSize="small" />}
+                            label="Total Amount"
+                            value={`TSh ${invoice.total_amount?.toLocaleString()}`}
+                        />
+                        <DetailRow
+                            icon={<Payment color="action" fontSize="small" />}
+                            label="Payment Method"
+                            value={invoice.payment_method}
+                        />
+                        <DetailRow
+                            icon={<Chip size="small" />}
+                            label="Status"
+                            value={
+                                <Chip
+                                    label={invoice.payment_status}
+                                    color={invoice.payment_status === 'paid' ? 'success' : 'warning'}
+                                    size="small"
+                                />
+                            }
+                        />
+                        <DetailRow
+                            icon={<DateRange color="action" fontSize="small" />}
+                            label="Date"
+                            value={new Date(invoice.created_at).toLocaleString()}
+                        />
+                        {invoice.created_by && (
+                            <DetailRow
+                                icon={<Info color="action" fontSize="small" />}
+                                label="Created By"
+                                value={invoice.creator?.name || 'Unknown'}
+                            />
+                        )}
+                        {invoice.order_id && (
+                            <DetailRow
+                                icon={<Receipt color="action" fontSize="small" />}
+                                label="Sale ID"
+                                value={invoice.order_id}
+                            />
+                        )}
+                    </Stack>
                 </CardContent>
             </Card>
         </Box>

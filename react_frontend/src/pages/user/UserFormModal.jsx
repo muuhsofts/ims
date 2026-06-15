@@ -1,3 +1,4 @@
+// src/pages/users/UserFormModal.js
 import React, { useState, useEffect } from 'react';
 import {
     Dialog,
@@ -9,6 +10,8 @@ import {
     MenuItem,
     Box,
     CircularProgress,
+    useMediaQuery,
+    useTheme,
 } from '@mui/material';
 import { useUsers } from "context/UserContext";
 import { roleService } from "services/role.service";
@@ -16,6 +19,9 @@ import { collectionCenterService } from "services/collection-center.service";
 import { showSnackbar } from "utils/snackbar";
 
 export default function UserFormModal({ open, onClose, user }) {
+    const theme = useTheme();
+    const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
     const { create, update } = useUsers();
     const [loading, setLoading] = useState(false);
     const [roles, setRoles] = useState([]);
@@ -33,7 +39,6 @@ export default function UserFormModal({ open, onClose, user }) {
         status: 'active',
     });
 
-    // Fetch roles and collection centers when modal opens
     useEffect(() => {
         if (!open) return;
         const fetchOptions = async () => {
@@ -63,7 +68,6 @@ export default function UserFormModal({ open, onClose, user }) {
         fetchOptions();
     }, [open]);
 
-    // Reset form when user changes
     useEffect(() => {
         if (user) {
             setForm({
@@ -136,9 +140,20 @@ export default function UserFormModal({ open, onClose, user }) {
     };
 
     return (
-        <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+        <Dialog
+            open={open}
+            onClose={onClose}
+            maxWidth="sm"
+            fullWidth
+            fullScreen={fullScreen}
+            PaperProps={{
+                sx: { borderRadius: { xs: 0, sm: 2 } }
+            }}
+        >
             <form onSubmit={handleSubmit}>
-                <DialogTitle>{user ? 'Edit User' : 'Add New User'}</DialogTitle>
+                <DialogTitle sx={{ pb: 1, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+                    {user ? 'Edit User' : 'Add New User'}
+                </DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
                         <TextField
@@ -148,6 +163,7 @@ export default function UserFormModal({ open, onClose, user }) {
                             onChange={handleChange}
                             required
                             fullWidth
+                            size="small"
                         />
                         <TextField
                             label="Email"
@@ -158,6 +174,7 @@ export default function UserFormModal({ open, onClose, user }) {
                             required
                             fullWidth
                             disabled={!!user}
+                            size="small"
                         />
                         <TextField
                             label="Phone"
@@ -165,6 +182,7 @@ export default function UserFormModal({ open, onClose, user }) {
                             value={form.phone}
                             onChange={handleChange}
                             fullWidth
+                            size="small"
                         />
 
                         <TextField
@@ -176,6 +194,7 @@ export default function UserFormModal({ open, onClose, user }) {
                             required
                             fullWidth
                             disabled={loadingOptions}
+                            size="small"
                         >
                             <MenuItem value="">Select Role</MenuItem>
                             {roles.map((role) => (
@@ -194,6 +213,7 @@ export default function UserFormModal({ open, onClose, user }) {
                             fullWidth
                             disabled={loadingOptions}
                             helperText="Assign to a collection center (required for transfer requests)"
+                            size="small"
                         >
                             <MenuItem value="">None / Unassigned</MenuItem>
                             {collectionCenters.map((cc) => (
@@ -213,6 +233,7 @@ export default function UserFormModal({ open, onClose, user }) {
                                     onChange={handleChange}
                                     required
                                     fullWidth
+                                    size="small"
                                 />
                                 <TextField
                                     label="Confirm Password"
@@ -222,6 +243,7 @@ export default function UserFormModal({ open, onClose, user }) {
                                     onChange={handleChange}
                                     required
                                     fullWidth
+                                    size="small"
                                 />
                             </>
                         )}
@@ -234,6 +256,7 @@ export default function UserFormModal({ open, onClose, user }) {
                                 value={form.status}
                                 onChange={handleChange}
                                 fullWidth
+                                size="small"
                             >
                                 <MenuItem value="active">Active</MenuItem>
                                 <MenuItem value="inactive">Inactive</MenuItem>
@@ -243,7 +266,7 @@ export default function UserFormModal({ open, onClose, user }) {
                         )}
                     </Box>
                 </DialogContent>
-                <DialogActions>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 } }}>
                     <Button onClick={onClose}>Cancel</Button>
                     <Button type="submit" variant="contained" disabled={loading || loadingOptions}>
                         {loading ? <CircularProgress size={24} /> : (user ? 'Update' : 'Create')}

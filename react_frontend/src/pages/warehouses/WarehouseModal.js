@@ -13,12 +13,17 @@ import {
     FormControl,
     InputLabel,
     Select,
+    useMediaQuery,
+    useTheme
 } from '@mui/material';
 import { showSnackbar } from 'utils/snackbar';
 import { useWarehouses } from '@/hooks/useWarehouses';
 import { userService } from 'services/user.service';
 
 export default function WarehouseModal({ open, onClose, warehouse }) {
+    const theme = useTheme();
+    const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
     const { create, update } = useWarehouses();
     const [loading, setLoading] = useState(false);
     const [users, setUsers] = useState([]);
@@ -30,7 +35,6 @@ export default function WarehouseModal({ open, onClose, warehouse }) {
         status: 'active',
     });
 
-    // Fetch users dropdown when modal opens
     useEffect(() => {
         if (!open) return;
         const fetchUsers = async () => {
@@ -52,7 +56,6 @@ export default function WarehouseModal({ open, onClose, warehouse }) {
         fetchUsers();
     }, [open]);
 
-    // Reset form when editing
     useEffect(() => {
         if (warehouse) {
             setForm({
@@ -104,9 +107,18 @@ export default function WarehouseModal({ open, onClose, warehouse }) {
     };
 
     return (
-        <Dialog open={open} onClose={() => onClose(false)} maxWidth="sm" fullWidth>
+        <Dialog
+            open={open}
+            onClose={() => onClose(false)}
+            maxWidth="sm"
+            fullWidth
+            fullScreen={fullScreen}
+            PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
+        >
             <form onSubmit={handleSubmit}>
-                <DialogTitle>{warehouse ? 'Edit Warehouse' : 'Add New Warehouse'}</DialogTitle>
+                <DialogTitle sx={{ pb: 1, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+                    {warehouse ? 'Edit Warehouse' : 'Add New Warehouse'}
+                </DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
                         <TextField
@@ -117,6 +129,7 @@ export default function WarehouseModal({ open, onClose, warehouse }) {
                             required
                             fullWidth
                             autoFocus
+                            size="small"
                         />
                         <TextField
                             label="Location"
@@ -124,8 +137,9 @@ export default function WarehouseModal({ open, onClose, warehouse }) {
                             value={form.location}
                             onChange={handleChange}
                             fullWidth
+                            size="small"
                         />
-                        <FormControl fullWidth>
+                        <FormControl fullWidth size="small">
                             <InputLabel>Manager</InputLabel>
                             <Select
                                 name="manager_id"
@@ -144,7 +158,7 @@ export default function WarehouseModal({ open, onClose, warehouse }) {
                                 ))}
                             </Select>
                         </FormControl>
-                        <FormControl fullWidth>
+                        <FormControl fullWidth size="small">
                             <InputLabel>Status</InputLabel>
                             <Select
                                 name="status"
@@ -159,7 +173,7 @@ export default function WarehouseModal({ open, onClose, warehouse }) {
                         </FormControl>
                     </Box>
                 </DialogContent>
-                <DialogActions>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 } }}>
                     <Button onClick={() => onClose(false)} disabled={loading}>Cancel</Button>
                     <Button type="submit" variant="contained" disabled={loading || loadingUsers}>
                         {loading ? <CircularProgress size={24} /> : warehouse ? 'Update' : 'Create'}

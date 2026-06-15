@@ -5,7 +5,8 @@ import {
     TextField, Button, MenuItem, Box, CircularProgress,
     FormControl, InputLabel, Select, Grid, InputAdornment,
     IconButton, Typography, Stack, Table, TableBody,
-    TableCell, TableContainer, TableHead, TableRow, Paper
+    TableCell, TableContainer, TableHead, TableRow, Paper,
+    useMediaQuery, useTheme
 } from '@mui/material';
 import {
     QrCodeScanner as ScanIcon,
@@ -21,13 +22,16 @@ import { productCategoryService } from 'services/product-category.service';
 const SCANNER_ID = 'imei-qr-reader';
 
 export default function ProductModal({ open, onClose, product }) {
+    const theme = useTheme();
+    const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
     const { create, update } = useProducts();
     const [loading, setLoading]               = useState(false);
     const [categories, setCategories]         = useState([]);
     const [loadingDropdowns, setLoadingDropdowns] = useState(false);
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [availableSkus, setAvailableSkus]   = useState([]);
-    const [imeis, setImeis]                   = useState([]);   // string[]
+    const [imeis, setImeis]                   = useState([]);
     const [manualImei, setManualImei]         = useState('');
     const [scanning, setScanning]             = useState(false);
 
@@ -40,13 +44,12 @@ export default function ProductModal({ open, onClose, product }) {
     });
 
     const html5QrRef    = useRef(null);
-    const imeisRef      = useRef([]);       // always-current list for scanner closure
+    const imeisRef      = useRef([]);
     const processingRef = useRef(false);
 
     useEffect(() => { imeisRef.current = imeis; }, [imeis]);
 
     // ── scanner ───────────────────────────────────────────────────────────────
-
     const destroyScanner = useCallback(async () => {
         if (!html5QrRef.current) return;
         try {
@@ -91,7 +94,6 @@ export default function ProductModal({ open, onClose, product }) {
             html5QrRef.current = null;
             setScanning(false);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const startScanner = useCallback(() => {
@@ -105,7 +107,6 @@ export default function ProductModal({ open, onClose, product }) {
     }, [destroyScanner]);
 
     // ── lifecycle ─────────────────────────────────────────────────────────────
-
     useEffect(() => {
         if (!open) return;
         (async () => {
@@ -141,13 +142,11 @@ export default function ProductModal({ open, onClose, product }) {
             setAvailableSkus([]);
         }
         stopScanner();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [product, categories, open]);
+    }, [product, categories, open, stopScanner]);
 
     useEffect(() => () => { destroyScanner(); }, [destroyScanner]);
 
     // ── form handlers ─────────────────────────────────────────────────────────
-
     const handleCategoryChange = (e) => {
         const catId = e.target.value;
         const cat   = categories.find(c => c.category_id === catId);
@@ -170,14 +169,12 @@ export default function ProductModal({ open, onClose, product }) {
     };
 
     const removeImei = (imei) => setImeis(prev => prev.filter(i => i !== imei));
-
     const clearAll = () => {
         setImeis([]);
         showSnackbar({ type: 'info', message: 'All IMEIs cleared' });
     };
 
     // ── submit ────────────────────────────────────────────────────────────────
-
     const handleSubmit = async (e) => {
         e.preventDefault();
 
@@ -190,7 +187,6 @@ export default function ProductModal({ open, onClose, product }) {
         setLoading(true);
         try {
             if (product) {
-                // Edit — single IMEI
                 await update(product.product_id, {
                     category_id:   form.category_id,
                     sku:           form.sku,
@@ -201,11 +197,10 @@ export default function ProductModal({ open, onClose, product }) {
                 });
                 showSnackbar({ type: 'success', message: 'Product updated' });
             } else {
-                // Bulk create — one request, same price for all IMEIs
                 await create({
                     category_id:   form.category_id,
                     sku:           form.sku,
-                    imeis:         imeis.join('\n'),   // backend splits on \n
+                    imeis:         imeis.join('\n'),
                     buying_price:  Number(form.buying_price),
                     selling_price: Number(form.selling_price),
                     status:        form.status,
@@ -220,20 +215,24 @@ export default function ProductModal({ open, onClose, product }) {
         }
     };
 
-    // ── render ────────────────────────────────────────────────────────────────
-
     return (
-        <Dialog open={open} onClose={() => onClose(false)} maxWidth="md" fullWidth>
+        <Dialog
+            open={open}
+            onClose={() => onClose(false)}
+            maxWidth="md"
+            fullWidth
+            fullScreen={fullScreen}
+            PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
+        >
             <form onSubmit={handleSubmit}>
-                <DialogTitle>
+                <DialogTitle sx={{ pb: 1, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
                     {product ? 'Edit Product' : 'Bulk Add Products'}
                 </DialogTitle>
 
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
-
-                        {/* ── Category ── */}
-                        <FormControl fullWidth required disabled={loadingDropdowns}>
+                        {/* Category */}
+                        <FormControl fullWidth required disabled={loadingDropdowns} size="small">
                             <InputLabel>Category</InputLabel>
                             <Select
                                 name="category_id"
@@ -250,7 +249,7 @@ export default function ProductModal({ open, onClose, product }) {
                             </Select>
                         </FormControl>
 
-                        {/* ── SKU ── */}
+                        {/* SKU selection */}
                         {selectedCategory && availableSkus.length > 0 && (
                             <Box sx={{ p: 1, border: '1px solid #e0e0e0', borderRadius: 1 }}>
                                 <Typography variant="subtitle2" gutterBottom>Select SKU:</Typography>
@@ -269,9 +268,9 @@ export default function ProductModal({ open, onClose, product }) {
                             </Box>
                         )}
 
-                        {/* ── Shared prices ── */}
+                        {/* Prices - responsive grid */}
                         <Grid container spacing={2}>
-                            <Grid item xs={6}>
+                            <Grid item xs={12} sm={6}>
                                 <TextField
                                     label="Buying Price (TSh)"
                                     name="buying_price"
@@ -280,11 +279,12 @@ export default function ProductModal({ open, onClose, product }) {
                                     onChange={handleChange}
                                     required
                                     fullWidth
+                                    size="small"
                                     InputProps={{ startAdornment: <InputAdornment position="start">TSh</InputAdornment> }}
                                     inputProps={{ min: 0, step: 0.01 }}
                                 />
                             </Grid>
-                            <Grid item xs={6}>
+                            <Grid item xs={12} sm={6}>
                                 <TextField
                                     label="Selling Price (TSh)"
                                     name="selling_price"
@@ -293,13 +293,14 @@ export default function ProductModal({ open, onClose, product }) {
                                     onChange={handleChange}
                                     required
                                     fullWidth
+                                    size="small"
                                     InputProps={{ startAdornment: <InputAdornment position="start">TSh</InputAdornment> }}
                                     inputProps={{ min: 0, step: 0.01 }}
                                 />
                             </Grid>
                         </Grid>
 
-                        {/* ── IMEI entry row ── */}
+                        {/* IMEI entry */}
                         <Typography variant="subtitle2">
                             IMEIs — {imeis.length} added
                             {scanning && (
@@ -309,14 +310,14 @@ export default function ProductModal({ open, onClose, product }) {
                             )}
                         </Typography>
 
-                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                             <TextField
                                 size="small"
                                 label="Manual IMEI"
                                 value={manualImei}
                                 onChange={e => setManualImei(e.target.value)}
                                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleManualAdd())}
-                                fullWidth
+                                sx={{ flex: 1 }}
                             />
                             <IconButton onClick={handleManualAdd} color="primary" title="Add IMEI">
                                 <AddIcon />
@@ -330,7 +331,7 @@ export default function ProductModal({ open, onClose, product }) {
                             </IconButton>
                         </Box>
 
-                        {/* ── Camera viewfinder ── */}
+                        {/* Camera viewfinder */}
                         {scanning && (
                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                                 <div id={SCANNER_ID} style={{ width: '100%', maxWidth: 340 }} />
@@ -340,21 +341,16 @@ export default function ProductModal({ open, onClose, product }) {
                             </Box>
                         )}
 
-                        {/* ── IMEI table ── */}
+                        {/* IMEI table - responsive overflow */}
                         {imeis.length > 0 && (
-                            <TableContainer component={Paper} variant="outlined">
+                            <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
                                 <Table size="small">
                                     <TableHead>
                                         <TableRow sx={{ bgcolor: '#f5f5f5' }}>
                                             <TableCell sx={{ fontWeight: 600, width: 40 }}>#</TableCell>
                                             <TableCell sx={{ fontWeight: 600 }}>IMEI</TableCell>
                                             <TableCell align="right">
-                                                <Button
-                                                    size="small"
-                                                    color="error"
-                                                    onClick={clearAll}
-                                                    startIcon={<DeleteIcon />}
-                                                >
+                                                <Button size="small" color="error" onClick={clearAll} startIcon={<DeleteIcon />}>
                                                     Clear All
                                                 </Button>
                                             </TableCell>
@@ -364,16 +360,11 @@ export default function ProductModal({ open, onClose, product }) {
                                         {imeis.map((imei, idx) => (
                                             <TableRow key={imei} hover>
                                                 <TableCell>{idx + 1}</TableCell>
-                                                <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.82rem' }}>
+                                                <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.82rem', wordBreak: 'break-all' }}>
                                                     {imei}
                                                 </TableCell>
                                                 <TableCell align="right">
-                                                    <IconButton
-                                                        size="small"
-                                                        color="error"
-                                                        onClick={() => removeImei(imei)}
-                                                        title="Remove"
-                                                    >
+                                                    <IconButton size="small" color="error" onClick={() => removeImei(imei)} title="Remove">
                                                         <DeleteIcon fontSize="small" />
                                                     </IconButton>
                                                 </TableCell>
@@ -384,8 +375,8 @@ export default function ProductModal({ open, onClose, product }) {
                             </TableContainer>
                         )}
 
-                        {/* ── Status ── */}
-                        <FormControl fullWidth>
+                        {/* Status */}
+                        <FormControl fullWidth size="small">
                             <InputLabel>Status</InputLabel>
                             <Select name="status" value={form.status} label="Status" onChange={handleChange}>
                                 <MenuItem value="active">Active</MenuItem>
@@ -394,16 +385,13 @@ export default function ProductModal({ open, onClose, product }) {
                                 <MenuItem value="damaged">Damaged</MenuItem>
                             </Select>
                         </FormControl>
-
                     </Box>
                 </DialogContent>
 
-                <DialogActions>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 } }}>
                     <Button onClick={() => onClose(false)} disabled={loading}>Cancel</Button>
                     <Button type="submit" variant="contained" disabled={loading || loadingDropdowns}>
-                        {loading
-                            ? <CircularProgress size={24} />
-                            : product ? 'Update' : `Create ${imeis.length} Product(s)`}
+                        {loading ? <CircularProgress size={24} /> : product ? 'Update' : `Create ${imeis.length} Product(s)`}
                     </Button>
                 </DialogActions>
             </form>

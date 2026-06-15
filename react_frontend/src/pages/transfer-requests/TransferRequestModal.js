@@ -1,9 +1,11 @@
+// src/pages/transfer-requests/TransferRequestModal.js
 import React, { useState, useEffect } from 'react';
 import {
     Dialog, DialogTitle, DialogContent, DialogActions,
     TextField, Button, Box, CircularProgress,
     Typography, IconButton, Chip, Stack,
-    FormControl, InputLabel, Select, MenuItem, Checkbox
+    FormControl, InputLabel, Select, MenuItem, Checkbox,
+    useMediaQuery, useTheme
 } from '@mui/material';
 import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { showSnackbar } from 'utils/snackbar';
@@ -12,6 +14,9 @@ import { usePermission } from '@/hooks/usePermission';
 import { productCategoryService } from 'services/product-category.service';
 
 export default function TransferRequestModal({ open, onClose }) {
+    const theme = useTheme();
+    const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
     const { user } = usePermission();
     const { create } = useTransferRequests();
     const [loading, setLoading] = useState(false);
@@ -106,8 +111,8 @@ export default function TransferRequestModal({ open, onClose }) {
 
         const payload = {
             requested_items: validItems.map(item => ({
-                category_id: item.category_id,           // ✅ send ID instead of name
-                category_name: item.category_name,       // keep for display (backend may ignore)
+                category_id: item.category_id,
+                category_name: item.category_name,
                 model: item.model || undefined,
                 skus: item.skus,
                 description: item.description || undefined,
@@ -129,9 +134,16 @@ export default function TransferRequestModal({ open, onClose }) {
     };
 
     return (
-        <Dialog open={open} onClose={() => onClose(false)} maxWidth="md" fullWidth>
+        <Dialog
+            open={open}
+            onClose={() => onClose(false)}
+            maxWidth="md"
+            fullWidth
+            fullScreen={fullScreen}
+            PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
+        >
             <form onSubmit={handleSubmit}>
-                <DialogTitle>
+                <DialogTitle sx={{ pb: 1, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
                     New Transfer Request
                     {user && (
                         <Typography variant="caption" display="block" color="textSecondary">
@@ -228,7 +240,7 @@ export default function TransferRequestModal({ open, onClose }) {
                                 </Box>
                             );
                         })}
-                        <Button startIcon={<AddIcon />} onClick={addItem} variant="outlined" size="small">
+                        <Button startIcon={<AddIcon />} onClick={addItem} variant="outlined" size="small" fullWidth={fullScreen}>
                             Add Another Item
                         </Button>
                         <TextField
@@ -238,10 +250,11 @@ export default function TransferRequestModal({ open, onClose }) {
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}
                             fullWidth
+                            size="small"
                         />
                     </Box>
                 </DialogContent>
-                <DialogActions>
+                <DialogActions sx={{ p: { xs: 2, sm: 3 } }}>
                     <Button onClick={() => onClose(false)} disabled={loading}>Cancel</Button>
                     <Button type="submit" variant="contained" disabled={loading || loadingCategories}>
                         {loading ? <CircularProgress size={24} /> : 'Create Request'}
