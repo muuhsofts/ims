@@ -1,20 +1,7 @@
 // src/pages/suppliers/SupplierList.js
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-    Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-    IconButton, InputAdornment, Menu, MenuItem, Paper, Table,
-    TableBody, TableCell, TableContainer, TableHead, TablePagination,
-    TableRow, TextField, Typography, CircularProgress, Switch, FormControlLabel,
-    Card, CardContent, Divider, useMediaQuery, useTheme
-} from '@mui/material';
-import {
-    Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
-    Delete as DeleteIcon, Refresh as RefreshIcon, Search as SearchIcon,
-    Restore as RestoreIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon,
-    DeleteSweep as ForceDeleteIcon, Business as SupplierIcon,
-    Person as PersonIcon, Phone as PhoneIcon, Email as EmailIcon,
-    CalendarToday as CalendarIcon
-} from '@mui/icons-material';
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Switch, FormControlLabel, Card, CardContent, Divider, useMediaQuery, useTheme } from '@mui/material';
+import { Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon, Refresh as RefreshIcon, Search as SearchIcon, Restore as RestoreIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon, Business as SupplierIcon, Person as PersonIcon, Phone as PhoneIcon, Email as EmailIcon, CalendarToday as CalendarIcon } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { useSuppliers } from '@/hooks/useSuppliers';
@@ -39,12 +26,10 @@ export default function SupplierList() {
     const canView = hasPermission('suppliers.view');
     const canCreate = hasPermission('suppliers.create');
     const canEdit = hasPermission('suppliers.edit');
-    const canDelete = hasPermission('suppliers.delete');
     const canRestore = hasPermission('suppliers.restore');
-    const canForceDelete = hasPermission('suppliers.force_delete');
     const canChangeStatus = hasPermission('suppliers.change_status');
 
-    const { data, total, loading, fetchData, remove, restore, forceDelete, changeStatus } = useSuppliers();
+    const { data, total, loading, fetchData, restore, changeStatus } = useSuppliers();
 
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
@@ -86,33 +71,10 @@ export default function SupplierList() {
         setSelectedSupplier(null);
     };
 
-    // Direct handlers for card view (pass supplier object directly)
+    // Direct handlers for card view
     const handleEditSupplier = (supplier) => {
         setEditingSupplier(supplier);
         setModalOpen(true);
-        if (actionMenu) handleMenuClose();
-    };
-
-    const handleDeleteSupplier = (supplier) => {
-        const supplierId = supplier.supplier_id;
-        if (!supplierId) {
-            showSnackbar({ type: 'error', message: 'Supplier ID missing' });
-            return;
-        }
-        setConfirmDialog({
-            open: true,
-            title: 'Delete Supplier',
-            message: `Are you sure you want to delete "${supplier.supplier_name}"? (Soft delete)`,
-            action: async () => {
-                try {
-                    await remove(supplierId);
-                    showSnackbar({ type: 'success', message: 'Supplier deleted successfully' });
-                    fetchSuppliers();
-                } catch (err) {
-                    showSnackbar({ type: 'error', message: err.message || 'Delete failed' });
-                }
-            }
-        });
         if (actionMenu) handleMenuClose();
     };
 
@@ -130,26 +92,6 @@ export default function SupplierList() {
                     fetchSuppliers();
                 } catch (err) {
                     showSnackbar({ type: 'error', message: err.message || 'Restore failed' });
-                }
-            }
-        });
-        if (actionMenu) handleMenuClose();
-    };
-
-    const handleForceDeleteSupplier = (supplier) => {
-        const supplierId = supplier.supplier_id;
-        if (!supplierId) return;
-        setConfirmDialog({
-            open: true,
-            title: 'Permanently Delete Supplier',
-            message: `Are you sure you want to permanently delete "${supplier.supplier_name}"? This cannot be undone.`,
-            action: async () => {
-                try {
-                    await forceDelete(supplierId);
-                    showSnackbar({ type: 'success', message: 'Supplier permanently deleted' });
-                    fetchSuppliers();
-                } catch (err) {
-                    showSnackbar({ type: 'error', message: err.message || 'Force delete failed' });
                 }
             }
         });
@@ -175,19 +117,15 @@ export default function SupplierList() {
         if (actionMenu) handleMenuClose();
     };
 
-    // Wrappers for table view (using selectedSupplier state)
+    // Wrappers for table view
     const handleEditFromTable = () => {
         if (selectedSupplier) handleEditSupplier(selectedSupplier);
     };
-    const handleDeleteFromTable = () => {
-        if (selectedSupplier) handleDeleteSupplier(selectedSupplier);
-    };
+
     const handleRestoreFromTable = () => {
         if (selectedSupplier) handleRestoreSupplier(selectedSupplier);
     };
-    const handleForceDeleteFromTable = () => {
-        if (selectedSupplier) handleForceDeleteSupplier(selectedSupplier);
-    };
+
     const handleToggleStatusFromTable = () => {
         if (selectedSupplier) handleToggleStatusSupplier(selectedSupplier);
     };
@@ -215,9 +153,8 @@ export default function SupplierList() {
     const suppliers = Array.isArray(data) ? data : [];
 
     // Card component for mobile/tablet view
-    const SupplierCard = ({ supplier, canEdit, canChangeStatus, canDelete, canRestore, canForceDelete, onEdit, onDelete, onRestore, onForceDelete, onToggleStatus }) => {
+    const SupplierCard = ({ supplier, canEdit, canChangeStatus, canRestore, onEdit, onRestore, onToggleStatus }) => {
         const isDeleted = !!supplier.deleted_at;
-
         return (
             <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
                 <CardContent sx={{ p: 2 }}>
@@ -238,9 +175,7 @@ export default function SupplierList() {
                             />
                         )}
                     </Box>
-
                     <Divider sx={{ my: 1 }} />
-
                     {supplier.contact_person && (
                         <Box display="flex" alignItems="center" gap={1} mb={1}>
                             <PersonIcon fontSize="small" color="action" />
@@ -259,16 +194,13 @@ export default function SupplierList() {
                             <Typography variant="body2"><strong>Email:</strong> {supplier.email}</Typography>
                         </Box>
                     )}
-
                     <Box display="flex" alignItems="center" gap={1} mb={2}>
                         <CalendarIcon fontSize="small" color="action" />
                         <Typography variant="caption" color="text.secondary">
                             Created: {new Date(supplier.created_at).toLocaleString()}
                         </Typography>
                     </Box>
-
                     <Divider sx={{ my: 1.5 }} />
-
                     <Box display="flex" flexDirection="column" gap={1}>
                         {!isDeleted && canEdit && (
                             <Button fullWidth variant="outlined" startIcon={<EditIcon />} onClick={() => onEdit(supplier)}>
@@ -289,16 +221,6 @@ export default function SupplierList() {
                         {isDeleted && canRestore && (
                             <Button fullWidth variant="outlined" color="success" startIcon={<RestoreIcon />} onClick={() => onRestore(supplier)}>
                                 Restore
-                            </Button>
-                        )}
-                        {isDeleted && canForceDelete && (
-                            <Button fullWidth variant="outlined" color="error" startIcon={<ForceDeleteIcon />} onClick={() => onForceDelete(supplier)}>
-                                Permanently Delete
-                            </Button>
-                        )}
-                        {!isDeleted && canDelete && (
-                            <Button fullWidth variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => onDelete(supplier)}>
-                                Delete
                             </Button>
                         )}
                     </Box>
@@ -340,7 +262,9 @@ export default function SupplierList() {
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>
+                            }}
                             sx={{ flex: 1, minWidth: { xs: '100%', sm: 250 } }}
                         />
                         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchSuppliers} fullWidth={isMobile}>
@@ -409,13 +333,9 @@ export default function SupplierList() {
                                     supplier={supplier}
                                     canEdit={canEdit}
                                     canChangeStatus={canChangeStatus}
-                                    canDelete={canDelete}
                                     canRestore={canRestore}
-                                    canForceDelete={canForceDelete}
                                     onEdit={handleEditSupplier}
-                                    onDelete={handleDeleteSupplier}
                                     onRestore={handleRestoreSupplier}
-                                    onForceDelete={handleForceDeleteSupplier}
                                     onToggleStatus={handleToggleStatusSupplier}
                                 />
                             ))
@@ -436,11 +356,7 @@ export default function SupplierList() {
                             setRowsPerPage(parseInt(e.target.value, 10));
                             setPage(0);
                         }}
-                        sx={{
-                            '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
-                                fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                            }
-                        }}
+                        sx={{ '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': { fontSize: { xs: '0.75rem', sm: '0.875rem' } } }}
                     />
                 </Box>
             </Paper>
@@ -461,12 +377,6 @@ export default function SupplierList() {
                 )}
                 {selectedSupplier && selectedSupplier.deleted_at && canRestore && (
                     <MenuItem onClick={handleRestoreFromTable}><RestoreIcon sx={{ mr: 1, color: 'success.main' }} /> Restore</MenuItem>
-                )}
-                {selectedSupplier && selectedSupplier.deleted_at && canForceDelete && (
-                    <MenuItem onClick={handleForceDeleteFromTable} sx={{ color: 'error.main' }}><ForceDeleteIcon sx={{ mr: 1 }} /> Permanently Delete</MenuItem>
-                )}
-                {selectedSupplier && !selectedSupplier.deleted_at && canDelete && (
-                    <MenuItem onClick={handleDeleteFromTable} sx={{ color: 'error.main' }}><DeleteIcon sx={{ mr: 1 }} /> Delete</MenuItem>
                 )}
             </Menu>
 

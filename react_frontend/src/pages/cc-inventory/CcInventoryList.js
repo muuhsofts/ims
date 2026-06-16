@@ -1,18 +1,7 @@
 // src/pages/cc-inventory/CcInventoryList.js
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-    Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-    IconButton, InputAdornment, Menu, MenuItem, Paper, Table,
-    TableBody, TableCell, TableContainer, TableHead, TablePagination,
-    TableRow, TextField, Typography, CircularProgress, LinearProgress,
-    Card, CardContent, Divider, Grid, useMediaQuery, useTheme
-} from '@mui/material';
-import {
-    Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
-    Delete as DeleteIcon, Refresh as RefreshIcon, Search as SearchIcon,
-    Visibility as ViewIcon, Receipt as ReceiptIcon, Store as StoreIcon,
-    Inventory as InventoryIcon, QrCode as ImeiIcon
-} from '@mui/icons-material';
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, LinearProgress, Card, CardContent, Divider, Grid, useMediaQuery, useTheme } from '@mui/material';
+import { Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon, Refresh as RefreshIcon, Search as SearchIcon, Visibility as ViewIcon, Receipt as ReceiptIcon, Store as StoreIcon, Inventory as InventoryIcon, QrCode as ImeiIcon } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { useCcInventory } from '@/hooks/useCcInventory';
@@ -27,8 +16,8 @@ const headCells = [
     { id: 'actions', label: 'Actions', disableSort: true },
 ];
 
-// Improved Card component for mobile – all details centred and fully visible
-const InventoryCard = ({ inventory, canEdit, canDelete, canConfirmReceipt, isOwnedByUser, onEdit, onDelete, onConfirmReceipt, onViewProducts }) => {
+// Improved Card component for mobile
+const InventoryCard = ({ inventory, canEdit, canConfirmReceipt, isOwnedByUser, onEdit, onConfirmReceipt, onViewProducts }) => {
     const getStatusChip = (status) => {
         if (!status) return <Chip label="Pending" size="small" color="warning" />;
         if (status === 'arrived') return <Chip label="Arrived" size="small" color="success" />;
@@ -36,7 +25,6 @@ const InventoryCard = ({ inventory, canEdit, canDelete, canConfirmReceipt, isOwn
         return <Chip label={status} size="small" />;
     };
 
-    // Format product string for display (used in list)
     const formatProductString = (product) => {
         const name = product.product_name || 'N/A';
         const imei = product.imei || 'N/A';
@@ -56,7 +44,6 @@ const InventoryCard = ({ inventory, canEdit, canDelete, canConfirmReceipt, isOwn
                     </Box>
                     {getStatusChip(inventory.cc_inventory_status)}
                 </Box>
-
                 <Divider sx={{ my: 1 }} />
 
                 {/* Quantity */}
@@ -67,7 +54,7 @@ const InventoryCard = ({ inventory, canEdit, canDelete, canConfirmReceipt, isOwn
                     </Typography>
                 </Box>
 
-                {/* Products list – full list, scrollable if many */}
+                {/* Products list */}
                 <Typography variant="body2" fontWeight="bold" gutterBottom>
                     Products ({inventory.products?.length || 0}):
                 </Typography>
@@ -87,10 +74,9 @@ const InventoryCard = ({ inventory, canEdit, canDelete, canConfirmReceipt, isOwn
                 <Typography variant="caption" color="text.secondary" display="block" mb={1}>
                     Created: {new Date(inventory.created_at).toLocaleString()}
                 </Typography>
-
                 <Divider sx={{ my: 1.5 }} />
 
-                {/* Action buttons – centred, full width on mobile */}
+                {/* Action buttons */}
                 <Box display="flex" flexDirection="column" gap={1}>
                     {inventory.products && inventory.products.length > 0 && (
                         <Button fullWidth variant="outlined" startIcon={<ViewIcon />} onClick={() => onViewProducts(inventory.products)}>
@@ -107,11 +93,6 @@ const InventoryCard = ({ inventory, canEdit, canDelete, canConfirmReceipt, isOwn
                             Edit
                         </Button>
                     )}
-                    {canDelete && (
-                        <Button fullWidth variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => onDelete(inventory)}>
-                            Delete
-                        </Button>
-                    )}
                 </Box>
             </CardContent>
         </Card>
@@ -121,16 +102,15 @@ const InventoryCard = ({ inventory, canEdit, canDelete, canConfirmReceipt, isOwn
 export default function CcInventoryList() {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-    const showTableView = useMediaQuery(theme.breakpoints.up('md')); // Table on medium and up
+    const showTableView = useMediaQuery(theme.breakpoints.up('md'));
 
     const { user, hasPermission } = usePermission();
     const canView = hasPermission('cc_inventory.view') || hasPermission('cc_inventory.view_own');
     const canCreate = hasPermission('cc_inventory.create');
     const canEdit = hasPermission('cc_inventory.edit');
-    const canDelete = hasPermission('cc_inventory.delete');
     const canConfirmReceipt = hasPermission('collection_center.confirm_receipt');
 
-    const { data, total, loading, fetchData, remove, confirmReceiptById } = useCcInventory();
+    const { data, total, loading, fetchData, confirmReceiptById } = useCcInventory();
 
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
@@ -141,17 +121,10 @@ export default function CcInventoryList() {
     const [selectedInventory, setSelectedInventory] = useState(null);
     const [itemsDialogOpen, setItemsDialogOpen] = useState(false);
     const [selectedProducts, setSelectedProducts] = useState([]);
-
     const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
     const [inventoryToConfirm, setInventoryToConfirm] = useState(null);
     const [progressOpen, setProgressOpen] = useState(false);
     const [progressValue, setProgressValue] = useState(0);
-    const [deleteConfirmDialog, setDeleteConfirmDialog] = useState({
-        open: false,
-        title: '',
-        message: '',
-        action: null,
-    });
 
     const fetchInventories = useCallback(() => {
         if (!canView) return;
@@ -189,20 +162,6 @@ export default function CcInventoryList() {
         handleMenuClose();
     };
 
-    const handleDelete = () => {
-        setDeleteConfirmDialog({
-            open: true,
-            title: 'Delete Inventory',
-            message: `Delete inventory for "${selectedInventory?.collection_center?.cc_name}"?`,
-            action: async () => {
-                await remove(selectedInventory.cc_inventory_id);
-                showSnackbar({ type: 'success', message: 'Inventory deleted' });
-                fetchInventories();
-            }
-        });
-        handleMenuClose();
-    };
-
     const handleConfirmReceiptClick = (inventory) => {
         setInventoryToConfirm(inventory);
         setConfirmDialogOpen(true);
@@ -211,7 +170,6 @@ export default function CcInventoryList() {
 
     const handleConfirmReceipt = async () => {
         if (!inventoryToConfirm) return;
-
         setConfirmDialogOpen(false);
         setProgressOpen(true);
         setProgressValue(0);
@@ -248,16 +206,6 @@ export default function CcInventoryList() {
         setModalOpen(false);
         setEditingInventory(null);
         if (refresh) fetchInventories();
-    };
-
-    const handleDeleteConfirm = async () => {
-        if (!deleteConfirmDialog.action) return;
-        setDeleteConfirmDialog(prev => ({ ...prev, open: false }));
-        try {
-            await deleteConfirmDialog.action();
-        } catch (err) {
-            showSnackbar({ type: 'error', message: err.message || 'Action failed' });
-        }
     };
 
     if (!canView) {
@@ -304,7 +252,9 @@ export default function CcInventoryList() {
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>
+                            }}
                             sx={{ flex: 1, minWidth: { xs: '100%', sm: 250 } }}
                         />
                         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchInventories} fullWidth={isMobile}>
@@ -315,7 +265,6 @@ export default function CcInventoryList() {
 
                 {/* Table or Card View */}
                 {showTableView ? (
-                    // Desktop Table View (unchanged)
                     <TableContainer sx={{ overflowX: 'auto' }}>
                         <Table sx={{ minWidth: 800 }}>
                             <TableHead>
@@ -370,7 +319,7 @@ export default function CcInventoryList() {
                         </Table>
                     </TableContainer>
                 ) : (
-                    // Mobile/Tablet Card View (improved)
+                    // Mobile/Tablet Card View
                     <Box sx={{ p: { xs: 2, sm: 3 } }}>
                         {loading ? (
                             <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
@@ -382,11 +331,12 @@ export default function CcInventoryList() {
                                     key={inv.cc_inventory_id}
                                     inventory={inv}
                                     canEdit={canEdit}
-                                    canDelete={canDelete}
                                     canConfirmReceipt={canConfirmReceipt}
                                     isOwnedByUser={isOwnedByUser(inv)}
-                                    onEdit={() => { setEditingInventory(inv); setModalOpen(true); }}
-                                    onDelete={() => { setSelectedInventory(inv); handleDelete(); }}
+                                    onEdit={() => {
+                                        setEditingInventory(inv);
+                                        setModalOpen(true);
+                                    }}
                                     onConfirmReceipt={handleConfirmReceiptClick}
                                     onViewProducts={handleViewProducts}
                                 />
@@ -408,32 +358,21 @@ export default function CcInventoryList() {
                             setRowsPerPage(parseInt(e.target.value, 10));
                             setPage(0);
                         }}
-                        sx={{
-                            '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
-                                fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                            }
-                        }}
+                        sx={{ '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': { fontSize: { xs: '0.75rem', sm: '0.875rem' } } }}
                     />
                 </Box>
             </Paper>
 
             {/* Action Menu (only for table view) */}
             <Menu anchorEl={actionMenu} open={Boolean(actionMenu)} onClose={handleMenuClose}>
-                {canConfirmReceipt &&
-                    selectedInventory?.cc_inventory_status !== 'arrived' &&
-                    isOwnedByUser(selectedInventory) && (
-                        <MenuItem onClick={() => handleConfirmReceiptClick(selectedInventory)}>
-                            <ReceiptIcon sx={{ mr: 1 }} /> Confirm Receipt
-                        </MenuItem>
-                    )}
+                {canConfirmReceipt && selectedInventory?.cc_inventory_status !== 'arrived' && isOwnedByUser(selectedInventory) && (
+                    <MenuItem onClick={() => handleConfirmReceiptClick(selectedInventory)}>
+                        <ReceiptIcon sx={{ mr: 1 }} /> Confirm Receipt
+                    </MenuItem>
+                )}
                 {canEdit && (
                     <MenuItem onClick={handleEdit}>
                         <EditIcon sx={{ mr: 1 }} /> Edit
-                    </MenuItem>
-                )}
-                {canDelete && (
-                    <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>
-                        <DeleteIcon sx={{ mr: 1 }} /> Delete
                     </MenuItem>
                 )}
             </Menu>
@@ -505,18 +444,6 @@ export default function CcInventoryList() {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setItemsDialogOpen(false)}>Close</Button>
-                </DialogActions>
-            </Dialog>
-
-            {/* Delete Confirmation Dialog */}
-            <Dialog open={deleteConfirmDialog.open} onClose={() => setDeleteConfirmDialog(prev => ({ ...prev, open: false }))} fullWidth maxWidth="xs">
-                <DialogTitle sx={{ pb: 1 }}>{deleteConfirmDialog.title}</DialogTitle>
-                <DialogContent>
-                    <Typography>{deleteConfirmDialog.message}</Typography>
-                </DialogContent>
-                <DialogActions sx={{ p: 2, pt: 0 }}>
-                    <Button onClick={() => setDeleteConfirmDialog(prev => ({ ...prev, open: false }))}>Cancel</Button>
-                    <Button onClick={handleDeleteConfirm} color="error" variant="contained">Confirm</Button>
                 </DialogActions>
             </Dialog>
         </Box>

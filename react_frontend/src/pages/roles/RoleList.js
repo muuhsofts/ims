@@ -1,18 +1,7 @@
 // src/pages/roles/RoleList.js
 import React, { useState, useEffect } from 'react';
-import {
-    Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-    IconButton, InputAdornment, Menu, MenuItem, Paper, Table,
-    TableBody, TableCell, TableContainer, TableHead, TablePagination,
-    TableRow, TextField, Typography, useTheme, useMediaQuery, Card, CardContent,
-    Divider, CircularProgress
-} from '@mui/material';
-import {
-    Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon,
-    Refresh as RefreshIcon, Search as SearchIcon, MoreVert as MoreVertIcon,
-    VpnKey as PermissionsIcon, Shield as ShieldIcon, Description as DescriptionIcon
-} from '@mui/icons-material';
-
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, useTheme, useMediaQuery, Card, CardContent, Divider, CircularProgress } from '@mui/material';
+import { Add as AddIcon, Edit as EditIcon, Refresh as RefreshIcon, Search as SearchIcon, MoreVert as MoreVertIcon, VpnKey as PermissionsIcon, Shield as ShieldIcon, Description as DescriptionIcon } from '@mui/icons-material';
 import RoleFormModal from './RoleFormModal';
 import RolePermissionsModal from './RolePermissionsModal';
 import { showSnackbar } from 'utils/snackbar';
@@ -36,31 +25,21 @@ export default function RoleList() {
     const canView = hasPermission('roles.view');
     const canCreate = hasPermission('roles.create');
     const canEdit = hasPermission('roles.edit');
-    const canDelete = hasPermission('roles.delete');
     const canAssignPermissions = hasPermission('roles.assign_permissions');
 
     const [roles, setRoles] = useState([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
-
     const [openFormModal, setOpenFormModal] = useState(false);
     const [editingRole, setEditingRole] = useState(null);
     const [openPermissionsModal, setOpenPermissionsModal] = useState(false);
     const [selectedRoleForPermissions, setSelectedRoleForPermissions] = useState(null);
-
     const [actionMenu, setActionMenu] = useState(null);
     const [selectedRole, setSelectedRole] = useState(null);
-
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(10);
-
-    const [confirmDialog, setConfirmDialog] = useState({
-        open: false,
-        title: '',
-        message: '',
-        action: null,
-    });
+    const [confirmDialog, setConfirmDialog] = useState({ open: false, title: '', message: '', action: null });
 
     const fetchRoles = async () => {
         setLoading(true);
@@ -68,7 +47,7 @@ export default function RoleList() {
             const response = await roleService.getRoles({
                 page: page + 1,
                 per_page: rowsPerPage,
-                search: search || undefined,
+                search: search || undefined
             });
             if (response.data?.success) {
                 const data = response.data.data;
@@ -101,20 +80,6 @@ export default function RoleList() {
 
     const openConfirmDialog = (title, message, actionFn) => {
         setConfirmDialog({ open: true, title, message, action: actionFn });
-    };
-
-    const handleDelete = async () => {
-        if (!selectedRole) return;
-        handleMenuClose();
-        openConfirmDialog(
-            'Delete Role',
-            `Are you sure you want to delete "${selectedRole.display_name}"?`,
-            async () => {
-                await roleService.deleteRole(selectedRole.id);
-                showSnackbar({ type: 'success', message: 'Role deleted' });
-                fetchRoles();
-            }
-        );
     };
 
     const handleEdit = () => {
@@ -180,11 +145,9 @@ export default function RoleList() {
                         <MoreVertIcon fontSize="small" />
                     </IconButton>
                 </Box>
-
                 <Typography variant="body1" fontWeight="medium" sx={{ mb: 0.5 }}>
                     {role.display_name}
                 </Typography>
-
                 {role.description && (
                     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1 }}>
                         <DescriptionIcon fontSize="small" color="action" sx={{ mt: 0.2 }} />
@@ -193,9 +156,7 @@ export default function RoleList() {
                         </Typography>
                     </Box>
                 )}
-
                 <Divider sx={{ my: 1 }} />
-
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <ShieldIcon fontSize="small" color="action" />
                     <Typography variant="caption" color="text.secondary">
@@ -227,14 +188,15 @@ export default function RoleList() {
                             </Button>
                         )}
                     </Box>
-
                     <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
                         <TextField
                             label="Search"
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>
+                            }}
                             sx={{ minWidth: { xs: '100%', sm: 250 }, flexGrow: { xs: 1, sm: 0 } }}
                         />
                         <Button
@@ -324,9 +286,6 @@ export default function RoleList() {
                         sx={{
                             '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
                                 fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                            },
-                            '.MuiTablePagination-actions': {
-                                ml: { xs: 0, sm: 1 }
                             }
                         }}
                     />
@@ -351,21 +310,12 @@ export default function RoleList() {
                         <PermissionsIcon sx={{ mr: 1, fontSize: 20 }} /> Assign Permissions
                     </MenuItem>
                 )}
-                {canDelete && (
-                    <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>
-                        <DeleteIcon sx={{ mr: 1, fontSize: 20 }} /> Delete
-                    </MenuItem>
-                )}
             </Menu>
 
             {/* Modals */}
             <RoleFormModal open={openFormModal} onClose={handleFormModalClose} role={editingRole} />
             {selectedRoleForPermissions && (
-                <RolePermissionsModal
-                    open={openPermissionsModal}
-                    onClose={handlePermissionsModalClose}
-                    role={selectedRoleForPermissions}
-                />
+                <RolePermissionsModal open={openPermissionsModal} onClose={handlePermissionsModalClose} role={selectedRoleForPermissions} />
             )}
 
             {/* Confirmation Dialog */}
@@ -374,9 +324,6 @@ export default function RoleList() {
                 onClose={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
                 fullWidth
                 maxWidth="xs"
-                PaperProps={{
-                    sx: { m: { xs: 2, sm: 0 }, borderRadius: { xs: 2, sm: 1 } }
-                }}
             >
                 <DialogTitle sx={{ pb: 1 }}>{confirmDialog.title}</DialogTitle>
                 <DialogContent>

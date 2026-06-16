@@ -9,7 +9,7 @@ import {
 } from '@mui/material';
 import {
     Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
-    Delete as DeleteIcon, Refresh as RefreshIcon, Search as SearchIcon, Restore as RestoreIcon,
+    Refresh as RefreshIcon, Search as SearchIcon, Restore as RestoreIcon,
     Store as CenterIcon, LocationOn as LocationIcon, Person as PersonIcon,
     CalendarToday as CalendarIcon
 } from '@mui/icons-material';
@@ -36,10 +36,10 @@ export default function CollectionCenterList() {
     const canView = hasPermission('collection_centers.view');
     const canCreate = hasPermission('collection_centers.create');
     const canEdit = hasPermission('collection_centers.edit');
-    const canDelete = hasPermission('collection_centers.delete');
     const canRestore = hasPermission('collection_centers.restore');
 
-    const { data, total, loading, fetchData, remove, restore } = useCollectionCenters();
+    // Delete permission removed; we no longer import or use 'remove'
+    const { data, total, loading, fetchData, restore } = useCollectionCenters();
 
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
@@ -88,29 +88,6 @@ export default function CollectionCenterList() {
         if (actionMenu) handleMenuClose();
     };
 
-    const handleDeleteCenter = (center) => {
-        const centerId = center.cc_id;
-        if (!centerId) {
-            showSnackbar({ type: 'error', message: 'Center ID missing' });
-            return;
-        }
-        setConfirmDialog({
-            open: true,
-            title: 'Delete Center',
-            message: `Are you sure you want to delete "${center.cc_name}"? (Soft delete)`,
-            action: async () => {
-                try {
-                    await remove(centerId);
-                    showSnackbar({ type: 'success', message: 'Center deleted successfully' });
-                    fetchCenters();
-                } catch (err) {
-                    showSnackbar({ type: 'error', message: err.message || 'Delete failed' });
-                }
-            }
-        });
-        if (actionMenu) handleMenuClose();
-    };
-
     const handleRestoreCenter = (center) => {
         const centerId = center.cc_id;
         if (!centerId) return;
@@ -134,9 +111,6 @@ export default function CollectionCenterList() {
     // Wrappers for table view (using selectedCenter state)
     const handleEditFromTable = () => {
         if (selectedCenter) handleEditCenter(selectedCenter);
-    };
-    const handleDeleteFromTable = () => {
-        if (selectedCenter) handleDeleteCenter(selectedCenter);
     };
     const handleRestoreFromTable = () => {
         if (selectedCenter) handleRestoreCenter(selectedCenter);
@@ -164,8 +138,8 @@ export default function CollectionCenterList() {
 
     const centers = Array.isArray(data) ? data : [];
 
-    // Card component for mobile/tablet view
-    const CenterCard = ({ center, canEdit, canDelete, canRestore, onEdit, onDelete, onRestore }) => {
+    // Card component for mobile/tablet view (no delete button)
+    const CenterCard = ({ center, canEdit, canRestore, onEdit, onRestore }) => {
         const isDeleted = !!center.deleted_at;
 
         return (
@@ -224,11 +198,7 @@ export default function CollectionCenterList() {
                                 Restore
                             </Button>
                         )}
-                        {!isDeleted && canDelete && (
-                            <Button fullWidth variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => onDelete(center)}>
-                                Delete
-                            </Button>
-                        )}
+                        {/* Delete button omitted */}
                     </Box>
                 </CardContent>
             </Card>
@@ -335,10 +305,8 @@ export default function CollectionCenterList() {
                                     key={center.cc_id}
                                     center={center}
                                     canEdit={canEdit}
-                                    canDelete={canDelete}
                                     canRestore={canRestore}
                                     onEdit={handleEditCenter}
-                                    onDelete={handleDeleteCenter}
                                     onRestore={handleRestoreCenter}
                                 />
                             ))
@@ -376,14 +344,12 @@ export default function CollectionCenterList() {
                 {selectedCenter && selectedCenter.deleted_at && canRestore && (
                     <MenuItem onClick={handleRestoreFromTable}><RestoreIcon sx={{ mr: 1, color: 'success.main' }} /> Restore</MenuItem>
                 )}
-                {selectedCenter && !selectedCenter.deleted_at && canDelete && (
-                    <MenuItem onClick={handleDeleteFromTable} sx={{ color: 'error.main' }}><DeleteIcon sx={{ mr: 1 }} /> Delete</MenuItem>
-                )}
+                {/* Delete menu item removed */}
             </Menu>
 
             <CollectionCenterModal open={modalOpen} onClose={handleModalClose} center={editingCenter} />
 
-            {/* Confirm Dialog */}
+            {/* Confirm Dialog (only used for restore now) */}
             <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog((prev) => ({ ...prev, open: false }))} fullWidth maxWidth="xs">
                 <DialogTitle sx={{ pb: 1 }}>{confirmDialog.title}</DialogTitle>
                 <DialogContent><Typography>{confirmDialog.message}</Typography></DialogContent>

@@ -1,19 +1,7 @@
 // src/pages/warehouses/WarehouseList.js
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-    Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-    IconButton, InputAdornment, Menu, MenuItem, Paper, Table,
-    TableBody, TableCell, TableContainer, TableHead, TablePagination,
-    TableRow, TextField, Typography, CircularProgress, Switch, FormControlLabel,
-    Card, CardContent, Divider, useMediaQuery, useTheme
-} from '@mui/material';
-import {
-    Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
-    Delete as DeleteIcon, Refresh as RefreshIcon, Search as SearchIcon,
-    Restore as RestoreIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon,
-    Warehouse as WarehouseIcon, LocationOn as LocationIcon,
-    Person as PersonIcon, CalendarToday as CalendarIcon
-} from '@mui/icons-material';
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Switch, FormControlLabel, Card, CardContent, Divider, useMediaQuery, useTheme } from '@mui/material';
+import { Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon, Refresh as RefreshIcon, Search as SearchIcon, Restore as RestoreIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon, Warehouse as WarehouseIcon, LocationOn as LocationIcon, Person as PersonIcon, CalendarToday as CalendarIcon } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { useWarehouses } from '@/hooks/useWarehouses';
@@ -37,11 +25,10 @@ export default function WarehouseList() {
     const canView = hasPermission('warehouses.view');
     const canCreate = hasPermission('warehouses.create');
     const canEdit = hasPermission('warehouses.edit');
-    const canDelete = hasPermission('warehouses.delete');
     const canRestore = hasPermission('warehouses.restore');
     const canChangeStatus = hasPermission('warehouses.change_status');
 
-    const { data, total, loading, fetchData, remove, restore, changeStatus } = useWarehouses();
+    const { data, total, loading, fetchData, restore, changeStatus } = useWarehouses();
 
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
@@ -90,29 +77,6 @@ export default function WarehouseList() {
         if (actionMenu) handleMenuClose();
     };
 
-    const handleDeleteWarehouse = (warehouse) => {
-        const warehouseId = warehouse.warehouse_id;
-        if (!warehouseId) {
-            showSnackbar({ type: 'error', message: 'Warehouse ID missing' });
-            return;
-        }
-        setConfirmDialog({
-            open: true,
-            title: 'Delete Warehouse',
-            message: `Are you sure you want to delete "${warehouse.name}"? (Soft delete)`,
-            action: async () => {
-                try {
-                    await remove(warehouseId);
-                    showSnackbar({ type: 'success', message: 'Warehouse deleted successfully' });
-                    fetchWarehouses();
-                } catch (err) {
-                    showSnackbar({ type: 'error', message: err.message || 'Delete failed' });
-                }
-            }
-        });
-        if (actionMenu) handleMenuClose();
-    };
-
     const handleRestoreWarehouse = (warehouse) => {
         const warehouseId = warehouse.warehouse_id;
         if (!warehouseId) return;
@@ -156,12 +120,11 @@ export default function WarehouseList() {
     const handleEditFromTable = () => {
         if (selectedWarehouse) handleEditWarehouse(selectedWarehouse);
     };
-    const handleDeleteFromTable = () => {
-        if (selectedWarehouse) handleDeleteWarehouse(selectedWarehouse);
-    };
+
     const handleRestoreFromTable = () => {
         if (selectedWarehouse) handleRestoreWarehouse(selectedWarehouse);
     };
+
     const handleToggleStatusFromTable = () => {
         if (selectedWarehouse) handleToggleStatusWarehouse(selectedWarehouse);
     };
@@ -189,9 +152,8 @@ export default function WarehouseList() {
     const warehouses = Array.isArray(data) ? data : [];
 
     // Card component for mobile/tablet view
-    const WarehouseCard = ({ warehouse, canEdit, canChangeStatus, canDelete, canRestore, onEdit, onDelete, onRestore, onToggleStatus }) => {
+    const WarehouseCard = ({ warehouse, canEdit, canChangeStatus, canRestore, onEdit, onRestore, onToggleStatus }) => {
         const isDeleted = !!warehouse.deleted_at;
-
         return (
             <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
                 <CardContent sx={{ p: 2 }}>
@@ -212,9 +174,7 @@ export default function WarehouseList() {
                             />
                         )}
                     </Box>
-
                     <Divider sx={{ my: 1 }} />
-
                     {warehouse.location && (
                         <Box display="flex" alignItems="center" gap={1} mb={1}>
                             <LocationIcon fontSize="small" color="action" />
@@ -227,16 +187,13 @@ export default function WarehouseList() {
                             <Typography variant="body2"><strong>Manager:</strong> {warehouse.manager?.name || '-'}</Typography>
                         </Box>
                     )}
-
                     <Box display="flex" alignItems="center" gap={1} mb={2}>
                         <CalendarIcon fontSize="small" color="action" />
                         <Typography variant="caption" color="text.secondary">
                             Created: {new Date(warehouse.created_at).toLocaleString()}
                         </Typography>
                     </Box>
-
                     <Divider sx={{ my: 1.5 }} />
-
                     <Box display="flex" flexDirection="column" gap={1}>
                         {!isDeleted && canEdit && (
                             <Button fullWidth variant="outlined" startIcon={<EditIcon />} onClick={() => onEdit(warehouse)}>
@@ -257,11 +214,6 @@ export default function WarehouseList() {
                         {isDeleted && canRestore && (
                             <Button fullWidth variant="outlined" color="success" startIcon={<RestoreIcon />} onClick={() => onRestore(warehouse)}>
                                 Restore
-                            </Button>
-                        )}
-                        {!isDeleted && canDelete && (
-                            <Button fullWidth variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => onDelete(warehouse)}>
-                                Delete
                             </Button>
                         )}
                     </Box>
@@ -303,7 +255,9 @@ export default function WarehouseList() {
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>
+                            }}
                             sx={{ flex: 1, minWidth: { xs: '100%', sm: 250 } }}
                         />
                         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchWarehouses} fullWidth={isMobile}>
@@ -371,10 +325,8 @@ export default function WarehouseList() {
                                     warehouse={warehouse}
                                     canEdit={canEdit}
                                     canChangeStatus={canChangeStatus}
-                                    canDelete={canDelete}
                                     canRestore={canRestore}
                                     onEdit={handleEditWarehouse}
-                                    onDelete={handleDeleteWarehouse}
                                     onRestore={handleRestoreWarehouse}
                                     onToggleStatus={handleToggleStatusWarehouse}
                                 />
@@ -396,11 +348,7 @@ export default function WarehouseList() {
                             setRowsPerPage(parseInt(e.target.value, 10));
                             setPage(0);
                         }}
-                        sx={{
-                            '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
-                                fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                            }
-                        }}
+                        sx={{ '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': { fontSize: { xs: '0.75rem', sm: '0.875rem' } } }}
                     />
                 </Box>
             </Paper>
@@ -421,9 +369,6 @@ export default function WarehouseList() {
                 )}
                 {selectedWarehouse && selectedWarehouse.deleted_at && canRestore && (
                     <MenuItem onClick={handleRestoreFromTable}><RestoreIcon sx={{ mr: 1, color: 'success.main' }} /> Restore</MenuItem>
-                )}
-                {selectedWarehouse && !selectedWarehouse.deleted_at && canDelete && (
-                    <MenuItem onClick={handleDeleteFromTable} sx={{ color: 'error.main' }}><DeleteIcon sx={{ mr: 1 }} /> Delete</MenuItem>
                 )}
             </Menu>
 

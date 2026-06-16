@@ -1,20 +1,7 @@
 // src/pages/stock/StockMovementList.js
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-    Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-    IconButton, InputAdornment, Menu, MenuItem, Paper, Table,
-    TableBody, TableCell, TableContainer, TableHead, TablePagination,
-    TableRow, TextField, Typography, CircularProgress, Tooltip,
-    FormControl, InputLabel, Select, Card, CardContent, Divider,
-    useMediaQuery, useTheme, Grid
-} from '@mui/material';
-import {
-    MoreVert as MoreVertIcon, Delete as DeleteIcon, Refresh as RefreshIcon,
-    Search as SearchIcon, SwapHoriz as TransferIcon, ShoppingCart as PurchaseIcon,
-    Sell as SaleIcon, AssignmentReturn as ReturnIcon, Adjust as AdjustmentIcon,
-    Warning as LossIcon, LocationOn as LocationIcon, Person as PersonIcon,
-    CalendarToday as CalendarIcon, Category as CategoryIcon
-} from '@mui/icons-material';
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Tooltip, FormControl, InputLabel, Select, Card, CardContent, Divider, useMediaQuery, useTheme, Grid } from '@mui/material';
+import { MoreVert as MoreVertIcon, Refresh as RefreshIcon, Search as SearchIcon, SwapHoriz as TransferIcon, ShoppingCart as PurchaseIcon, Sell as SaleIcon, AssignmentReturn as ReturnIcon, Adjust as AdjustmentIcon, Warning as LossIcon, LocationOn as LocationIcon, Person as PersonIcon, CalendarToday as CalendarIcon, Category as CategoryIcon } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { useStockMovements } from '@/hooks/useStockMovements';
@@ -41,7 +28,7 @@ const movementTypeConfig = {
 };
 
 // Card component for mobile/tablet view
-const MovementCard = ({ movement, onViewDetails, onDelete }) => {
+const MovementCard = ({ movement, onViewDetails }) => {
     const config = movementTypeConfig[movement.movement_type] || movementTypeConfig.transfer;
     const IconComponent = config.icon;
 
@@ -57,16 +44,9 @@ const MovementCard = ({ movement, onViewDetails, onDelete }) => {
                             IMEI: {movement.imei || '—'}
                         </Typography>
                     </Box>
-                    <Chip
-                        icon={<IconComponent />}
-                        label={config.label}
-                        color={config.color}
-                        size="small"
-                    />
+                    <Chip icon={<IconComponent />} label={config.label} color={config.color} size="small" />
                 </Box>
-
                 <Divider sx={{ my: 1 }} />
-
                 <Grid container spacing={1}>
                     <Grid item xs={6}>
                         <Typography variant="caption" color="text.secondary">Brand</Typography>
@@ -107,18 +87,11 @@ const MovementCard = ({ movement, onViewDetails, onDelete }) => {
                         </Typography>
                     </Grid>
                 </Grid>
-
                 <Divider sx={{ my: 1 }} />
-
                 <Box display="flex" justifyContent="flex-end" gap={1}>
                     <Button size="small" variant="outlined" onClick={() => onViewDetails(movement)}>
                         View Details
                     </Button>
-                    {movement.canDelete && (
-                        <Button size="small" variant="outlined" color="error" onClick={() => onDelete(movement)}>
-                            Delete
-                        </Button>
-                    )}
                 </Box>
             </CardContent>
         </Card>
@@ -128,14 +101,12 @@ const MovementCard = ({ movement, onViewDetails, onDelete }) => {
 export default function StockMovementList() {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-    const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'md'));
-    const showTableView = useMediaQuery(theme.breakpoints.up('md')); // Table on medium and up
+    const showTableView = useMediaQuery(theme.breakpoints.up('md'));
 
     const { hasPermission } = usePermission();
     const canView = hasPermission('stock_movements.view');
-    const canDelete = hasPermission('stock_movements.delete');
 
-    const { data, total, loading, fetchData, remove } = useStockMovements();
+    const { data, total, loading, fetchData } = useStockMovements();
 
     const [search, setSearch] = useState('');
     const [movementTypeFilter, setMovementTypeFilter] = useState('');
@@ -144,12 +115,6 @@ export default function StockMovementList() {
     const [modalOpen, setModalOpen] = useState(false);
     const [selectedMovement, setSelectedMovement] = useState(null);
     const [actionMenu, setActionMenu] = useState(null);
-    const [confirmDialog, setConfirmDialog] = useState({
-        open: false,
-        title: '',
-        message: '',
-        action: null,
-    });
 
     const fetchMovements = useCallback(() => {
         if (!canView) return;
@@ -178,34 +143,10 @@ export default function StockMovementList() {
         handleMenuClose();
     };
 
-    const handleDelete = () => {
-        setConfirmDialog({
-            open: true,
-            title: 'Delete Movement',
-            message: `Are you sure you want to delete this movement record?`,
-            action: async () => {
-                try {
-                    await remove(selectedMovement.movement_id);
-                    showSnackbar({ type: 'success', message: 'Movement deleted successfully' });
-                    fetchMovements();
-                } catch (err) {
-                    showSnackbar({ type: 'error', message: err.message || 'Delete failed' });
-                }
-            }
-        });
-        handleMenuClose();
-    };
-
     const handleModalClose = (refresh) => {
         setModalOpen(false);
         setSelectedMovement(null);
         if (refresh) fetchMovements();
-    };
-
-    const handleConfirm = async () => {
-        if (!confirmDialog.action) return;
-        setConfirmDialog((prev) => ({ ...prev, open: false }));
-        await confirmDialog.action();
     };
 
     const handleClearFilters = () => {
@@ -230,11 +171,6 @@ export default function StockMovementList() {
         setModalOpen(true);
     };
 
-    const handleCardDelete = (movement) => {
-        setSelectedMovement(movement);
-        handleDelete();
-    };
-
     return (
         <Box sx={{ width: '100%', p: { xs: 1, sm: 2, md: 3 }, m: 0 }}>
             <Paper sx={{ width: '100%', borderRadius: { xs: 1, sm: 2 }, overflow: 'hidden', boxShadow: 1 }}>
@@ -246,7 +182,9 @@ export default function StockMovementList() {
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>
+                            }}
                             sx={{ flex: 1, minWidth: { xs: '100%', sm: 250 } }}
                         />
                         <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 } }}>
@@ -348,7 +286,6 @@ export default function StockMovementList() {
                                     key={movement.movement_id}
                                     movement={movement}
                                     onViewDetails={handleCardViewDetails}
-                                    onDelete={handleCardDelete}
                                 />
                             ))
                         )}
@@ -368,11 +305,7 @@ export default function StockMovementList() {
                             setRowsPerPage(parseInt(e.target.value, 10));
                             setPage(0);
                         }}
-                        sx={{
-                            '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
-                                fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                            }
-                        }}
+                        sx={{ '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': { fontSize: { xs: '0.75rem', sm: '0.875rem' } } }}
                     />
                 </Box>
             </Paper>
@@ -380,26 +313,9 @@ export default function StockMovementList() {
             {/* Action Menu (only for table view) */}
             <Menu anchorEl={actionMenu} open={Boolean(actionMenu)} onClose={handleMenuClose}>
                 <MenuItem onClick={handleViewDetails}>View Details</MenuItem>
-                {canDelete && (
-                    <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>
-                        <DeleteIcon fontSize="small" sx={{ mr: 1 }} /> Delete
-                    </MenuItem>
-                )}
             </Menu>
 
             <StockMovementModal open={modalOpen} onClose={handleModalClose} movement={selectedMovement} />
-
-            {/* Confirm Delete Dialog */}
-            <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog(prev => ({ ...prev, open: false }))} fullWidth maxWidth="xs">
-                <DialogTitle sx={{ pb: 1 }}>{confirmDialog.title}</DialogTitle>
-                <DialogContent>
-                    <Typography>{confirmDialog.message}</Typography>
-                </DialogContent>
-                <DialogActions sx={{ p: 2, pt: 0 }}>
-                    <Button onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}>Cancel</Button>
-                    <Button onClick={handleConfirm} color="error" variant="contained">Confirm</Button>
-                </DialogActions>
-            </Dialog>
         </Box>
     );
 }

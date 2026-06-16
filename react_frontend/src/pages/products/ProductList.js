@@ -1,20 +1,7 @@
 // src/pages/products/ProductList.js
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-    Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-    IconButton, InputAdornment, Menu, MenuItem, Paper, Table,
-    TableBody, TableCell, TableContainer, TableHead, TablePagination,
-    TableRow, TextField, Typography, CircularProgress, Switch, FormControlLabel,
-    Card, CardContent, Divider, useMediaQuery, useTheme
-} from '@mui/material';
-import {
-    Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
-    Delete as DeleteIcon, Refresh as RefreshIcon, Search as SearchIcon,
-    Restore as RestoreIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon,
-    DeleteSweep as ForceDeleteIcon, Inventory as InventoryIcon,
-    Category as CategoryIcon, QrCode as ImeiIcon, Sell as SellIcon,
-    Money as MoneyIcon, CalendarToday as CalendarIcon
-} from '@mui/icons-material';
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Switch, FormControlLabel, Card, CardContent, Divider, useMediaQuery, useTheme } from '@mui/material';
+import { Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon, Refresh as RefreshIcon, Search as SearchIcon, Restore as RestoreIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon, Inventory as InventoryIcon, Category as CategoryIcon, QrCode as ImeiIcon, Sell as SellIcon, Money as MoneyIcon, CalendarToday as CalendarIcon } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { useProducts } from '@/hooks/useProducts';
@@ -41,12 +28,10 @@ export default function ProductList() {
     const canView = hasPermission('products.view');
     const canCreate = hasPermission('products.create');
     const canEdit = hasPermission('products.edit');
-    const canDelete = hasPermission('products.delete');
     const canRestore = hasPermission('products.restore');
-    const canForceDelete = hasPermission('products.force_delete');
     const canChangeStatus = hasPermission('products.change_status');
 
-    const { data, total, loading, fetchData, remove, restore, forceDelete, changeStatus } = useProducts();
+    const { data, total, loading, fetchData, restore, changeStatus } = useProducts();
 
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
@@ -94,24 +79,6 @@ export default function ProductList() {
         handleMenuClose();
     };
 
-    const handleDelete = () => {
-        setConfirmDialog({
-            open: true,
-            title: 'Delete Product',
-            message: `Are you sure you want to delete product with IMEI "${selectedProduct?.imei}"? (Soft delete)`,
-            action: async () => {
-                try {
-                    await remove(selectedProduct.product_id);
-                    showSnackbar({ type: 'success', message: 'Product deleted successfully' });
-                    fetchProducts();
-                } catch (err) {
-                    showSnackbar({ type: 'error', message: err.message || 'Delete failed' });
-                }
-            }
-        });
-        handleMenuClose();
-    };
-
     const handleRestore = () => {
         setConfirmDialog({
             open: true,
@@ -124,24 +91,6 @@ export default function ProductList() {
                     fetchProducts();
                 } catch (err) {
                     showSnackbar({ type: 'error', message: err.message || 'Restore failed' });
-                }
-            }
-        });
-        handleMenuClose();
-    };
-
-    const handleForceDelete = () => {
-        setConfirmDialog({
-            open: true,
-            title: 'Permanently Delete Product',
-            message: `Are you sure you want to permanently delete product with IMEI "${selectedProduct?.imei}"? This cannot be undone.`,
-            action: async () => {
-                try {
-                    await forceDelete(selectedProduct.product_id);
-                    showSnackbar({ type: 'success', message: 'Product permanently deleted' });
-                    fetchProducts();
-                } catch (err) {
-                    showSnackbar({ type: 'error', message: err.message || 'Force delete failed' });
                 }
             }
         });
@@ -216,7 +165,7 @@ export default function ProductList() {
     };
 
     // Card component for mobile/tablet view
-    const ProductCard = ({ product, onEdit, onDelete, onRestore, onForceDelete, onToggleStatus }) => {
+    const ProductCard = ({ product, onEdit, onRestore, onToggleStatus }) => {
         const isDeleted = !!product.deleted_at;
         return (
             <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden', textAlign: 'center' }}>
@@ -260,23 +209,19 @@ export default function ProductList() {
                             </Button>
                         )}
                         {!isDeleted && canChangeStatus && (
-                            <Button fullWidth variant="outlined" color={product.status === 'active' ? 'warning' : 'success'} startIcon={product.status === 'active' ? <BlockIcon /> : <CheckCircleIcon />} onClick={() => onToggleStatus(product)}>
+                            <Button
+                                fullWidth
+                                variant="outlined"
+                                color={product.status === 'active' ? 'warning' : 'success'}
+                                startIcon={product.status === 'active' ? <BlockIcon /> : <CheckCircleIcon />}
+                                onClick={() => onToggleStatus(product)}
+                            >
                                 {product.status === 'active' ? 'Deactivate' : 'Activate'}
                             </Button>
                         )}
                         {isDeleted && canRestore && (
                             <Button fullWidth variant="outlined" color="success" startIcon={<RestoreIcon />} onClick={() => onRestore(product)}>
                                 Restore
-                            </Button>
-                        )}
-                        {isDeleted && canForceDelete && (
-                            <Button fullWidth variant="outlined" color="error" startIcon={<ForceDeleteIcon />} onClick={() => onForceDelete(product)}>
-                                Permanently Delete
-                            </Button>
-                        )}
-                        {!isDeleted && canDelete && (
-                            <Button fullWidth variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => onDelete(product)}>
-                                Delete
                             </Button>
                         )}
                     </Box>
@@ -318,7 +263,9 @@ export default function ProductList() {
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>
+                            }}
                             sx={{ flex: 1, minWidth: { xs: '100%', sm: 250 } }}
                         />
                         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchProducts} fullWidth={isMobile}>
@@ -329,7 +276,6 @@ export default function ProductList() {
 
                 {/* Table or Card View */}
                 {showTableView ? (
-                    // Desktop Table View
                     <TableContainer sx={{ overflowX: 'auto' }}>
                         <Table sx={{ minWidth: 1000 }}>
                             <TableHead>
@@ -378,11 +324,18 @@ export default function ProductList() {
                                 <ProductCard
                                     key={product.product_id}
                                     product={product}
-                                    onEdit={() => { setEditingProduct(product); setModalOpen(true); }}
-                                    onDelete={() => { setSelectedProduct(product); handleDelete(); }}
-                                    onRestore={() => { setSelectedProduct(product); handleRestore(); }}
-                                    onForceDelete={() => { setSelectedProduct(product); handleForceDelete(); }}
-                                    onToggleStatus={() => { setSelectedProduct(product); handleToggleStatus(); }}
+                                    onEdit={() => {
+                                        setEditingProduct(product);
+                                        setModalOpen(true);
+                                    }}
+                                    onRestore={() => {
+                                        setSelectedProduct(product);
+                                        handleRestore();
+                                    }}
+                                    onToggleStatus={() => {
+                                        setSelectedProduct(product);
+                                        handleToggleStatus();
+                                    }}
                                 />
                             ))
                         )}
@@ -402,11 +355,7 @@ export default function ProductList() {
                             setRowsPerPage(parseInt(e.target.value, 10));
                             setPage(0);
                         }}
-                        sx={{
-                            '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
-                                fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                            }
-                        }}
+                        sx={{ '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': { fontSize: { xs: '0.75rem', sm: '0.875rem' } } }}
                     />
                 </Box>
             </Paper>
@@ -428,17 +377,11 @@ export default function ProductList() {
                 {selectedProduct && selectedProduct.deleted_at && canRestore && (
                     <MenuItem onClick={handleRestore}><RestoreIcon sx={{ mr: 1, color: 'success.main' }} /> Restore</MenuItem>
                 )}
-                {selectedProduct && selectedProduct.deleted_at && canForceDelete && (
-                    <MenuItem onClick={handleForceDelete} sx={{ color: 'error.main' }}><ForceDeleteIcon sx={{ mr: 1 }} /> Permanently Delete</MenuItem>
-                )}
-                {selectedProduct && !selectedProduct.deleted_at && canDelete && (
-                    <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}><DeleteIcon sx={{ mr: 1 }} /> Delete</MenuItem>
-                )}
             </Menu>
 
             <ProductModal open={modalOpen} onClose={handleModalClose} product={editingProduct} />
 
-            {/* Delete Confirmation Dialog */}
+            {/* Confirm Dialog */}
             <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog((prev) => ({ ...prev, open: false }))} fullWidth maxWidth="xs">
                 <DialogTitle sx={{ pb: 1 }}>{confirmDialog.title}</DialogTitle>
                 <DialogContent><Typography>{confirmDialog.message}</Typography></DialogContent>

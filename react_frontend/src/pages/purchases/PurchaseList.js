@@ -1,19 +1,7 @@
 // src/pages/purchases/PurchaseList.js
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-    Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-    IconButton, InputAdornment, Menu, MenuItem, Paper, Table,
-    TableBody, TableCell, TableContainer, TableHead, TablePagination,
-    TableRow, TextField, Typography, CircularProgress, Card, CardContent,
-    Divider, useMediaQuery, useTheme
-} from '@mui/material';
-import {
-    Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
-    Delete as DeleteIcon, Refresh as RefreshIcon, Search as SearchIcon,
-    CheckCircle as CompleteIcon, Cancel as CancelIcon, Pending as PendingIcon,
-    Business as SupplierIcon, Category as CategoryIcon, Sell as SkuIcon,
-    Inventory as QuantityIcon, AttachMoney as MoneyIcon, CalendarToday as CalendarIcon
-} from '@mui/icons-material';
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Card, CardContent, Divider, useMediaQuery, useTheme } from '@mui/material';
+import { Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon, Refresh as RefreshIcon, Search as SearchIcon, CheckCircle as CompleteIcon, Cancel as CancelIcon, Pending as PendingIcon, Business as SupplierIcon, Category as CategoryIcon, Sell as SkuIcon, Inventory as QuantityIcon, AttachMoney as MoneyIcon, CalendarToday as CalendarIcon } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { usePurchases } from '@/hooks/usePurchases';
@@ -40,10 +28,9 @@ export default function PurchaseList() {
     const canView = hasPermission('purchases.view');
     const canCreate = hasPermission('purchases.create');
     const canEdit = hasPermission('purchases.edit');
-    const canDelete = hasPermission('purchases.delete');
     const canUpdateStatus = hasPermission('purchases.update_status');
 
-    const { data, total, loading, fetchData, updateStatus, remove } = usePurchases();
+    const { data, total, loading, fetchData, updateStatus } = usePurchases();
 
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
@@ -89,30 +76,6 @@ export default function PurchaseList() {
         if (actionMenu) handleMenuClose();
     };
 
-    // --- NEW: handlers that accept the purchase object directly ---
-    const handleDeletePurchase = (purchase) => {
-        const purchaseId = purchase.purchase_id;
-        if (!purchaseId) {
-            showSnackbar({ type: 'error', message: 'Purchase ID missing' });
-            return;
-        }
-        setConfirmDialog({
-            open: true,
-            title: 'Delete Purchase',
-            message: `Are you sure you want to delete this purchase?`,
-            action: async () => {
-                try {
-                    await remove(purchaseId);
-                    showSnackbar({ type: 'success', message: 'Purchase deleted successfully' });
-                    fetchPurchases();
-                } catch (err) {
-                    showSnackbar({ type: 'error', message: err.message || 'Delete failed' });
-                }
-            }
-        });
-        if (actionMenu) handleMenuClose();
-    };
-
     const handleStatusChangePurchase = (purchase, newStatus) => {
         const purchaseId = purchase.purchase_id;
         if (!purchaseId) {
@@ -136,13 +99,8 @@ export default function PurchaseList() {
         if (actionMenu) handleMenuClose();
     };
 
-    // Wrappers for table view (which uses selectedPurchase state)
     const handleEditFromTable = () => {
         if (selectedPurchase) handleEdit(selectedPurchase);
-    };
-
-    const handleDeleteFromTable = () => {
-        if (selectedPurchase) handleDeletePurchase(selectedPurchase);
     };
 
     const handleStatusChangeFromTable = (newStatus) => {
@@ -182,8 +140,8 @@ export default function PurchaseList() {
         }
     };
 
-    // Card component – passes purchase directly to handlers
-    const PurchaseCard = ({ purchase, canEdit, canUpdateStatus, canDelete }) => {
+    // Card component
+    const PurchaseCard = ({ purchase, canEdit, canUpdateStatus }) => {
         const statusChip = getStatusChip(purchase.status);
         return (
             <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden', textAlign: 'center' }}>
@@ -197,9 +155,7 @@ export default function PurchaseList() {
                         </Box>
                         {statusChip}
                     </Box>
-
                     <Divider sx={{ my: 1 }} />
-
                     <Box display="flex" alignItems="center" justifyContent="center" gap={1} mb={1}>
                         <CategoryIcon fontSize="small" color="action" />
                         <Typography variant="body2">
@@ -207,16 +163,12 @@ export default function PurchaseList() {
                             {purchase.category?.model ? ` (${purchase.category.model})` : ''}
                         </Typography>
                     </Box>
-
                     <Box display="flex" alignItems="center" justifyContent="center" gap={1} mb={1}>
                         <SkuIcon fontSize="small" color="action" />
                         <Typography variant="body2">
-                            {purchase.selected_skus && purchase.selected_skus.length > 0
-                                ? purchase.selected_skus.join(', ')
-                                : '-'}
+                            {purchase.selected_skus && purchase.selected_skus.length > 0 ? purchase.selected_skus.join(', ') : '-'}
                         </Typography>
                     </Box>
-
                     <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                         <Box display="flex" alignItems="center" gap={1}>
                             <QuantityIcon fontSize="small" color="action" />
@@ -227,23 +179,19 @@ export default function PurchaseList() {
                             <Typography variant="body2"><strong>Unit:</strong> TSh {parseFloat(purchase.unit_price).toLocaleString()}</Typography>
                         </Box>
                     </Box>
-
                     <Box display="flex" alignItems="center" justifyContent="center" gap={1} mb={1}>
                         <MoneyIcon fontSize="small" color="success" />
                         <Typography variant="body2" fontWeight="bold">
                             Subtotal: TSh {parseFloat(purchase.subtotal).toLocaleString()}
                         </Typography>
                     </Box>
-
                     <Box display="flex" alignItems="center" justifyContent="center" gap={1} mb={2}>
                         <CalendarIcon fontSize="small" color="action" />
                         <Typography variant="caption" color="text.secondary">
                             {new Date(purchase.created_at).toLocaleString()}
                         </Typography>
                     </Box>
-
                     <Divider sx={{ my: 1.5 }} />
-
                     <Box display="flex" flexDirection="column" gap={1}>
                         {canEdit && (
                             <Button fullWidth variant="outlined" startIcon={<EditIcon />} onClick={() => handleEdit(purchase)}>
@@ -251,18 +199,25 @@ export default function PurchaseList() {
                             </Button>
                         )}
                         {canUpdateStatus && purchase.status !== 'completed' && (
-                            <Button fullWidth variant="outlined" color="success" startIcon={<CompleteIcon />} onClick={() => handleStatusChangePurchase(purchase, 'completed')}>
+                            <Button
+                                fullWidth
+                                variant="outlined"
+                                color="success"
+                                startIcon={<CompleteIcon />}
+                                onClick={() => handleStatusChangePurchase(purchase, 'completed')}
+                            >
                                 Mark Completed
                             </Button>
                         )}
                         {canUpdateStatus && purchase.status !== 'cancelled' && (
-                            <Button fullWidth variant="outlined" color="error" startIcon={<CancelIcon />} onClick={() => handleStatusChangePurchase(purchase, 'cancelled')}>
+                            <Button
+                                fullWidth
+                                variant="outlined"
+                                color="error"
+                                startIcon={<CancelIcon />}
+                                onClick={() => handleStatusChangePurchase(purchase, 'cancelled')}
+                            >
                                 Mark Cancelled
-                            </Button>
-                        )}
-                        {canDelete && (
-                            <Button fullWidth variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeletePurchase(purchase)}>
-                                Delete
                             </Button>
                         )}
                     </Box>
@@ -292,7 +247,9 @@ export default function PurchaseList() {
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>
+                            }}
                             sx={{ flex: 1, minWidth: { xs: '100%', sm: 250 } }}
                         />
                         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchPurchases} fullWidth={isMobile}>
@@ -364,7 +321,6 @@ export default function PurchaseList() {
                                     purchase={purchase}
                                     canEdit={canEdit}
                                     canUpdateStatus={canUpdateStatus}
-                                    canDelete={canDelete}
                                 />
                             ))
                         )}
@@ -384,11 +340,7 @@ export default function PurchaseList() {
                             setRowsPerPage(parseInt(e.target.value, 10));
                             setPage(0);
                         }}
-                        sx={{
-                            '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
-                                fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                            }
-                        }}
+                        sx={{ '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': { fontSize: { xs: '0.75rem', sm: '0.875rem' } } }}
                     />
                 </Box>
             </Paper>
@@ -410,16 +362,11 @@ export default function PurchaseList() {
                         <CancelIcon sx={{ mr: 1, color: 'error.main' }} /> Mark Cancelled
                     </MenuItem>
                 )}
-                {canDelete && (
-                    <MenuItem onClick={handleDeleteFromTable} sx={{ color: 'error.main' }}>
-                        <DeleteIcon sx={{ mr: 1 }} /> Delete
-                    </MenuItem>
-                )}
             </Menu>
 
             <PurchaseModal open={modalOpen} onClose={handleModalClose} purchase={editingPurchase} />
 
-            {/* Delete/Status Confirmation Dialog */}
+            {/* Confirm Dialog */}
             <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog((prev) => ({ ...prev, open: false }))} fullWidth maxWidth="xs">
                 <DialogTitle sx={{ pb: 1 }}>{confirmDialog.title}</DialogTitle>
                 <DialogContent><Typography>{confirmDialog.message}</Typography></DialogContent>

@@ -9,9 +9,8 @@ import {
 } from '@mui/material';
 import {
     Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
-    Delete as DeleteIcon, Restore as RestoreIcon, DeleteSweep as DeleteSweepIcon,
-    Refresh as RefreshIcon, Search as SearchIcon, Person as PersonIcon,
-    Phone as PhoneIcon, Email as EmailIcon, Badge as NidaIcon
+    Restore as RestoreIcon, Refresh as RefreshIcon, Search as SearchIcon,
+    Person as PersonIcon, Phone as PhoneIcon, Email as EmailIcon, Badge as NidaIcon
 } from '@mui/icons-material';
 import { useCustomers } from 'hooks/useCustomers';
 import { customerService } from 'services/customer.service';
@@ -32,9 +31,9 @@ const headCells = [
 export default function CustomersList() {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-    const showTableView = useMediaQuery(theme.breakpoints.up('md')); // Table on medium and up
+    const showTableView = useMediaQuery(theme.breakpoints.up('md'));
 
-    const { data, total, loading, fetchData, remove, restore } = useCustomers();
+    const { data, total, loading, fetchData, restore } = useCustomers();
     const { hasPermission } = usePermission();
 
     const [showDeleted, setShowDeleted] = useState(false);
@@ -58,7 +57,6 @@ export default function CustomersList() {
     const canView = hasPermission('customers.view');
     const canCreate = hasPermission('customers.create');
     const canEdit = hasPermission('customers.edit');
-    const canDelete = hasPermission('customers.delete');
     const canRestore = hasPermission('customers.restore');
 
     // Fetch active customers
@@ -96,17 +94,6 @@ export default function CustomersList() {
         if (showDeleted) fetchDeleted(); else fetchData();
     };
 
-    const handleSoftDelete = async (id) => {
-        await remove(id);
-        showSnackbar({ type: 'success', message: 'Customer moved to trash' });
-        fetchData();
-    };
-
-    const handleForceDelete = async (id) => {
-        // For permanent delete you'd need a separate endpoint – this just soft deletes again
-        showSnackbar({ type: 'error', message: 'Permanent delete not implemented' });
-    };
-
     const handleSort = (prop) => {
         const isAsc = orderBy === prop && order === 'asc';
         setOrder(isAsc ? 'desc' : 'asc');
@@ -123,11 +110,9 @@ export default function CustomersList() {
         closeMenu();
         if (showDeleted) {
             if (type === 'restore') openConfirm('Restore', `Restore ${selectedCustomer.customer_name}?`, () => handleRestore(selectedCustomer.id));
-            if (type === 'force_delete') openConfirm('Permanent Delete', `Permanently delete ${selectedCustomer.customer_name}?`, () => handleForceDelete(selectedCustomer.id));
             return;
         }
         if (type === 'edit') { setEditingCustomer(selectedCustomer); setOpenModal(true); }
-        if (type === 'delete') openConfirm('Soft Delete', `Move ${selectedCustomer.customer_name} to trash?`, () => handleSoftDelete(selectedCustomer.id));
     };
 
     const handleConfirm = async () => {
@@ -135,7 +120,6 @@ export default function CustomersList() {
         setConfirm(prev => ({ ...prev, open: false }));
         try {
             await confirm.action();
-            showSnackbar({ type: 'success', message: 'Done' });
         } catch {
             showSnackbar({ type: 'error', message: 'Action failed' });
         }
@@ -196,14 +180,6 @@ export default function CustomersList() {
                                     Restore
                                 </Button>
                             )}
-                            {canDelete && (
-                                <Button size="small" variant="outlined" color="error" startIcon={<DeleteSweepIcon />} onClick={() => {
-                                    setSelectedCustomer(customer);
-                                    handleAction('force_delete');
-                                }}>
-                                    Permanently Delete
-                                </Button>
-                            )}
                         </>
                     ) : (
                         <>
@@ -213,14 +189,6 @@ export default function CustomersList() {
                                     setOpenModal(true);
                                 }}>
                                     Edit
-                                </Button>
-                            )}
-                            {canDelete && (
-                                <Button size="small" variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => {
-                                    setSelectedCustomer(customer);
-                                    handleAction('delete');
-                                }}>
-                                    Delete
                                 </Button>
                             )}
                         </>
@@ -338,7 +306,7 @@ export default function CustomersList() {
                     </Box>
                 )}
 
-                {/* Pagination (works for both views) */}
+                {/* Pagination */}
                 <TablePagination
                     rowsPerPageOptions={[5, 10, 25]}
                     component="div"
@@ -355,15 +323,13 @@ export default function CustomersList() {
                 />
             </Paper>
 
-            {/* Action Menu (for table view only) */}
+            {/* Action Menu */}
             <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu}>
-                {showDeleted ? [
-                    canRestore && <MenuItem key="restore" onClick={() => handleAction('restore')}><RestoreIcon sx={{ mr: 1 }} /> Restore</MenuItem>,
-                    canDelete && <MenuItem key="force" onClick={() => handleAction('force_delete')} sx={{ color: 'error.main' }}><DeleteSweepIcon sx={{ mr: 1 }} /> Permanent Delete</MenuItem>
-                ] : [
-                    canEdit && <MenuItem key="edit" onClick={() => handleAction('edit')}><EditIcon sx={{ mr: 1 }} /> Edit</MenuItem>,
-                    canDelete && <MenuItem key="delete" onClick={() => handleAction('delete')} sx={{ color: 'error.main' }}><DeleteIcon sx={{ mr: 1 }} /> Delete (Soft)</MenuItem>
-                ]}
+                {showDeleted ? (
+                    canRestore && <MenuItem onClick={() => handleAction('restore')}><RestoreIcon sx={{ mr: 1 }} /> Restore</MenuItem>
+                ) : (
+                    canEdit && <MenuItem onClick={() => handleAction('edit')}><EditIcon sx={{ mr: 1 }} /> Edit</MenuItem>
+                )}
             </Menu>
 
             <CustomerFormModal

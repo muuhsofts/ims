@@ -1,17 +1,7 @@
 // src/pages/inventory/InventoryList.js
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-    Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-    IconButton, InputAdornment, Menu, MenuItem, Paper, Table,
-    TableBody, TableCell, TableContainer, TableHead, TablePagination,
-    TableRow, TextField, Typography, CircularProgress, Card, CardContent,
-    Divider, useMediaQuery, useTheme, Grid
-} from '@mui/material';
-import {
-    Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
-    Delete as DeleteIcon, Refresh as RefreshIcon, Search as SearchIcon,
-    Warehouse as WarehouseIcon, Inventory as InventoryIcon, Person as PersonIcon
-} from '@mui/icons-material';
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Card, CardContent, Divider, useMediaQuery, useTheme, Grid } from '@mui/material';
+import { Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon, Refresh as RefreshIcon, Search as SearchIcon, Warehouse as WarehouseIcon, Inventory as InventoryIcon, Person as PersonIcon } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { useInventory } from '@/hooks/useInventory';
@@ -26,7 +16,7 @@ const headCells = [
     { id: 'actions', label: 'Actions', disableSort: true },
 ];
 
-// Helper for product label (no color, uses product.sku directly)
+// Helper for product label
 const getProductLabel = (product) => {
     const productName = product.product_name || 'N/A';
     const category = product.category_name || product.category?.category_name || 'N/A';
@@ -37,7 +27,7 @@ const getProductLabel = (product) => {
 };
 
 // Card component for mobile/tablet view
-const InventoryCard = ({ inventory, canEdit, canDelete, onEdit, onDelete }) => {
+const InventoryCard = ({ inventory, canEdit, onEdit }) => {
     return (
         <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
             <CardContent sx={{ p: 2 }}>
@@ -52,16 +42,13 @@ const InventoryCard = ({ inventory, canEdit, canDelete, onEdit, onDelete }) => {
                         <MoreVertIcon />
                     </IconButton>
                 </Box>
-
                 <Divider sx={{ my: 1 }} />
-
                 <Box display="flex" alignItems="center" gap={1} mb={1}>
                     <InventoryIcon fontSize="small" color="action" />
                     <Typography variant="body2">
                         <strong>Quantity:</strong> {inventory.quantity ?? 0}
                     </Typography>
                 </Box>
-
                 <Typography variant="body2" fontWeight="bold" gutterBottom>
                     Products ({inventory.products?.length || 0}):
                 </Typography>
@@ -76,29 +63,20 @@ const InventoryCard = ({ inventory, canEdit, canDelete, onEdit, onDelete }) => {
                         <Typography variant="caption">No products</Typography>
                     )}
                 </Box>
-
                 <Box display="flex" alignItems="center" gap={1} mb={1}>
                     <PersonIcon fontSize="small" color="action" />
                     <Typography variant="body2">
                         <strong>Created By:</strong> {inventory.created_by_user?.name || '-'}
                     </Typography>
                 </Box>
-
                 <Typography variant="caption" color="text.secondary" display="block">
                     Created: {new Date(inventory.created_at).toLocaleString()}
                 </Typography>
-
                 <Divider sx={{ my: 1.5 }} />
-
                 <Box display="flex" justifyContent="flex-end" gap={1}>
                     {canEdit && (
                         <Button size="small" variant="outlined" startIcon={<EditIcon />} onClick={() => onEdit(inventory)}>
                             Edit
-                        </Button>
-                    )}
-                    {canDelete && (
-                        <Button size="small" variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => onDelete(inventory)}>
-                            Delete
                         </Button>
                     )}
                 </Box>
@@ -110,15 +88,14 @@ const InventoryCard = ({ inventory, canEdit, canDelete, onEdit, onDelete }) => {
 export default function InventoryList() {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-    const showTableView = useMediaQuery(theme.breakpoints.up('md')); // Table on medium and up
+    const showTableView = useMediaQuery(theme.breakpoints.up('md'));
 
     const { hasPermission } = usePermission();
     const canView = hasPermission('inventory.view');
     const canCreate = hasPermission('inventory.create');
     const canEdit = hasPermission('inventory.edit');
-    const canDelete = hasPermission('inventory.delete');
 
-    const { data, total, loading, fetchData, remove } = useInventory();
+    const { data, total, loading, fetchData } = useInventory();
 
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
@@ -164,24 +141,6 @@ export default function InventoryList() {
         handleMenuClose();
     };
 
-    const handleDelete = () => {
-        setConfirmDialog({
-            open: true,
-            title: 'Delete Inventory',
-            message: `Are you sure you want to delete this inventory record?`,
-            action: async () => {
-                try {
-                    await remove(selectedInventory.inventory_id);
-                    showSnackbar({ type: 'success', message: 'Inventory deleted' });
-                    fetchInventory();
-                } catch (err) {
-                    showSnackbar({ type: 'error', message: err.message || 'Delete failed' });
-                }
-            }
-        });
-        handleMenuClose();
-    };
-
     const handleModalClose = (refresh) => {
         setModalOpen(false);
         setEditingInventory(null);
@@ -202,11 +161,6 @@ export default function InventoryList() {
     const handleCardEdit = (inventory) => {
         setEditingInventory(inventory);
         setModalOpen(true);
-    };
-
-    const handleCardDelete = (inventory) => {
-        setSelectedInventory(inventory);
-        handleDelete();
     };
 
     if (!canView) {
@@ -236,7 +190,9 @@ export default function InventoryList() {
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>
+                            }}
                             sx={{ flex: 1, minWidth: { xs: '100%', sm: 250 } }}
                         />
                         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchInventory} fullWidth={isMobile}>
@@ -309,9 +265,7 @@ export default function InventoryList() {
                                     key={inv.inventory_id}
                                     inventory={inv}
                                     canEdit={canEdit}
-                                    canDelete={canDelete}
                                     onEdit={handleCardEdit}
-                                    onDelete={handleCardDelete}
                                 />
                             ))
                         )}
@@ -331,11 +285,7 @@ export default function InventoryList() {
                             setRowsPerPage(parseInt(e.target.value, 10));
                             setPage(0);
                         }}
-                        sx={{
-                            '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
-                                fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                            }
-                        }}
+                        sx={{ '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': { fontSize: { xs: '0.75rem', sm: '0.875rem' } } }}
                     />
                 </Box>
             </Paper>
@@ -347,16 +297,11 @@ export default function InventoryList() {
                         <EditIcon sx={{ mr: 1 }} /> Edit
                     </MenuItem>
                 )}
-                {canDelete && (
-                    <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>
-                        <DeleteIcon sx={{ mr: 1 }} /> Delete
-                    </MenuItem>
-                )}
             </Menu>
 
             <InventoryModal open={modalOpen} onClose={handleModalClose} inventory={editingInventory} />
 
-            {/* Delete Confirmation Dialog */}
+            {/* Confirm Dialog (kept for future use if needed) */}
             <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog(prev => ({ ...prev, open: false }))} fullWidth maxWidth="xs">
                 <DialogTitle sx={{ pb: 1 }}>{confirmDialog.title}</DialogTitle>
                 <DialogContent><Typography>{confirmDialog.message}</Typography></DialogContent>

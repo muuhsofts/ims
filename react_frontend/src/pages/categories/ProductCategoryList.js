@@ -1,18 +1,7 @@
 // src/pages/categories/ProductCategoryList.js
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-    Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-    IconButton, InputAdornment, Menu, MenuItem, Paper, Table,
-    TableBody, TableCell, TableContainer, TableHead, TablePagination,
-    TableRow, TextField, Typography, CircularProgress, Card, CardContent,
-    Divider, useMediaQuery, useTheme
-} from '@mui/material';
-import {
-    Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
-    Delete as DeleteIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon,
-    Refresh as RefreshIcon, Search as SearchIcon, Category as CategoryIcon,
-    ModelTraining as ModelIcon, Sell as SkuIcon, CalendarToday as CalendarIcon
-} from '@mui/icons-material';
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Card, CardContent, Divider, useMediaQuery, useTheme } from '@mui/material';
+import { Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon, Refresh as RefreshIcon, Search as SearchIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon, Category as CategoryIcon, ModelTraining as ModelIcon, Sell as SkuIcon, CalendarToday as CalendarIcon } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { useProductCategories } from '@/hooks/useProductCategories';
@@ -37,10 +26,9 @@ export default function ProductCategoryList() {
     const canView = hasPermission('categories.view');
     const canCreate = hasPermission('categories.create');
     const canEdit = hasPermission('categories.edit');
-    const canDelete = hasPermission('categories.delete');
     const canToggleStatus = hasPermission('categories.edit');
 
-    const { data, total, loading, fetchData, remove } = useProductCategories();
+    const { data, total, loading, fetchData } = useProductCategories();
 
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
@@ -83,24 +71,6 @@ export default function ProductCategoryList() {
     const handleEdit = () => {
         setEditingCategory(selectedCategory);
         setModalOpen(true);
-        handleMenuClose();
-    };
-
-    const handleDelete = () => {
-        setConfirmDialog({
-            open: true,
-            title: 'Delete Category',
-            message: `Are you sure you want to delete "${selectedCategory?.category_name}"?`,
-            action: async () => {
-                try {
-                    await remove(selectedCategory.category_id);
-                    showSnackbar({ type: 'success', message: 'Category deleted successfully' });
-                    fetchCategories();
-                } catch (err) {
-                    showSnackbar({ type: 'error', message: err.message || 'Delete failed' });
-                }
-            }
-        });
         handleMenuClose();
     };
 
@@ -147,7 +117,7 @@ export default function ProductCategoryList() {
     const categories = Array.isArray(data) ? data : [];
 
     // Card component for mobile/tablet view
-    const CategoryCard = ({ category, canEdit, canToggleStatus, canDelete, onEdit, onDelete, onToggleStatus }) => {
+    const CategoryCard = ({ category, canEdit, canToggleStatus, onEdit, onToggleStatus }) => {
         return (
             <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
                 <CardContent sx={{ p: 2 }}>
@@ -164,16 +134,13 @@ export default function ProductCategoryList() {
                             size="small"
                         />
                     </Box>
-
                     <Divider sx={{ my: 1 }} />
-
                     {category.model && (
                         <Box display="flex" alignItems="center" gap={1} mb={1}>
                             <ModelIcon fontSize="small" color="action" />
                             <Typography variant="body2"><strong>Model:</strong> {category.model}</Typography>
                         </Box>
                     )}
-
                     <Box display="flex" alignItems="flex-start" gap={1} mb={1}>
                         <SkuIcon fontSize="small" color="action" sx={{ mt: 0.2 }} />
                         <Box flex={1}>
@@ -189,16 +156,13 @@ export default function ProductCategoryList() {
                             </Box>
                         </Box>
                     </Box>
-
                     <Box display="flex" alignItems="center" gap={1} mb={2}>
                         <CalendarIcon fontSize="small" color="action" />
                         <Typography variant="caption" color="text.secondary">
                             Created: {new Date(category.created_at).toLocaleString()}
                         </Typography>
                     </Box>
-
                     <Divider sx={{ my: 1.5 }} />
-
                     <Box display="flex" flexDirection="column" gap={1}>
                         {canEdit && (
                             <Button fullWidth variant="outlined" startIcon={<EditIcon />} onClick={() => onEdit(category)}>
@@ -214,11 +178,6 @@ export default function ProductCategoryList() {
                                 onClick={() => onToggleStatus(category)}
                             >
                                 {category.status === 'active' ? 'Deactivate' : 'Activate'}
-                            </Button>
-                        )}
-                        {canDelete && (
-                            <Button fullWidth variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => onDelete(category)}>
-                                Delete
                             </Button>
                         )}
                     </Box>
@@ -237,7 +196,15 @@ export default function ProductCategoryList() {
                             Product Categories
                         </Typography>
                         {canCreate && (
-                            <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setEditingCategory(null); setModalOpen(true); }} fullWidth={isMobile}>
+                            <Button
+                                variant="contained"
+                                startIcon={<AddIcon />}
+                                onClick={() => {
+                                    setEditingCategory(null);
+                                    setModalOpen(true);
+                                }}
+                                fullWidth={isMobile}
+                            >
                                 New Category
                             </Button>
                         )}
@@ -248,7 +215,9 @@ export default function ProductCategoryList() {
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>
+                            }}
                             sx={{ flex: 1, minWidth: { xs: '100%', sm: 250 } }}
                         />
                         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchCategories} fullWidth={isMobile}>
@@ -320,10 +289,14 @@ export default function ProductCategoryList() {
                                     category={category}
                                     canEdit={canEdit}
                                     canToggleStatus={canToggleStatus}
-                                    canDelete={canDelete}
-                                    onEdit={(cat) => { setEditingCategory(cat); setModalOpen(true); }}
-                                    onDelete={(cat) => { setSelectedCategory(cat); handleDelete(); }}
-                                    onToggleStatus={(cat) => { setSelectedCategory(cat); handleToggleStatus(); }}
+                                    onEdit={(cat) => {
+                                        setEditingCategory(cat);
+                                        setModalOpen(true);
+                                    }}
+                                    onToggleStatus={(cat) => {
+                                        setSelectedCategory(cat);
+                                        handleToggleStatus();
+                                    }}
                                 />
                             ))
                         )}
@@ -343,11 +316,7 @@ export default function ProductCategoryList() {
                             setRowsPerPage(parseInt(e.target.value, 10));
                             setPage(0);
                         }}
-                        sx={{
-                            '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
-                                fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                            }
-                        }}
+                        sx={{ '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': { fontSize: { xs: '0.75rem', sm: '0.875rem' } } }}
                     />
                 </Box>
             </Paper>
@@ -366,11 +335,6 @@ export default function ProductCategoryList() {
                         ) : (
                             <><CheckCircleIcon sx={{ mr: 1, color: 'success.main' }} /> Activate</>
                         )}
-                    </MenuItem>
-                )}
-                {canDelete && (
-                    <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>
-                        <DeleteIcon sx={{ mr: 1 }} /> Delete
                     </MenuItem>
                 )}
             </Menu>
