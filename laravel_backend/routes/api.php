@@ -28,6 +28,9 @@ use App\Http\Controllers\Api\DashboardAnalyticsReportController;
 use App\Http\Controllers\Api\AgentAnalyticsReportController;
 use App\Http\Controllers\Api\BranchOwnerAnalyticsReportController;
 use App\Http\Controllers\Api\BranchOwnerReportController;
+use App\Http\Controllers\Api\RevenueAnalyticsController;
+use App\Http\Controllers\Api\InvoiceController;
+
 /*
 |--------------------------------------------------------------------------
 | Health Check
@@ -377,6 +380,8 @@ Route::prefix('v14')->group(function () {
 
         // Purchase Reports
         Route::get('purchases', [ReportController::class, 'purchasesReport']);
+        // Revenue Analytics (independent)
+        Route::get('revenue-analytics', [RevenueAnalyticsController::class, 'getRevenueAnalytics']);
 
         // Sales Reports
         Route::get('sales', [ReportController::class, 'salesReport']);
