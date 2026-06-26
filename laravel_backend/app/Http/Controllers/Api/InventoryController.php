@@ -22,7 +22,7 @@ class InventoryController extends BaseApiController
     }
 
     /**
-     * List inventory records
+     * List inventory records - Only show records with products
      * Permission: inventory.view
      */
     public function index(Request $request)
@@ -32,24 +32,41 @@ class InventoryController extends BaseApiController
 
         try {
             $query = Inventory::with(['warehouse', 'createdByUser']);
+            
+            // Filter by warehouse
             if ($request->filled('warehouse_id')) {
                 $query->where('warehouse_id', $request->warehouse_id);
             }
+            
+            // Search
             if ($request->filled('search')) {
                 $search = $request->search;
                 $query->whereHas('warehouse', function ($q) use ($search) {
                     $q->where('name', 'LIKE', "%{$search}%");
                 });
             }
+            
             $inventories = $query->orderBy('created_at', 'desc')
                 ->paginate($request->get('per_page', 15));
+            
+            // Load products and filter out records with zero products
+            $filteredInventories = [];
             foreach ($inventories as $inventory) {
                 $inventory->loadProducts();
+                
+                // Only include if product_ids is not empty and has at least one product
+                if (!empty($inventory->product_ids) && count($inventory->product_ids) > 0) {
+                    $filteredInventories[] = $inventory;
+                }
             }
+            
+            // Update the pagination data with filtered results
+            $inventories->setCollection(collect($filteredInventories));
+            
             $this->logAudit('view_inventories', 'inventory', null, 'Viewed inventory list');
             return $this->successResponse($inventories, 'Inventory records retrieved');
         } catch (\Exception $e) {
-            return $this->serverError('Failed to fetch inventory');
+            return $this->serverError('Failed to fetch inventory: ' . $e->getMessage());
         }
     }
 
@@ -65,6 +82,12 @@ class InventoryController extends BaseApiController
         try {
             $inventory = Inventory::with(['warehouse', 'createdByUser'])->findOrFail($id);
             $inventory->loadProducts();
+            
+            // Check if inventory has products
+            if (empty($inventory->product_ids) || count($inventory->product_ids) === 0) {
+                return $this->notFound('Inventory record is empty');
+            }
+            
             $this->logAudit('view_inventory', 'inventory', $inventory->inventory_id, "Viewed inventory #{$inventory->inventory_id}");
             return $this->successResponse($inventory, 'Inventory record retrieved');
         } catch (\Exception $e) {
@@ -147,7 +170,21 @@ class InventoryController extends BaseApiController
             ]);
 
             DB::beginTransaction();
-            $inventory->update($request->only(['product_ids', 'warehouse_id']));
+            
+            // If product_ids is provided, update it
+            if ($request->has('product_ids')) {
+                // Validate that product_ids is not empty
+                if (empty($request->product_ids) || count($request->product_ids) === 0) {
+                    throw new \Exception('Product IDs cannot be empty');
+                }
+                $inventory->product_ids = $request->product_ids;
+            }
+            
+            if ($request->has('warehouse_id')) {
+                $inventory->warehouse_id = $request->warehouse_id;
+            }
+            
+            $inventory->save();
             $inventory = $this->loadRelations($inventory->fresh());
 
             foreach ($inventory->products as $product) {
@@ -214,6 +251,41 @@ class InventoryController extends BaseApiController
         } catch (\Exception $e) {
             DB::rollBack();
             return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * Get inventory summary - Only count inventories with products
+     * Permission: inventory.view
+     */
+    public function summary(Request $request)
+    {
+        $perm = $this->checkPermission('inventory.view');
+        if ($perm) return $perm;
+
+        try {
+            $inventories = Inventory::with(['warehouse', 'createdByUser'])->get();
+            
+            // Filter out empty inventories
+            $filteredInventories = $inventories->filter(function ($inventory) {
+                return !empty($inventory->product_ids) && count($inventory->product_ids) > 0;
+            });
+            
+            $totalProducts = 0;
+            foreach ($filteredInventories as $inventory) {
+                $inventory->loadProducts();
+                $totalProducts += count($inventory->product_ids);
+            }
+
+            return $this->successResponse([
+                'total_inventories' => $filteredInventories->count(),
+                'total_products' => $totalProducts,
+                'warehouses' => $filteredInventories->groupBy('warehouse_id')->map(function ($items) {
+                    return $items->count();
+                }),
+            ], 'Inventory summary retrieved');
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to fetch inventory summary: ' . $e->getMessage());
         }
     }
 }

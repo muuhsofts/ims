@@ -49,6 +49,13 @@ class StockMovementController extends BaseApiController
                 $query->whereDate('created_at', '<=', $request->date_to);
             }
 
+            // Filter by product stock_status
+            if ($request->filled('product_status')) {
+                $query->whereHas('product', function ($q) use ($request) {
+                    $q->where('stock_status', $request->product_status);
+                });
+            }
+
             // Search
             if ($request->filled('search')) {
                 $search = $request->search;
@@ -58,6 +65,8 @@ class StockMovementController extends BaseApiController
                       ->orWhereHas('product', function ($pq) use ($search) {
                           $pq->where('imei', 'LIKE', "%{$search}%")
                              ->orWhere('sku', 'LIKE', "%{$search}%")
+                             ->orWhere('product_name', 'LIKE', "%{$search}%")
+                             ->orWhere('stock_status', 'LIKE', "%{$search}%")
                              ->orWhereHas('category', function ($cq) use ($search) {
                                  $cq->where('category_name', 'LIKE', "%{$search}%")
                                     ->orWhere('model', 'LIKE', "%{$search}%");
@@ -133,7 +142,7 @@ class StockMovementController extends BaseApiController
             }
 
             // ------------------------------------------------------------
-            // 3. Transform each movement
+            // 3. Transform each movement WITH product stock_status
             // ------------------------------------------------------------
             $data = $movements->through(function ($movement) use ($skuToCategoryMap, $ccIdToUserName) {
                 $sku = $movement->product?->sku;
@@ -165,17 +174,34 @@ class StockMovementController extends BaseApiController
                     $requesterName = 'N/A';
                 }
 
+                // Get product stock_status from products table (stock_status column)
+                $product = $movement->product;
+                $productStatus = 'unknown';
+                if ($product && isset($product->stock_status)) {
+                    $productStatus = $product->stock_status;
+                }
+
+                // Get product details
+                $productName = $movement->product?->product_name ?? $movement->product_display_name ?? 'Unknown Product';
+                $imei = $movement->product?->imei ?? 'N/A';
+                $skuValue = $movement->product?->sku ?? 'N/A';
+
                 return [
                     'movement_id'   => $movement->movement_id,
                     'request_id'    => $movement->request_id,
                     'product_id'    => $movement->product_id,
                     'reference_id'  => $movement->reference_id,
 
-                    'product_name'  => $movement->product_display_name,
-                    'imei'          => $movement->product?->imei,
-                    'sku'           => $movement->product?->sku,
+                    'product_name'  => $productName,
+                    'imei'          => $imei,
+                    'sku'           => $skuValue,
                     'brand'         => $brand,
                     'model'         => $model,
+                    
+                    // Product stock_status from products table
+                    'product_status' => $productStatus,
+                    'status_color'   => $this->getStatusColor($productStatus),
+                    'status_label'   => $this->getStatusLabel($productStatus),
 
                     'movement_type'             => $movement->movement_type,
                     'movement_type_description' => $movement->movement_type_description,
@@ -208,6 +234,42 @@ class StockMovementController extends BaseApiController
         } catch (\Exception $e) {
             return $this->serverError('Failed to fetch movements: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Get color for product stock_status
+     */
+    private function getStatusColor($status)
+    {
+        $colors = [
+            'in_stock' => '#4caf50',      // Green
+            'transferred' => '#ff9800',    // Orange
+            'sold' => '#f44336',           // Red
+            'returned' => '#9c27b0',       // Purple
+            'damaged' => '#795548',        // Brown
+            'reserved' => '#2196f3',       // Blue
+            'pending' => '#ffc107',        // Yellow
+            'unknown' => '#9e9e9e',        // Grey
+        ];
+        return $colors[$status] ?? $colors['unknown'];
+    }
+
+    /**
+     * Get human-readable label for product stock_status
+     */
+    private function getStatusLabel($status)
+    {
+        $labels = [
+            'in_stock' => 'In Stock',
+            'transferred' => 'Transferred',
+            'sold' => 'Sold',
+            'returned' => 'Returned',
+            'damaged' => 'Damaged',
+            'reserved' => 'Reserved',
+            'pending' => 'Pending',
+            'unknown' => 'Unknown',
+        ];
+        return $labels[$status] ?? $labels['unknown'];
     }
 
     /**
@@ -264,16 +326,26 @@ class StockMovementController extends BaseApiController
                 $requesterName = 'N/A';
             }
 
+            // Get product stock_status from products table (stock_status column)
+            $product = $movement->product;
+            $productStatus = $product->stock_status ?? 'unknown';
+
             $transformed = [
                 'movement_id'   => $movement->movement_id,
                 'request_id'    => $movement->request_id,
                 'product_id'    => $movement->product_id,
                 'reference_id'  => $movement->reference_id,
-                'product_name'  => $movement->product_display_name,
-                'imei'          => $movement->product?->imei,
-                'sku'           => $movement->product?->sku,
+                'product_name'  => $movement->product?->product_name ?? $movement->product_display_name ?? 'Unknown Product',
+                'imei'          => $movement->product?->imei ?? 'N/A',
+                'sku'           => $movement->product?->sku ?? 'N/A',
                 'brand'         => $brand,
                 'model'         => $model,
+                
+                // Product stock_status from products table
+                'product_status' => $productStatus,
+                'status_color'   => $this->getStatusColor($productStatus),
+                'status_label'   => $this->getStatusLabel($productStatus),
+                
                 'movement_type' => $movement->movement_type,
                 'movement_type_description' => $movement->movement_type_description,
                 'quantity'      => $movement->quantity,

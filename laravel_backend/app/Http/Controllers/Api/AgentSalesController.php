@@ -175,7 +175,7 @@ class AgentSalesController extends BaseApiController
                 'product_id'     => 'required|string|exists:products,product_id',
                 'total_amount'   => 'required|numeric|min:0',
                 'customer_id'    => 'required|string|exists:customers,customer_id',
-                'payment_method' => 'required|in:cash,mpesa,airtel_money,halopesa,mixx_yas,bank_transfer,mixed',
+                'payment_method' => 'required|in:cash,loan',
                 'notes'          => 'nullable|string',
             ]);
 

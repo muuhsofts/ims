@@ -30,6 +30,7 @@ use App\Http\Controllers\Api\BranchOwnerAnalyticsReportController;
 use App\Http\Controllers\Api\BranchOwnerReportController;
 use App\Http\Controllers\Api\RevenueAnalyticsController;
 use App\Http\Controllers\Api\InvoiceController;
+use App\Http\Controllers\Api\AgentsManagementController;
 
 /*
 |--------------------------------------------------------------------------
@@ -435,4 +436,31 @@ Route::prefix('v15')->group(function () {
     Route::get('/invoices/download/{id}', [InvoiceController::class, 'download']);
     Route::get('/invoices/sale/{saleId}', [InvoiceController::class, 'bySale']);
 });
+
+
+// v16 – Agents Management (Sales Agents only)
+Route::prefix('v16')->group(function () {
+    Route::prefix('agents')->group(function () {
+        // Soft‑delete & restore
+        Route::get('/trashed',         [AgentsManagementController::class, 'trashed']);
+        Route::patch('/{id}/restore',  [AgentsManagementController::class, 'restore']);
+        Route::delete('/{id}/force',   [AgentsManagementController::class, 'forceDelete']);
+
+        // Status actions
+        Route::patch('/{id}/activate',   [AgentsManagementController::class, 'activate']);
+        Route::patch('/{id}/deactivate', [AgentsManagementController::class, 'deactivate']);
+        Route::patch('/{id}/suspend',    [AgentsManagementController::class, 'suspend']);
+
+        // Stats
+        Route::get('/stats', [AgentsManagementController::class, 'stats']);
+
+        // CRUD
+        Route::get('/',        [AgentsManagementController::class, 'index']);
+        Route::post('/',       [AgentsManagementController::class, 'store']);
+        Route::get('/{id}',    [AgentsManagementController::class, 'show']);
+        Route::put('/{id}',    [AgentsManagementController::class, 'update']);
+        Route::delete('/{id}', [AgentsManagementController::class, 'destroy']);
+    });
+});
+
 });

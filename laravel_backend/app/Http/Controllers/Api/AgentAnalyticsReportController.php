@@ -73,40 +73,107 @@ class AgentAnalyticsReportController extends BaseApiController
                 }
             }
 
-            // ----- Fetch all agent inventory rows -----
-            $inventories = AgentInventory::where('user_id', $agentId)->get();
+            // ========== STEP 1: Get ALL product IDs from inventory for this agent ==========
+            $inventoryRecords = AgentInventory::where('user_id', $agentId)->get();
+            
+            $inventoryProductIds = [];
+            
+            foreach ($inventoryRecords as $record) {
+                if (!empty($record->product_id)) {
+                    $inventoryProductIds[] = $record->product_id;
+                }
+            }
+            
+            // Log inventory product IDs
+            Log::info('Inventory Product IDs:', [
+                'count' => count($inventoryProductIds),
+                'ids' => $inventoryProductIds
+            ]);
 
-            // ========== 1. TOTAL STOCK (units) ==========
-            $totalStock = 0;
-            foreach ($inventories as $inv) {
-                if (!empty($inv->product_ids) && is_array($inv->product_ids)) {
-                    $totalStock += count($inv->product_ids);
-                } else {
-                    $totalStock += $inv->quantity_received;
+            // ========== STEP 2: Get ALL product IDs from sales ==========
+            $salesRecords = Sale::where('agent_id', $agentId)
+                ->where('status', 'completed')
+                ->whereNotNull('product_id')
+                ->get();
+            
+            $soldProductIds = [];
+            
+            foreach ($salesRecords as $record) {
+                if (!empty($record->product_id)) {
+                    $soldProductIds[] = $record->product_id;
+                }
+            }
+            
+            // Log sold product IDs
+            Log::info('Sold Product IDs:', [
+                'count' => count($soldProductIds),
+                'ids' => $soldProductIds
+            ]);
+
+            // ========== STEP 3: Calculate remaining stock ==========
+            $remainingStock = 0;
+            $unsoldProducts = [];
+
+            // Loop through each product in inventory
+            foreach ($inventoryProductIds as $inventoryProductId) {
+                $isSold = false;
+                
+                // Check if this product is in the sold list
+                foreach ($soldProductIds as $soldProductId) {
+                    if ($inventoryProductId === $soldProductId) {
+                        $isSold = true;
+                        break;
+                    }
+                }
+                
+                // If not sold, count it as remaining stock
+                if (!$isSold) {
+                    $remainingStock++;
+                    $unsoldProducts[] = $inventoryProductId;
                 }
             }
 
-            // ========== 2. SALES STATISTICS (period‑filtered) ==========
-            $salesQuery = Sale::where('agent_id', $agentId);
-            if ($startDate && $endDate) {
-                $salesQuery->whereBetween('created_at', [$startDate, $endDate]);
-            }
-            $totalSalesAmount = (float) $salesQuery->sum('total_amount');
-            $totalSalesCount  = $salesQuery->count();
+            // Log remaining stock calculation
+            Log::info('Remaining Stock Calculation:', [
+                'remaining_count' => $remainingStock,
+                'unsold_products' => $unsoldProducts
+            ]);
 
-            // ========== 3. TOP 5 SALES (with customer & product details) ==========
-            $topSalesQuery = Sale::where('agent_id', $agentId)->with(['customer', 'product.category']);
+            // Total stock
+            $totalStock = count(array_unique($inventoryProductIds));
+
+            // Total transactions
+            $totalSalesCount = Sale::where('agent_id', $agentId)
+                ->where('status', 'completed');
+            
+            if ($startDate && $endDate) {
+                $totalSalesCount->whereBetween('created_at', [$startDate, $endDate]);
+            }
+            $totalSalesCount = $totalSalesCount->count();
+
+            // Log final results
+            Log::info('Final Results:', [
+                'total_stock' => $totalStock,
+                'remaining_stock' => $remainingStock,
+                'total_sales_count' => $totalSalesCount
+            ]);
+
+            // ========== STEP 4: Get TOP 5 SALES ==========
+            $topSalesQuery = Sale::where('agent_id', $agentId)
+                ->where('status', 'completed')
+                ->with(['customer', 'product.category']);
+            
             if ($startDate && $endDate) {
                 $topSalesQuery->whereBetween('created_at', [$startDate, $endDate]);
             }
-            $topSales = $topSalesQuery->orderBy('total_amount', 'desc')
+            
+            $topSales = $topSalesQuery->orderBy('created_at', 'desc')
                 ->limit(5)
                 ->get()
                 ->map(fn($sale) => [
                     'sale_id'        => $sale->sale_id,
                     'customer_name'  => $sale->customer->customer_name ?? $sale->customer_name,
                     'customer_phone' => $sale->customer->msisdn ?? $sale->customer_phone,
-                    'total_amount'   => $sale->total_amount,
                     'payment_method' => $sale->payment_method,
                     'status'         => $sale->status,
                     'created_at'     => $sale->created_at->toDateTimeString(),
@@ -116,77 +183,6 @@ class AgentAnalyticsReportController extends BaseApiController
                     'imei'           => $sale->product->imei ?? 'Unknown',
                     'sku'            => $sale->product->sku ?? 'Unknown',
                 ]);
-
-            // ========== 4. WEEKLY SALES TREND ==========
-            $weeklySales = Sale::where('agent_id', $agentId)
-                ->where('created_at', '>=', Carbon::now()->subDays(7))
-                ->select(DB::raw('DATE(created_at) as day'), DB::raw('COUNT(*) as sales_count'))
-                ->groupBy('day')
-                ->orderBy('day', 'asc')
-                ->get()
-                ->map(fn($item) => [
-                    'day' => Carbon::parse($item->day)->format('D, M j'),
-                    'sales_count' => $item->sales_count,
-                ]);
-
-            // ========== 5. PIE CHART: Categories (with model info in tooltip later) ==========
-            $categoryCounts = [];
-            foreach ($inventories as $inv) {
-                $productIds = [];
-                if (!empty($inv->product_ids) && is_array($inv->product_ids)) {
-                    $productIds = $inv->product_ids;
-                } elseif ($inv->product_id) {
-                    $productIds = [$inv->product_id];
-                }
-                foreach ($productIds as $pid) {
-                    $product = Product::with('category')->find($pid);
-                    if ($product && $product->category) {
-                        $catName = $product->category->category_name;
-                        $categoryCounts[$catName] = ($categoryCounts[$catName] ?? 0) + 1;
-                    }
-                }
-            }
-            $pieChart = collect($categoryCounts)->map(fn($count, $cat) => [
-                'category' => $cat,
-                'product_count' => $count,
-            ])->values();
-
-            // ========== 6. HISTOGRAM: Stock per product (with category & model) ==========
-            $productCountMap = [];
-            foreach ($inventories as $inv) {
-                $productIds = [];
-                if (!empty($inv->product_ids) && is_array($inv->product_ids)) {
-                    $productIds = $inv->product_ids;
-                } elseif ($inv->product_id) {
-                    $productIds = [$inv->product_id];
-                }
-                foreach ($productIds as $pid) {
-                    $productCountMap[$pid] = ($productCountMap[$pid] ?? 0) + 1;
-                }
-            }
-
-            $uniqueProductIds = array_keys($productCountMap);
-            $products = Product::with('category')->whereIn('product_id', $uniqueProductIds)->get()->keyBy('product_id');
-
-            $productStock = collect($productCountMap)->map(function ($qty, $pid) use ($products) {
-                $product = $products->get($pid);
-                if (!$product) {
-                    return [
-                        'product_name' => 'Unknown Product',
-                        'category_name' => 'Unknown',
-                        'model' => 'Unknown',
-                        'quantity' => $qty,
-                    ];
-                }
-                return [
-                    'product_name' => $product->product_name,
-                    'category_name' => $product->category->category_name ?? 'Unknown',
-                    'model' => $product->category->model ?? 'Unknown',
-                    'sku' => $product->sku ?? 'Unknown',
-                    'imei' => $product->imei ?? 'Unknown',
-                    'quantity' => $qty,
-                ];
-            })->sortByDesc('quantity')->take(10)->values();
 
             // Audit log
             $this->logAudit(
@@ -199,14 +195,11 @@ class AgentAnalyticsReportController extends BaseApiController
             return $this->successResponse([
                 'cards' => [
                     'total_stock'        => $totalStock,
-                    'total_sales_amount' => $totalSalesAmount,
+                    'remaining_stock'    => $remainingStock,
                     'total_sales_count'  => $totalSalesCount,
                     'period'             => $periodLabel,
                 ],
-                'pie_chart'               => $pieChart,
-                'weekly_sales'            => $weeklySales,
-                'top_5_sales'             => $topSales,
-                'product_stock_histogram' => $productStock,
+                'top_5_sales' => $topSales,
             ], 'Agent analytics retrieved successfully');
 
         } catch (\Exception $e) {

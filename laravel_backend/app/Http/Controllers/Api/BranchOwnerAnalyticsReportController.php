@@ -8,9 +8,10 @@ use App\Models\CollectionCenterInventory;
 use App\Models\AgentInventory;
 use App\Models\Product;
 use App\Models\User;
+use App\Models\Role;
+use App\Models\CollectionCenter;
 use Carbon\Carbon;
 use App\Models\TransferRequest;
-use App\Models\ProductCategory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +23,6 @@ class BranchOwnerAnalyticsReportController extends BaseApiController
 
     public function index(Request $request): JsonResponse
     {
-        // 1. Permission check
         $perm = $this->checkPermission('cc_center_dashboard.view');
         if ($perm) return $perm;
 
@@ -31,14 +31,13 @@ class BranchOwnerAnalyticsReportController extends BaseApiController
             return $this->unauthorized('User not authenticated');
         }
 
-        // Branch owner must have a cc_id
-        $ccId = $user->cc_id;
-        if (!$ccId) {
-            return $this->errorResponse('Branch owner not associated with any collection center', 400);
+        // Get all collection centers owned by this branch owner
+        $ownedCenterIds = CollectionCenter::where('owner_id', $user->id)->pluck('cc_id')->toArray();
+        if (empty($ownedCenterIds)) {
+            return $this->errorResponse('Branch owner does not own any collection center', 400);
         }
 
         try {
-            // ----- Period filtering (optional) -----
             $period = $request->query('period');
             $dateInput = $request->query('date');
             $startDate = null;
@@ -83,26 +82,35 @@ class BranchOwnerAnalyticsReportController extends BaseApiController
                 }
             }
 
-            // ========== 1. CC Inventory (total units) ==========
-            $ccInventory = CollectionCenterInventory::where('cc_id', $ccId)->first();
+            // Get SALES_AGENT role ID
+            $salesAgentRole = Role::where('name', 'SALES_AGENT')->first();
+            if (!$salesAgentRole) {
+                Log::error('SALES_AGENT role not found');
+                return $this->errorResponse('System misconfiguration: SALES_AGENT role missing', 500);
+            }
+            $salesAgentRoleId = $salesAgentRole->id;
+
+            // 1. Total CC stock across all owned centers
             $totalCcStock = 0;
             $productIdsInCc = [];
-            if ($ccInventory && !empty($ccInventory->product_ids) && is_array($ccInventory->product_ids)) {
-                $totalCcStock = count($ccInventory->product_ids);
-                $productIdsInCc = $ccInventory->product_ids;
+            $ccInventories = CollectionCenterInventory::whereIn('cc_id', $ownedCenterIds)->get();
+            foreach ($ccInventories as $inv) {
+                if (!empty($inv->product_ids) && is_array($inv->product_ids)) {
+                    $totalCcStock += count($inv->product_ids);
+                    $productIdsInCc = array_merge($productIdsInCc, $inv->product_ids);
+                }
             }
+            // remove duplicates
+            $productIdsInCc = array_unique($productIdsInCc);
 
-            // ========== 2. Agents under this branch ==========
-            $agents = User::where('cc_id', $ccId)
-                ->whereHas('role', function ($q) {
-                    $q->where('name', 'SALES_AGENT');
-                })
+            // 2. Agents under these centers (any center owned by branch owner)
+            $agents = User::whereIn('cc_id', $ownedCenterIds)
+                ->where('role_id', $salesAgentRoleId)
                 ->get();
             $totalAgents = $agents->count();
 
-            // ========== 3. Total stock held by agents ==========
+            // 3. Total agent stock
             $totalAgentStock = 0;
-            $agentStockMap = []; // for pie chart later
             foreach ($agents as $agent) {
                 $agentInv = AgentInventory::where('user_id', $agent->id)->get();
                 $agentTotal = 0;
@@ -114,11 +122,10 @@ class BranchOwnerAnalyticsReportController extends BaseApiController
                     }
                 }
                 $totalAgentStock += $agentTotal;
-                $agentStockMap[$agent->name] = $agentTotal;
             }
 
-            // ========== 4. Transfer requests (counts & recent list) ==========
-            $transferQuery = TransferRequest::where('cc_id', $ccId);
+            // 4. Transfer requests for any owned center
+            $transferQuery = TransferRequest::whereIn('cc_id', $ownedCenterIds);
             if ($startDate && $endDate) {
                 $transferQuery->whereBetween('created_at', [$startDate, $endDate]);
             }
@@ -129,15 +136,15 @@ class BranchOwnerAnalyticsReportController extends BaseApiController
                 'total'    => $transferQuery->count(),
             ];
 
-            // Recent transfers (limit 10)
-            $recentTransfers = TransferRequest::where('cc_id', $ccId)
+            // 5. Recent transfers
+            $recentTransfers = TransferRequest::whereIn('cc_id', $ownedCenterIds)
                 ->orderBy('created_at', 'desc')
                 ->limit(10)
                 ->get()
                 ->map(function ($tr) {
                     return [
                         'request_id'       => $tr->request_id,
-                        'requested_items'  => $tr->requested_items, // JSON array
+                        'requested_items'  => $tr->requested_items,
                         'total_quantity'   => $tr->total_quantity,
                         'status'           => $tr->status,
                         'approved_by'      => $tr->approved_by,
@@ -146,39 +153,7 @@ class BranchOwnerAnalyticsReportController extends BaseApiController
                     ];
                 });
 
-            // ========== 5. Weekly transfer trend (last 7 days) ==========
-            $weeklyTransfers = TransferRequest::where('cc_id', $ccId)
-                ->where('created_at', '>=', Carbon::now()->subDays(7))
-                ->select(DB::raw('DATE(created_at) as day'), DB::raw('COUNT(*) as transfer_count'))
-                ->groupBy('day')
-                ->orderBy('day', 'asc')
-                ->get()
-                ->map(fn($item) => [
-                    'day' => Carbon::parse($item->day)->format('D, M j'),
-                    'transfer_count' => $item->transfer_count,
-                ]);
-
-            // ========== 6. Pie chart: Product categories from CC inventory ==========
-            $categoryCounts = [];
-            foreach ($productIdsInCc as $pid) {
-                $product = Product::with('category')->find($pid);
-                if ($product && $product->category) {
-                    $catName = $product->category->category_name;
-                    $categoryCounts[$catName] = ($categoryCounts[$catName] ?? 0) + 1;
-                }
-            }
-            $categoryPie = collect($categoryCounts)->map(fn($count, $cat) => [
-                'category' => $cat,
-                'product_count' => $count,
-            ])->values();
-
-            // ========== 7. Pie chart: Agent stock distribution ==========
-            $agentPie = collect($agentStockMap)->map(fn($stock, $name) => [
-                'agent_name' => $name,
-                'stock' => $stock,
-            ])->values();
-
-            // ========== 8. Histogram: Top 10 stocked products (from CC inventory) ==========
+            // 6. Top 10 stocked products (from all owned centers' inventory)
             $productCountMap = [];
             foreach ($productIdsInCc as $pid) {
                 $productCountMap[$pid] = ($productCountMap[$pid] ?? 0) + 1;
@@ -191,21 +166,21 @@ class BranchOwnerAnalyticsReportController extends BaseApiController
                 $product = $products->get($pid);
                 if (!$product) {
                     return [
-                        'product_name' => 'Unknown Product',
+                        'product_name'  => 'Unknown Product',
                         'category_name' => 'Unknown',
-                        'model' => 'Unknown',
-                        'sku' => 'Unknown',
-                        'imei' => 'Unknown',
-                        'quantity' => $qty,
+                        'model'         => 'Unknown',
+                        'sku'           => 'Unknown',
+                        'imei'          => 'Unknown',
+                        'quantity'      => $qty,
                     ];
                 }
                 return [
-                    'product_name' => $product->product_name,
+                    'product_name'  => $product->product_name,
                     'category_name' => $product->category->category_name ?? 'Unknown',
-                    'model' => $product->category->model ?? 'Unknown',
-                    'sku' => $product->sku ?? 'Unknown',
-                    'imei' => $product->imei ?? 'Unknown',
-                    'quantity' => $qty,
+                    'model'         => $product->category->model ?? 'Unknown',
+                    'sku'           => $product->sku ?? 'Unknown',
+                    'imei'          => $product->imei ?? 'Unknown',
+                    'quantity'      => $qty,
                 ];
             })->values();
 
@@ -214,21 +189,18 @@ class BranchOwnerAnalyticsReportController extends BaseApiController
                 'view_branch_owner_dashboard',
                 'branch_owner_dashboard',
                 null,
-                "Viewed branch owner analytics dashboard (period: {$periodLabel})"
+                "Viewed branch owner analytics (period: {$periodLabel})"
             );
 
             return $this->successResponse([
                 'cards' => [
-                    'total_cc_stock'      => $totalCcStock,
-                    'total_agent_stock'   => $totalAgentStock,
-                    'total_agents'        => $totalAgents,
-                    'period'              => $periodLabel,
+                    'total_cc_stock'    => $totalCcStock,
+                    'total_agent_stock' => $totalAgentStock,
+                    'total_agents'      => $totalAgents,
+                    'period'            => $periodLabel,
                 ],
-                'transfer_stats' => $transferStats,
-                'recent_transfers' => $recentTransfers,
-                'weekly_transfers' => $weeklyTransfers,
-                'category_pie'     => $categoryPie,
-                'agent_pie'        => $agentPie,
+                'transfer_stats'          => $transferStats,
+                'recent_transfers'        => $recentTransfers,
                 'product_stock_histogram' => $productStockHistogram,
             ], 'Branch owner analytics retrieved successfully');
 

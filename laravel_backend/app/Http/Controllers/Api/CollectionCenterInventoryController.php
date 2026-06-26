@@ -67,148 +67,193 @@ class CollectionCenterInventoryController extends BaseApiController
     // STOCK MOVEMENT HELPERS (with new logging)
     // =========================================================================
 
-    private function moveProductsToCC(array $productIds, string $toCcId, string $performedBy, ?string $requestId = null): void
-    {
-        if (empty($productIds)) return;
+    /**
+ * Move products from warehouse(s) to a collection center.
+ * Supports products from multiple warehouses.
+ */
+/**
+ * Move products from warehouse(s) to a collection center.
+ * Supports products from multiple warehouses.
+ */
+private function moveProductsToCC(array $productIds, string $toCcId, string $performedBy, ?string $requestId = null): void
+{
+    if (empty($productIds)) return;
 
-        $sourceInventories = $this->findInventoriesContainingProducts($productIds);
-        if ($sourceInventories->isEmpty()) {
-            throw new \Exception("Products not found in any warehouse inventory.");
+    // 1. Find which warehouse contains each product
+    $productWarehouseMap = [];
+    $allInventories = Inventory::all();
+    foreach ($productIds as $pid) {
+        $found = false;
+        foreach ($allInventories as $inv) {
+            $invIds = is_array($inv->product_ids) ? $inv->product_ids : [];
+            if (in_array($pid, $invIds)) {
+                $productWarehouseMap[$pid] = $inv->warehouse_id;
+                $found = true;
+                break;
+            }
         }
-        if ($sourceInventories->count() > 1) {
-            throw new \Exception("Products originate from multiple warehouses. Please move them separately.");
+        if (!$found) {
+            throw new \Exception("Product ID {$pid} not found in any warehouse inventory.");
         }
+    }
 
-        $sourceInventory = $sourceInventories->first();
-        $sourceWarehouseId = $sourceInventory->warehouse_id;
+    // 2. Group product IDs by warehouse
+    $grouped = [];
+    foreach ($productWarehouseMap as $pid => $warehouseId) {
+        $grouped[$warehouseId][] = $pid;
+    }
 
-        DB::transaction(function () use ($productIds, $toCcId, $performedBy, $requestId, $sourceInventory, $sourceWarehouseId) {
-            // 1. Remove from source warehouse inventory
-            $currentIds = $sourceInventory->product_ids;
-            $updatedIds = array_values(array_diff($currentIds, $productIds));
+    DB::transaction(function () use ($grouped, $toCcId, $performedBy, $requestId, $productIds, $productWarehouseMap) {
+        // 2.1 Remove products from each source warehouse inventory
+        foreach ($grouped as $warehouseId => $pids) {
+            $sourceInventory = Inventory::where('warehouse_id', $warehouseId)->first();
+            if (!$sourceInventory) continue;
+            $currentIds = $sourceInventory->product_ids ?? [];
+            $updatedIds = array_values(array_diff($currentIds, $pids));
             $sourceInventory->update([
                 'product_ids' => $updatedIds,
                 'quantity' => count($updatedIds),
             ]);
+        }
 
-            // 2. Mark products as transferred
-            Product::whereIn('product_id', $productIds)->update(['stock_status' => 'transferred']);
+        // 2.2 Mark products as transferred
+        Product::whereIn('product_id', $productIds)->update(['stock_status' => 'transferred']);
 
-            // 3. Create or update CC inventory (append products)
-            $ccInventory = CollectionCenterInventory::firstOrNew(['cc_id' => $toCcId]);
-            $existingIds = $ccInventory->product_ids ?? [];
-            $newIds = array_values(array_unique(array_merge($existingIds, $productIds)));
-            $ccInventory->fill([
-                'product_ids' => $newIds,
-                'quantity' => count($newIds),
-                'source_warehouse_id' => $sourceWarehouseId,
-            ])->save();
+        // 2.3 Update or create CC inventory – merge all products
+        $ccInventory = CollectionCenterInventory::firstOrNew(['cc_id' => $toCcId]);
+        $existingIds = $ccInventory->product_ids ?? [];
+        $newIds = array_values(array_unique(array_merge($existingIds, $productIds)));
+        $sourceWarehouseId = (count($grouped) === 1) ? array_key_first($grouped) : null;
+        $ccInventory->fill([
+            'product_ids' => $newIds,
+            'quantity' => count($newIds),
+            'source_warehouse_id' => $sourceWarehouseId,
+        ])->save();
 
-            // 4. Log stock movements (existing table)
-            // 5. Log to new stock_movement_logs table
-            foreach ($productIds as $productId) {
-                // Existing StockMovement
-                StockMovement::create([
-                    'movement_id'   => (string) Str::uuid(),
-                    'request_id'    => $requestId,
-                    'product_id'    => $productId,
-                    'from_type'     => 'warehouse',
-                    'from_id'       => $sourceWarehouseId,
-                    'to_type'       => 'collection_center',
-                    'to_id'         => $toCcId,
-                    'quantity'      => 1,
-                    'movement_type' => 'transfer',
-                    'notes'         => 'Transferred from warehouse to collection center',
-                    'performed_by'  => $performedBy,
-                ]);
-
-                // NEW: log to stock_movement_logs
-                StockMovementLog::create([
-                    'product_id'    => $productId,
-                    'from_type'     => 'warehouse',
-                    'from_id'       => $sourceWarehouseId,
-                    'to_type'       => 'collection_center',
-                    'to_id'         => $toCcId,
-                    'quantity'      => 1,
-                    'movement_type' => 'transfer',
-                    'reference_id'  => $requestId,
-                    'notes'         => 'Transferred from warehouse to collection center',
-                    'performed_by'  => $performedBy,
-                    'created_at'    => now(),
-                ]);
-            }
-        });
-    }
-
-    private function returnProductsToWarehouse(array $productIds, string $fromCcId, string $performedBy): void
-    {
-        if (empty($productIds)) return;
-
-        $ccInventory = CollectionCenterInventory::where('cc_id', $fromCcId)->first();
-        if (!$ccInventory) return;
-
-        $targetWarehouseId = $ccInventory->source_warehouse_id ?? Warehouse::first()->warehouse_id;
-
-        DB::transaction(function () use ($productIds, $fromCcId, $performedBy, $ccInventory, $targetWarehouseId) {
-            // 1. Remove from CC inventory
-            $currentCcIds = $ccInventory->product_ids;
-            $updatedCcIds = array_values(array_diff($currentCcIds, $productIds));
-            $ccInventory->update([
-                'product_ids' => $updatedCcIds,
-                'quantity' => count($updatedCcIds),
-            ]);
-            if (empty($updatedCcIds)) {
-                $ccInventory->delete();
+        // 2.4 Log stock movements for each product (with correct from warehouse)
+        foreach ($productIds as $productId) {
+            $fromWarehouse = $productWarehouseMap[$productId] ?? null;
+            // Safety check – should never be null because we built the map
+            if (is_null($fromWarehouse)) {
+                throw new \Exception("Source warehouse not found for product {$productId}");
             }
 
-            // 2. Add back to warehouse inventory
-            $warehouseInventory = Inventory::firstOrCreate(
-                ['warehouse_id' => $targetWarehouseId],
-                ['product_ids' => [], 'quantity' => 0]
-            );
-            $currentWarehouseIds = $warehouseInventory->product_ids;
-            $mergedIds = array_values(array_unique(array_merge($currentWarehouseIds, $productIds)));
-            $warehouseInventory->update([
-                'product_ids' => $mergedIds,
-                'quantity' => count($mergedIds),
+            // Existing StockMovement
+            StockMovement::create([
+                'movement_id'   => (string) Str::uuid(),
+                'request_id'    => $requestId,
+                'product_id'    => $productId,
+                'from_type'     => 'warehouse',
+                'from_id'       => $fromWarehouse,
+                'to_type'       => 'collection_center',
+                'to_id'         => $toCcId,
+                'quantity'      => 1,
+                'movement_type' => 'transfer',
+                'notes'         => 'Transferred from warehouse to collection center',
+                'performed_by'  => $performedBy,
             ]);
 
-            // 3. Update product status
-            Product::whereIn('product_id', $productIds)->update(['stock_status' => 'in_stock']);
+            // New log table
+            StockMovementLog::create([
+                'product_id'    => $productId,
+                'from_type'     => 'warehouse',
+                'from_id'       => $fromWarehouse,
+                'to_type'       => 'collection_center',
+                'to_id'         => $toCcId,
+                'quantity'      => 1,
+                'movement_type' => 'transfer',
+                'reference_id'  => $requestId,
+                'notes'         => 'Transferred from warehouse to collection center',
+                'performed_by'  => $performedBy,
+                'created_at'    => now(),
+            ]);
+        }
+    });
+}
 
-            // 4. Log returns to both tables
-            foreach ($productIds as $productId) {
-                // Existing StockMovement
-                StockMovement::create([
-                    'movement_id'   => (string) Str::uuid(),
-                    'product_id'    => $productId,
-                    'from_type'     => 'collection_center',
-                    'from_id'       => $fromCcId,
-                    'to_type'       => 'warehouse',
-                    'to_id'         => $targetWarehouseId,
-                    'quantity'      => 1,
-                    'movement_type' => 'return',
-                    'notes'         => 'Returned from collection center to warehouse',
-                    'performed_by'  => $performedBy,
-                ]);
 
-                // NEW: stock_movement_logs
-                StockMovementLog::create([
-                    'product_id'    => $productId,
-                    'from_type'     => 'collection_center',
-                    'from_id'       => $fromCcId,
-                    'to_type'       => 'warehouse',
-                    'to_id'         => $targetWarehouseId,
-                    'quantity'      => 1,
-                    'movement_type' => 'return',
-                    'reference_id'  => null,
-                    'notes'         => 'Returned from collection center to warehouse',
-                    'performed_by'  => $performedBy,
-                    'created_at'    => now(),
-                ]);
-            }
-        });
+
+  /**
+ * Return products from a collection center back to warehouse(s).
+ * If the CC has multiple source warehouses (source_warehouse_id is null),
+ * we fall back to the first active warehouse.
+ */
+private function returnProductsToWarehouse(array $productIds, string $fromCcId, string $performedBy): void
+{
+    if (empty($productIds)) return;
+
+    $ccInventory = CollectionCenterInventory::where('cc_id', $fromCcId)->first();
+    if (!$ccInventory) return;
+
+    // Determine target warehouse(s) – if source_warehouse_id is null,
+    // we return to a default warehouse (e.g., the first active one)
+    $targetWarehouseId = $ccInventory->source_warehouse_id;
+    if (is_null($targetWarehouseId)) {
+        $defaultWarehouse = Warehouse::active()->first();
+        if (!$defaultWarehouse) {
+            throw new \Exception("No active warehouse found to return products.");
+        }
+        $targetWarehouseId = $defaultWarehouse->warehouse_id;
     }
+
+    DB::transaction(function () use ($productIds, $fromCcId, $performedBy, $ccInventory, $targetWarehouseId) {
+        // 1. Remove from CC inventory
+        $currentCcIds = $ccInventory->product_ids ?? [];
+        $updatedCcIds = array_values(array_diff($currentCcIds, $productIds));
+        $ccInventory->update([
+            'product_ids' => $updatedCcIds,
+            'quantity' => count($updatedCcIds),
+        ]);
+        if (empty($updatedCcIds)) {
+            $ccInventory->delete();
+        }
+
+        // 2. Add back to the target warehouse inventory
+        $warehouseInventory = Inventory::firstOrCreate(
+            ['warehouse_id' => $targetWarehouseId],
+            ['product_ids' => [], 'quantity' => 0]
+        );
+        $currentWarehouseIds = $warehouseInventory->product_ids ?? [];
+        $mergedIds = array_values(array_unique(array_merge($currentWarehouseIds, $productIds)));
+        $warehouseInventory->update([
+            'product_ids' => $mergedIds,
+            'quantity' => count($mergedIds),
+        ]);
+
+        // 3. Update product status
+        Product::whereIn('product_id', $productIds)->update(['stock_status' => 'in_stock']);
+
+        // 4. Log returns
+        foreach ($productIds as $productId) {
+            StockMovement::create([
+                'movement_id'   => (string) Str::uuid(),
+                'product_id'    => $productId,
+                'from_type'     => 'collection_center',
+                'from_id'       => $fromCcId,
+                'to_type'       => 'warehouse',
+                'to_id'         => $targetWarehouseId,
+                'quantity'      => 1,
+                'movement_type' => 'return',
+                'notes'         => 'Returned from collection center to warehouse',
+                'performed_by'  => $performedBy,
+            ]);
+
+            StockMovementLog::create([
+                'product_id'    => $productId,
+                'from_type'     => 'collection_center',
+                'from_id'       => $fromCcId,
+                'to_type'       => 'warehouse',
+                'to_id'         => $targetWarehouseId,
+                'quantity'      => 1,
+                'movement_type' => 'return',
+                'reference_id'  => null,
+                'notes'         => 'Returned from collection center to warehouse',
+                'performed_by'  => $performedBy,
+                'created_at'    => now(),
+            ]);
+        }
+    });
+}
 
     private function findInventoriesContainingProducts(array $productIds)
     {

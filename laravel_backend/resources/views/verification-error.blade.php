@@ -104,7 +104,7 @@
             @endif
 
             <div style="margin-top: 15px;">
-                <a href="{{ config('app.frontend_url', 'http://192.168.100.84:8000') }}" class="button">Go to Homepage</a>
+                <a href="{{ config('app.frontend_url', 'https://imaratech.co.tz') }}" class="button">Go to Homepage</a>
             </div>
         </div>
         <div class="footer">

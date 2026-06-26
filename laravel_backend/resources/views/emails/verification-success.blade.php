@@ -100,7 +100,7 @@
             </div>
             
             <div style="text-align: center;">
-                <a href="{{ config('app.frontend_url', 'http://localhost:3000') }}" class="button">Go to Dashboard</a>
+                <a href="{{ config('app.frontend_url', 'https://imaratech.co.tz') }}" class="button">Go to Dashboard</a>
             </div>
         </div>
         <div class="footer">
