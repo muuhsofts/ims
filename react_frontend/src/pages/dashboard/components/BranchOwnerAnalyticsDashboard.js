@@ -8,8 +8,7 @@ import {
 } from '@mui/material';
 import {
     Inventory, People, SwapHoriz, Pending, CheckCircle, Cancel,
-    FilterAlt, BarChart, Info, Storefront, Timeline as TimelineIcon,
-    PieChart as PieChartIcon
+    FilterAlt, BarChart, Info, Storefront
 } from '@mui/icons-material';
 import ReactApexChart from 'react-apexcharts';
 import { useBranchOwnerAnalytics } from 'hooks/useBranchOwnerAnalytics';
@@ -51,8 +50,6 @@ const MetricCard = ({ title, value, icon: Icon, color }) => {
     );
 };
 
-const CHART_COLORS = ['#4361ee', '#3a0ca3', '#7209b7', '#f72585', '#4cc9f0', '#f8961e', '#f9c74f', '#90be6d'];
-
 export default function BranchOwnerAnalyticsDashboard() {
     const theme = useTheme();
     const { hasPermission } = usePermission();
@@ -91,35 +88,10 @@ export default function BranchOwnerAnalyticsDashboard() {
         cards = {},
         transfer_stats = {},
         recent_transfers = [],
-        weekly_transfers = [],
-        category_pie = [],
-        agent_pie = [],
         product_stock_histogram = []
     } = data;
 
-    // Pie: Product categories
-    const categorySeries = category_pie.map(item => item.product_count);
-    const categoryLabels = category_pie.map(item => item.category);
-    const categoryOptions = {
-        labels: categoryLabels,
-        legend: { position: 'bottom' },
-        colors: CHART_COLORS,
-        plotOptions: { pie: { donut: { size: '55%' } } },
-        tooltip: { y: { formatter: (val) => `${val} units` } }
-    };
-
-    // Pie: Agent stock distribution
-    const agentSeries = agent_pie.map(item => item.stock);
-    const agentLabels = agent_pie.map(item => item.agent_name);
-    const agentOptions = {
-        labels: agentLabels,
-        legend: { position: 'bottom', fontSize: '12px' },
-        colors: CHART_COLORS,
-        plotOptions: { pie: { donut: { size: '45%' } } },
-        tooltip: { y: { formatter: (val) => `${val} units` } }
-    };
-
-    // Transfer status pie
+    // Transfer status pie (still useful)
     const transferStatusSeries = [
         transfer_stats.pending || 0,
         transfer_stats.approved || 0,
@@ -134,30 +106,7 @@ export default function BranchOwnerAnalyticsDashboard() {
         tooltip: { y: { formatter: (val) => `${val} requests` } }
     };
 
-    // Weekly transfer trend (bar chart – kept as is for Transfer tab)
-    const barSeries = [{ name: 'Transfer Requests', data: weekly_transfers.map(w => w.transfer_count) }];
-    const barOptions = {
-        chart: { type: 'bar', toolbar: { show: false }, background: 'transparent', animations: { enabled: true } },
-        plotOptions: { bar: { borderRadius: 6, horizontal: false, columnWidth: '60%' } },
-        xaxis: { categories: weekly_transfers.map(w => w.day), title: { text: 'Day' } },
-        yaxis: { title: { text: 'Number of Requests' } },
-        colors: [theme.palette.primary.main],
-        tooltip: { y: { formatter: val => `${val} requests` } },
-    };
-
-    // ✅ NEW: Line chart for weekly transfer trend (summary at bottom)
-    const lineSeries = [{ name: 'Transfer Requests', data: weekly_transfers.map(w => w.transfer_count) }];
-    const lineOptions = {
-        chart: { type: 'line', toolbar: { show: false }, background: 'transparent', animations: { enabled: true } },
-        stroke: { curve: 'smooth', width: 3, colors: [theme.palette.secondary.main] },
-        markers: { size: 5, colors: [theme.palette.secondary.main], strokeColors: '#fff', strokeWidth: 2 },
-        xaxis: { categories: weekly_transfers.map(w => w.day), title: { text: 'Day' } },
-        yaxis: { title: { text: 'Number of Transfer Requests' } },
-        tooltip: { y: { formatter: val => `${val} requests` } },
-        fill: { type: 'gradient', gradient: { shadeIntensity: 0.5, opacityFrom: 0.7, opacityTo: 0.2 } }
-    };
-
-    // Histogram: Top 10 stocked products
+    // Histogram: Top 10 stocked products (kept)
     const histCategories = product_stock_histogram.map(p =>
         p.product_name.length > 20 ? p.product_name.substring(0, 20) + '...' : p.product_name
     );
@@ -241,29 +190,9 @@ export default function BranchOwnerAnalyticsDashboard() {
                 <Tab label="Transfer Analytics" />
             </Tabs>
 
-            {/* Tab 1: Stock Insights */}
+            {/* Tab 0: Stock Insights – only top 10 histogram */}
             {tabValue === 0 && (
                 <Grid container spacing={4} sx={{ mb: 5 }}>
-                    <Grid item xs={12} md={6}>
-                        <Paper sx={{ p: 2, borderRadius: 4, backdropFilter: 'blur(8px)', bgcolor: alpha(theme.palette.background.paper, 0.6) }}>
-                            <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>📦 Product Categories (CC Stock)</Typography>
-                            {categorySeries.length > 0 ? (
-                                <ReactApexChart options={categoryOptions} series={categorySeries} type="pie" height={350} />
-                            ) : (
-                                <Typography align="center" color="textSecondary">No inventory data</Typography>
-                            )}
-                        </Paper>
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                        <Paper sx={{ p: 2, borderRadius: 4, backdropFilter: 'blur(8px)', bgcolor: alpha(theme.palette.background.paper, 0.6) }}>
-                            <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>👥 Stock Distribution by Agent</Typography>
-                            {agentSeries.length > 0 ? (
-                                <ReactApexChart options={agentOptions} series={agentSeries} type="pie" height={350} />
-                            ) : (
-                                <Typography align="center" color="textSecondary">No agent stock data</Typography>
-                            )}
-                        </Paper>
-                    </Grid>
                     <Grid item xs={12}>
                         <Paper sx={{ p: 2, borderRadius: 4, backdropFilter: 'blur(8px)', bgcolor: alpha(theme.palette.background.paper, 0.6) }}>
                             <Typography variant="h6" fontWeight={700} sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -279,7 +208,7 @@ export default function BranchOwnerAnalyticsDashboard() {
                 </Grid>
             )}
 
-            {/* Tab 2: Transfer Analytics */}
+            {/* Tab 1: Transfer Analytics */}
             {tabValue === 1 && (
                 <Grid container spacing={4}>
                     <Grid item xs={12} md={6}>
@@ -289,13 +218,9 @@ export default function BranchOwnerAnalyticsDashboard() {
                         </Paper>
                     </Grid>
                     <Grid item xs={12} md={6}>
-                        <Paper sx={{ p: 2, borderRadius: 4, backdropFilter: 'blur(8px)', bgcolor: alpha(theme.palette.background.paper, 0.6) }}>
-                            <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>📈 Weekly Transfer Trend (Bar)</Typography>
-                            {weekly_transfers.length > 0 ? (
-                                <ReactApexChart options={barOptions} series={barSeries} type="bar" height={350} />
-                            ) : (
-                                <Typography align="center" color="textSecondary">No transfer data</Typography>
-                            )}
+                        {/* Removed Weekly Transfer Trend chart – no chart here now, keep empty or reuse, but we removed it */}
+                        <Paper sx={{ p: 2, borderRadius: 4, backdropFilter: 'blur(8px)', bgcolor: alpha(theme.palette.background.paper, 0.6), height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Typography variant="body1" color="textSecondary">Weekly transfer trend has been removed.</Typography>
                         </Paper>
                     </Grid>
                     <Grid item xs={12}>
@@ -343,40 +268,7 @@ export default function BranchOwnerAnalyticsDashboard() {
                 </Grid>
             )}
 
-            {/* ========== NEW: Summary Analytics Section (Bottom) ========== */}
-            <Divider sx={{ my: 5 }} />
-            <Typography variant="h5" fontWeight={800} sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}>
-                <TimelineIcon color="primary" /> Summary Analytics (Last 7 Days)
-            </Typography>
-            <Grid container spacing={4}>
-                {/* Line Chart for Weekly Transfer Trend */}
-                <Grid item xs={12} md={6}>
-                    <Paper sx={{ p: 2, borderRadius: 4, backdropFilter: 'blur(8px)', bgcolor: alpha(theme.palette.background.paper, 0.6), height: '100%' }}>
-                        <Typography variant="h6" fontWeight={700} sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <TimelineIcon /> Weekly Transfer Trend (Line)
-                        </Typography>
-                        {weekly_transfers.length > 0 ? (
-                            <ReactApexChart options={lineOptions} series={lineSeries} type="line" height={350} />
-                        ) : (
-                            <Typography align="center" color="textSecondary">No transfer data available for line chart</Typography>
-                        )}
-                    </Paper>
-                </Grid>
-
-                {/* Another Pie Chart – Product Category Summary (reuse existing data) */}
-                <Grid item xs={12} md={6}>
-                    <Paper sx={{ p: 2, borderRadius: 4, backdropFilter: 'blur(8px)', bgcolor: alpha(theme.palette.background.paper, 0.6), height: '100%' }}>
-                        <Typography variant="h6" fontWeight={700} sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <PieChartIcon /> Product Category Summary
-                        </Typography>
-                        {categorySeries.length > 0 ? (
-                            <ReactApexChart options={categoryOptions} series={categorySeries} type="pie" height={350} />
-                        ) : (
-                            <Typography align="center" color="textSecondary">No category data to display</Typography>
-                        )}
-                    </Paper>
-                </Grid>
-            </Grid>
+            {/* Removed the entire "Summary Analytics" section at the bottom */}
         </Box>
     );
 }

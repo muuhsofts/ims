@@ -34,21 +34,21 @@ export function getSidebarStructure(hasPermission) {
   const structure = [];
 
   // ----- Dashboard / Agent Analytics / Branch Owner Analytics -----
-  if (hasPermission('dashboard.view')) { // Manager,Admin, Stock controllers
+  if (hasPermission('dashboard.view')) {
     structure.push({
       id: 0,
       label: 'Dashboard',
       link: '/app/dashboard',
       icon: <HomeIcon />,
     });
-  } else if (hasPermission('agent-dashboard.view')) { // Sales Agent
+  } else if (hasPermission('agent-dashboard.view')) {
     structure.push({
       id: 'agent-dashboard',
       label: 'Dashboard',
       link: '/app/agent-analytics',
       icon: <AnalyticsIcon />,
     });
-  } else if (hasPermission('cc_center_dashboard.view')) { // Branch Owner
+  } else if (hasPermission('cc_center_dashboard.view')) {
     structure.push({
       id: 'branch-owner-dashboard',
       label: 'Dashboard',
@@ -274,12 +274,11 @@ export function getSidebarStructure(hasPermission) {
   const hasAnyReportPerm = hasPermission('reports.stock.view') || hasPermission('reports.inventory.view') ||
       hasPermission('reports.sales.view') || hasPermission('reports.receipts.view') ||
       hasPermission('reports.customers.view') || hasPermission('reports.suppliers.view')  ||
-      hasPermission('branch-owner-reports.stock.view');;
+      hasPermission('branch-owner-reports.stock.view');
 
   if (hasAnyReportPerm) {
     const reportChildren = [];
 
-    // Purchase Reports
     if (hasPermission('reports.purchases.view')) {
       reportChildren.push({
         label: 'Purchase Reports',
@@ -289,7 +288,6 @@ export function getSidebarStructure(hasPermission) {
       });
     }
 
-    // Sales Reports
     if (hasPermission('reports.sales.view')) {
       reportChildren.push({
         label: 'Sales Reports',
@@ -299,7 +297,6 @@ export function getSidebarStructure(hasPermission) {
       });
     }
 
-    // Stock Reports (original)
     if (hasPermission('reports.stock.view')) {
       reportChildren.push({
         label: 'Stock Reports',
@@ -308,7 +305,6 @@ export function getSidebarStructure(hasPermission) {
         ],
       });
     }
-
 
     if (hasPermission('branch-owner-reports.stock.view')) {
       reportChildren.push({
@@ -330,8 +326,11 @@ export function getSidebarStructure(hasPermission) {
 
   // ----- Settings -----
   const settingsChildren = [
+    // 👇 AGENTS added below Users
     ...addIf(hasPermission('users.view') || hasPermission('users.create') || hasPermission('users.edit') || hasPermission('users.delete'),
         { label: 'Users', link: '/app/settings/users' }),
+    ...addIf(hasPermission('sales_agent.view') || hasPermission('sales_agent.create') || hasPermission('sales_agent.edit') || hasPermission('sales_agent.delete'),
+        { label: 'Agents', link: '/app/settings/agents' }),
     ...addIf(hasPermission('roles.view') || hasPermission('roles.create') || hasPermission('roles.edit') || hasPermission('roles.delete'),
         { label: 'Roles', link: '/app/settings/roles' }),
     ...addIf(hasPermission('roles.assign_permissions'),
@@ -406,6 +405,7 @@ const staticStructure = [
     icon: <SettingsIcon />,
     children: [
       { label: 'Users', link: '/app/settings/users', icon: <UsersIcon /> },
+      { label: 'Agents', link: '/app/settings/agents', icon: <AgentIcon /> },  // 👈 added
       { label: 'Roles', link: '/app/settings/roles', icon: <RolesIcon /> },
       { label: 'Permissions', link: '/app/settings/permissions', icon: <PermissionsIcon /> },
       { label: 'Audit Trails', link: '/app/settings/audit', icon: <AuditIcon /> },

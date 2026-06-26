@@ -212,7 +212,10 @@ export default function CcInventoryList() {
         return <Typography sx={{ p: 2 }}>You do not have permission to view collection center inventories.</Typography>;
     }
 
-    const inventories = Array.isArray(data) ? data : [];
+    // 🔥 Filter out inventories with zero products (quantity === 0)
+    const rawInventories = Array.isArray(data) ? data : [];
+    const inventories = rawInventories.filter(inv => (inv.quantity ?? 0) > 0);
+
     const isOwnedByUser = (inventory) => inventory?.collection_center?.owner_id === user?.id;
 
     const getProductLabel = (product) => {
@@ -278,7 +281,7 @@ export default function CcInventoryList() {
                                 {loading ? (
                                     <TableRow><TableCell colSpan={headCells.length} align="center"><CircularProgress size={32} sx={{ my: 3 }} /></TableCell></TableRow>
                                 ) : inventories.length === 0 ? (
-                                    <TableRow><TableCell colSpan={headCells.length} align="center">No inventories found</TableCell></TableRow>
+                                    <TableRow><TableCell colSpan={headCells.length} align="center">No inventories with products found</TableCell></TableRow>
                                 ) : (
                                     inventories.map((inv) => (
                                         <TableRow key={inv.cc_inventory_id} hover>
@@ -324,7 +327,7 @@ export default function CcInventoryList() {
                         {loading ? (
                             <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
                         ) : inventories.length === 0 ? (
-                            <Paper sx={{ p: 3, textAlign: 'center' }}>No inventories found</Paper>
+                            <Paper sx={{ p: 3, textAlign: 'center' }}>No inventories with products found</Paper>
                         ) : (
                             inventories.map((inv) => (
                                 <InventoryCard
@@ -350,7 +353,7 @@ export default function CcInventoryList() {
                     <TablePagination
                         rowsPerPageOptions={[5, 10, 25, 50]}
                         component="div"
-                        count={total}
+                        count={total} // Note: shows total from API, but filtered list may be shorter
                         rowsPerPage={rowsPerPage}
                         page={page}
                         onPageChange={(e, newPage) => setPage(newPage)}

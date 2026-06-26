@@ -1,7 +1,7 @@
 // src/pages/stock/StockMovementList.js
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Tooltip, FormControl, InputLabel, Select, Card, CardContent, Divider, useMediaQuery, useTheme, Grid } from '@mui/material';
-import { MoreVert as MoreVertIcon, Refresh as RefreshIcon, Search as SearchIcon, SwapHoriz as TransferIcon, ShoppingCart as PurchaseIcon, Sell as SaleIcon, AssignmentReturn as ReturnIcon, Adjust as AdjustmentIcon, Warning as LossIcon, LocationOn as LocationIcon, Person as PersonIcon, CalendarToday as CalendarIcon, Category as CategoryIcon } from '@mui/icons-material';
+import { MoreVert as MoreVertIcon, Refresh as RefreshIcon, Search as SearchIcon, SwapHoriz as TransferIcon, ShoppingCart as PurchaseIcon, Sell as SaleIcon, AssignmentReturn as ReturnIcon, Adjust as AdjustmentIcon, Warning as LossIcon, LocationOn as LocationIcon, Person as PersonIcon, CalendarToday as CalendarIcon, Category as CategoryIcon, FiberManualRecord as StatusIcon } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { useStockMovements } from '@/hooks/useStockMovements';
@@ -10,6 +10,7 @@ import StockMovementModal from './StockMovementModal';
 const headCells = [
     { id: 'brand', label: 'Brand' },
     { id: 'product', label: 'Product / IMEI / SKU / Model' },
+    { id: 'status', label: 'Status' },
     { id: 'movement_type', label: 'Type' },
     { id: 'from_to', label: 'From → To' },
     { id: 'performed_by', label: 'Performed By' },
@@ -27,10 +28,23 @@ const movementTypeConfig = {
     loss: { label: 'Loss', color: 'default', icon: LossIcon },
 };
 
+// Product status configuration
+const productStatusConfig = {
+    in_stock: { label: 'In Stock', color: 'success' },
+    transferred: { label: 'Transferred', color: 'warning' },
+    sold: { label: 'Sold', color: 'error' },
+    returned: { label: 'Returned', color: 'secondary' },
+    damaged: { label: 'Damaged', color: 'default' },
+    reserved: { label: 'Reserved', color: 'info' },
+    pending: { label: 'Pending', color: 'warning' },
+    unknown: { label: 'Unknown', color: 'default' },
+};
+
 // Card component for mobile/tablet view
 const MovementCard = ({ movement, onViewDetails }) => {
     const config = movementTypeConfig[movement.movement_type] || movementTypeConfig.transfer;
     const IconComponent = config.icon;
+    const statusConfig = productStatusConfig[movement.product_status] || productStatusConfig.unknown;
 
     return (
         <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
@@ -59,6 +73,15 @@ const MovementCard = ({ movement, onViewDetails }) => {
                     <Grid item xs={6}>
                         <Typography variant="caption" color="text.secondary">Model</Typography>
                         <Typography variant="body2">{movement.model || 'N/A'}</Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                        <Typography variant="caption" color="text.secondary">Status</Typography>
+                        <Chip
+                            label={statusConfig.label}
+                            color={statusConfig.color}
+                            size="small"
+                            icon={<StatusIcon sx={{ fontSize: 12 }} />}
+                        />
                     </Grid>
                     <Grid item xs={12}>
                         <Typography variant="caption" color="text.secondary">Type Description</Typography>
@@ -110,6 +133,7 @@ export default function StockMovementList() {
 
     const [search, setSearch] = useState('');
     const [movementTypeFilter, setMovementTypeFilter] = useState('');
+    const [statusFilter, setStatusFilter] = useState('');
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(20);
     const [modalOpen, setModalOpen] = useState(false);
@@ -123,9 +147,10 @@ export default function StockMovementList() {
             per_page: rowsPerPage,
             search: search || undefined,
             movement_type: movementTypeFilter || undefined,
+            product_status: statusFilter || undefined,
         };
         fetchData(params);
-    }, [page, rowsPerPage, search, movementTypeFilter, canView, fetchData]);
+    }, [page, rowsPerPage, search, movementTypeFilter, statusFilter, canView, fetchData]);
 
     useEffect(() => {
         fetchMovements();
@@ -152,6 +177,7 @@ export default function StockMovementList() {
     const handleClearFilters = () => {
         setSearch('');
         setMovementTypeFilter('');
+        setStatusFilter('');
         setPage(0);
     };
 
@@ -178,7 +204,7 @@ export default function StockMovementList() {
                 <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: 1, borderColor: 'divider' }}>
                     <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} gap={2} alignItems="center">
                         <TextField
-                            label="Search by product, IMEI, SKU, brand or notes"
+                            label="Search by product, IMEI, SKU, brand, status or notes"
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
@@ -200,10 +226,23 @@ export default function StockMovementList() {
                                 ))}
                             </Select>
                         </FormControl>
+                        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 } }}>
+                            <InputLabel>Product Status</InputLabel>
+                            <Select
+                                value={statusFilter}
+                                label="Product Status"
+                                onChange={(e) => setStatusFilter(e.target.value)}
+                            >
+                                <MenuItem value="">All</MenuItem>
+                                {Object.entries(productStatusConfig).map(([key, config]) => (
+                                    <MenuItem key={key} value={key}>{config.label}</MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
                         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchMovements}>
                             Refresh
                         </Button>
-                        {(search || movementTypeFilter) && (
+                        {(search || movementTypeFilter || statusFilter) && (
                             <Button variant="text" onClick={handleClearFilters}>Clear Filters</Button>
                         )}
                     </Box>
@@ -213,7 +252,7 @@ export default function StockMovementList() {
                 {showTableView ? (
                     // Desktop Table View
                     <TableContainer sx={{ overflowX: 'auto' }}>
-                        <Table sx={{ minWidth: 1200 }}>
+                        <Table sx={{ minWidth: 1400 }}>
                             <TableHead>
                                 <TableRow sx={{ backgroundColor: 'action.hover' }}>
                                     {headCells.map((cell) => (
@@ -238,6 +277,8 @@ export default function StockMovementList() {
                                     movements.map((movement) => {
                                         const config = movementTypeConfig[movement.movement_type] || movementTypeConfig.transfer;
                                         const IconComponent = config.icon;
+                                        const statusConfig = productStatusConfig[movement.product_status] || productStatusConfig.unknown;
+
                                         return (
                                             <TableRow key={movement.movement_id} hover>
                                                 <TableCell>{movement.brand || 'N/A'}</TableCell>
@@ -246,6 +287,14 @@ export default function StockMovementList() {
                                                     <Typography variant="caption" display="block">IMEI: {movement.imei}</Typography>
                                                     <Typography variant="caption" display="block">SKU: {movement.sku}</Typography>
                                                     <Typography variant="caption" display="block">Model: {movement.model || 'N/A'}</Typography>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Chip
+                                                        label={statusConfig.label}
+                                                        color={statusConfig.color}
+                                                        size="small"
+                                                        icon={<StatusIcon sx={{ fontSize: 14 }} />}
+                                                    />
                                                 </TableCell>
                                                 <TableCell>
                                                     <Chip icon={<IconComponent />} label={config.label} color={config.color} size="small" />

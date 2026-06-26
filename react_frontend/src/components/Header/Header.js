@@ -22,7 +22,7 @@ import useStyles from './styles';
 import { toggleSidebar, useLayoutDispatch, useLayoutState } from 'context/LayoutContext';
 import { useAuth } from 'context/AuthContext';
 
-const profileImg = '/assets/logo.png';
+const profileImg = '/assets/favicon.png';
 
 export default function Header() {
   const classes = useStyles();

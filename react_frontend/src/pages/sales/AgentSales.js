@@ -552,12 +552,8 @@ export default function AgentSales() {
 
                         <TextField select label="Payment Method" name="payment_method" value={saleForm.payment_method} onChange={handleSaleFormChange} fullWidth>
                             <MenuItem value="cash">Cash</MenuItem>
-                            <MenuItem value="mpesa">M-Pesa</MenuItem>
-                            <MenuItem value="airtel_money">Airtel Money</MenuItem>
-                            <MenuItem value="halopesa">HaloPesa</MenuItem>
-                            <MenuItem value="mixx_yas">Mixx Yas</MenuItem>
-                            <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-                            <MenuItem value="mixed">Mixed</MenuItem>
+                            <MenuItem value="loan">Loan</MenuItem>
+
                         </TextField>
 
                         <TextField label="Total Amount (TZS)" name="total_amount" type="number" value={saleForm.total_amount} onChange={handleSaleFormChange} fullWidth required />

@@ -12,7 +12,6 @@ import {
     Refresh as RefreshIcon, Search as SearchIcon,
     CheckCircle as ApproveIcon, Cancel as RejectIcon,
     Receipt as ConfirmIcon, Visibility as ViewIcon,
-    Inventory as ProcessIcon,
     Store as StoreIcon, Person as PersonIcon
 } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
@@ -189,9 +188,8 @@ function ApproveProgressDialog({ open, onClose, request, onSuccess }) {
     );
 }
 
-// Card component for mobile/tablet view (without scan)
-const RequestCard = ({ request, canApprove, canReject, canProcess, canConfirmReceipt, canDelete, onApprove, onReject, onProcess, onConfirmReceipt, onDelete, onViewItems }) => {
-    const isApproved = request.status === 'approved';
+// Card component for mobile/tablet view (Process Transfer removed)
+const RequestCard = ({ request, canApprove, canReject, canConfirmReceipt, canDelete, onApprove, onReject, onConfirmReceipt, onDelete, onViewItems }) => {
     const progress = request.total_quantity > 0 ? (request.received_quantity / request.total_quantity) * 100 : 0;
 
     return (
@@ -253,11 +251,6 @@ const RequestCard = ({ request, canApprove, canReject, canProcess, canConfirmRec
                             Reject
                         </Button>
                     )}
-                    {request.status === 'approved' && canProcess && (
-                        <Button fullWidth variant="outlined" color="primary" startIcon={<ProcessIcon />} onClick={() => onProcess(request)}>
-                            Process Transfer
-                        </Button>
-                    )}
                     {request.status === 'approved' && canConfirmReceipt && (
                         <Button fullWidth variant="outlined" color="info" startIcon={<ConfirmIcon />} onClick={() => onConfirmReceipt(request)}>
                             Confirm Receipt
@@ -279,18 +272,17 @@ export default function TransferRequestList() {
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const showTableView = useMediaQuery(theme.breakpoints.up('md'));
 
-    const { user, hasPermission } = usePermission();
+    const { hasPermission } = usePermission();
     const canView           = hasPermission('transfer_requests.view');
     const canCreate         = hasPermission('transfer_requests.create');
     const canApprove        = hasPermission('transfer_requests.approve');
     const canReject         = hasPermission('transfer_requests.reject');
-    const canProcess        = hasPermission('transfer_requests.process');
     const canConfirmReceipt = hasPermission('transfer_requests.confirm_receipt');
     const canDelete         = hasPermission('transfer_requests.delete');
 
     const {
         data, total, loading, fetchData,
-        approve, reject, processTransfer, confirmReceived, remove, getAvailableProducts,
+        approve, reject, confirmReceived, remove,
     } = useTransferRequests();
 
     const [search,       setSearch]       = useState('');
@@ -303,10 +295,6 @@ export default function TransferRequestList() {
 
     const [itemsDialogOpen, setItemsDialogOpen] = useState(false);
     const [selectedItems,   setSelectedItems]   = useState([]);
-
-    const [processDialog, setProcessDialog] = useState({
-        open: false, request: null, availableProducts: [], selectedProductIds: [],
-    });
 
     const [animatingApproveId, setAnimatingApproveId] = useState(null);
     const [approveProgressOpen, setApproveProgressOpen] = useState(false);
@@ -415,38 +403,11 @@ export default function TransferRequestList() {
         }
     };
 
-    const openProcessDialog = async () => {
-        if (!selectedRequest) return;
-        handleMenuClose();
-        try {
-            const res = await getAvailableProducts(selectedRequest.request_id);
-            setProcessDialog({ open: true, request: selectedRequest, availableProducts: res.data, selectedProductIds: [] });
-        } catch {
-            showSnackbar({ type: 'error', message: 'Failed to load available products' });
-        }
-    };
-
-    const handleProcessSubmit = async () => {
-        if (processDialog.selectedProductIds.length === 0) {
-            showSnackbar({ type: 'error', message: 'Select at least one product' });
-            return;
-        }
-        try {
-            await processTransfer(processDialog.request.request_id, processDialog.selectedProductIds);
-            showSnackbar({ type: 'success', message: 'Transfer processed' });
-            setProcessDialog({ open: false, request: null, availableProducts: [], selectedProductIds: [] });
-            fetchRequests();
-        } catch (err) {
-            showSnackbar({ type: 'error', message: err.message });
-        }
-    };
-
     const handleModalClose = (refresh) => { setModalOpen(false); if (refresh) fetchRequests(); };
 
     // Card-specific handlers
     const handleCardApprove = (req) => { setSelectedRequest(req); handleApprove(); };
     const handleCardReject = (req) => { setSelectedRequest(req); handleReject(); };
-    const handleCardProcess = (req) => { setSelectedRequest(req); openProcessDialog(); };
     const handleCardConfirmReceipt = (req) => { setSelectedRequest(req); handleConfirmReceipt(); };
     const handleCardDelete = (req) => { setSelectedRequest(req); handleDelete(); };
     const handleCardViewItems = (items) => { handleViewItems(items); };
@@ -555,12 +516,10 @@ export default function TransferRequestList() {
                                     request={req}
                                     canApprove={canApprove}
                                     canReject={canReject}
-                                    canProcess={canProcess}
                                     canConfirmReceipt={canConfirmReceipt}
                                     canDelete={canDelete}
                                     onApprove={handleCardApprove}
                                     onReject={handleCardReject}
-                                    onProcess={handleCardProcess}
                                     onConfirmReceipt={handleCardConfirmReceipt}
                                     onDelete={handleCardDelete}
                                     onViewItems={handleCardViewItems}
@@ -586,7 +545,7 @@ export default function TransferRequestList() {
                 />
             </Paper>
 
-            {/* Action Menu (only for table view) */}
+            {/* Action Menu (only for table view) - Process Transfer removed */}
             <Menu anchorEl={actionMenu} open={Boolean(actionMenu)} onClose={handleMenuClose}>
                 {selectedRequest?.status === 'pending' && canApprove && (
                     <MenuItem onClick={handleApprove}>
@@ -596,11 +555,6 @@ export default function TransferRequestList() {
                 {selectedRequest?.status === 'pending' && canReject && (
                     <MenuItem onClick={handleReject}>
                         <RejectIcon sx={{ mr: 1, color: 'error.main' }} /> Reject
-                    </MenuItem>
-                )}
-                {selectedRequest?.status === 'approved' && canProcess && (
-                    <MenuItem onClick={openProcessDialog}>
-                        <ProcessIcon sx={{ mr: 1, color: 'primary.main' }} /> Process Transfer
                     </MenuItem>
                 )}
                 {selectedRequest?.status === 'approved' && canConfirmReceipt && (
@@ -663,47 +617,6 @@ export default function TransferRequestList() {
                     )}
                 </DialogContent>
                 <DialogActions><Button onClick={() => setItemsDialogOpen(false)}>Close</Button></DialogActions>
-            </Dialog>
-
-            {/* Process Transfer Dialog */}
-            <Dialog
-                open={processDialog.open}
-                onClose={() => setProcessDialog({ open: false, request: null, availableProducts: [], selectedProductIds: [] })}
-                maxWidth="md" fullWidth
-            >
-                <DialogTitle>Process Transfer – Select Products</DialogTitle>
-                <DialogContent>
-                    <Typography variant="body2">Request for {processDialog.request?.collection_center?.cc_name}</Typography>
-                    {processDialog.availableProducts.length === 0 ? (
-                        <Typography>No products available in warehouse.</Typography>
-                    ) : (
-                        processDialog.availableProducts.map(prod => (
-                            <Paper key={prod.product_id} variant="outlined" sx={{ p: 1, mb: 1, display: 'flex', alignItems: 'center', gap: 2 }}>
-                                <input
-                                    type="checkbox"
-                                    checked={processDialog.selectedProductIds.includes(prod.product_id)}
-                                    onChange={(e) => {
-                                        if (e.target.checked)
-                                            setProcessDialog(prev => ({ ...prev, selectedProductIds: [...prev.selectedProductIds, prod.product_id] }));
-                                        else
-                                            setProcessDialog(prev => ({ ...prev, selectedProductIds: prev.selectedProductIds.filter(id => id !== prod.product_id) }));
-                                    }}
-                                />
-                                <Box>
-                                    <Typography variant="body2"><strong>IMEI:</strong> {prod.imei}</Typography>
-                                    <Typography variant="body2"><strong>SKU:</strong> {prod.sku}</Typography>
-                                    <Typography variant="body2">Prices: Buy {prod.buying_price}, Sell {prod.selling_price}</Typography>
-                                </Box>
-                            </Paper>
-                        ))
-                    )}
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setProcessDialog({ open: false, request: null, availableProducts: [], selectedProductIds: [] })}>Cancel</Button>
-                    <Button onClick={handleProcessSubmit} variant="contained" disabled={processDialog.selectedProductIds.length === 0}>
-                        Transfer Selected ({processDialog.selectedProductIds.length})
-                    </Button>
-                </DialogActions>
             </Dialog>
 
             {/* Creation Modal */}

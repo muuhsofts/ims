@@ -1,4 +1,4 @@
-// src/pages/users/UserFormModal.js
+// src/pages/agents/AgentFormModal.js
 import React, { useState, useEffect } from 'react';
 import {
     Dialog,
@@ -15,34 +15,31 @@ import {
     Alert,
     Collapse,
 } from '@mui/material';
-import { useUsers } from 'context/UserContext';
-import { roleService } from 'services/role.service';
+import { useAgents } from 'context/AgentContext';
 import { collectionCenterService } from 'services/collection-center.service';
 import { showSnackbar } from 'utils/snackbar';
 
 const PASSWORD_MIN_LENGTH = 8;
 
-// Map backend field names → form field names
+// Map backend field names to our form field names
 const mapFieldKey = (key) => {
     const mapping = {
-        name: 'name',
         email: 'email',
-        phone: 'phone',
-        role_id: 'role_id',
-        cc_id: 'cc_id',
         password: 'password',
+        name: 'name',
+        phone: 'phone',
+        cc_id: 'cc_id',
         status: 'status',
     };
     return mapping[key] || key;
 };
 
-export default function UserFormModal({ open, onClose, user }) {
+export default function AgentFormModal({ open, onClose, agent }) {
     const theme = useTheme();
     const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
-    const { create, update } = useUsers();
+    const { create, update } = useAgents();
     const [loading, setLoading] = useState(false);
-    const [roles, setRoles] = useState([]);
     const [collectionCenters, setCollectionCenters] = useState([]);
     const [loadingOptions, setLoadingOptions] = useState(false);
 
@@ -50,7 +47,6 @@ export default function UserFormModal({ open, onClose, user }) {
         name: '',
         email: '',
         phone: '',
-        role_id: '',
         cc_id: '',
         password: '',
         password_confirmation: '',
@@ -58,30 +54,23 @@ export default function UserFormModal({ open, onClose, user }) {
     });
 
     const [fieldErrors, setFieldErrors] = useState({});
+    // Flat list of all error messages to show in the banner
     const [errorList, setErrorList] = useState([]);
 
-    // Load roles + collection centers when modal opens
+    // Load collection centers when modal opens
     useEffect(() => {
         if (!open) return;
         const fetchOptions = async () => {
             setLoadingOptions(true);
             try {
-                const [rolesRes, centersRes] = await Promise.all([
-                    roleService.getRolesDropdown(),
-                    collectionCenterService.getCentersDropdown(),
-                ]);
-                setRoles(
-                    rolesRes.data?.success && Array.isArray(rolesRes.data.data)
-                        ? rolesRes.data.data
-                        : []
-                );
-                setCollectionCenters(
-                    centersRes.data?.success && Array.isArray(centersRes.data.data)
-                        ? centersRes.data.data
-                        : []
-                );
+                const centersRes = await collectionCenterService.getCentersDropdown();
+                if (centersRes.data?.success && Array.isArray(centersRes.data.data)) {
+                    setCollectionCenters(centersRes.data.data);
+                } else {
+                    setCollectionCenters([]);
+                }
             } catch {
-                showSnackbar({ type: 'error', message: 'Failed to load roles or centers' });
+                showSnackbar({ type: 'error', message: 'Failed to load collection centers' });
             } finally {
                 setLoadingOptions(false);
             }
@@ -89,16 +78,15 @@ export default function UserFormModal({ open, onClose, user }) {
         fetchOptions();
     }, [open]);
 
-    // Populate or reset form when user/open changes
+    // Populate form when editing
     useEffect(() => {
-        if (user) {
+        if (agent) {
             setForm({
-                name: user.name || '',
-                email: user.email || '',
-                phone: user.phone || '',
-                role_id: user.role_id || '',
-                cc_id: user.cc_id || '',
-                status: user.status || 'active',
+                name: agent.name || '',
+                email: agent.email || '',
+                phone: agent.phone || '',
+                cc_id: agent.cc_id || '',
+                status: agent.status || 'active',
                 password: '',
                 password_confirmation: '',
             });
@@ -107,7 +95,6 @@ export default function UserFormModal({ open, onClose, user }) {
                 name: '',
                 email: '',
                 phone: '',
-                role_id: '',
                 cc_id: '',
                 password: '',
                 password_confirmation: '',
@@ -116,12 +103,12 @@ export default function UserFormModal({ open, onClose, user }) {
         }
         setFieldErrors({});
         setErrorList([]);
-    }, [user, open]);
+    }, [agent, open]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
         setForm((prev) => ({ ...prev, [name]: value }));
-        // Clear this field's error and rebuild the banner list
+        // Clear the specific field error on change, and rebuild the error list
         setFieldErrors((prev) => {
             const next = { ...prev, [name]: '' };
             setErrorList(Object.values(next).filter(Boolean));
@@ -130,9 +117,8 @@ export default function UserFormModal({ open, onClose, user }) {
     };
 
     /**
-     * Set field errors, update the banner, and fire a toast.
-     * Single error → toast the message directly.
-     * Multiple errors → toast a count, banner lists all.
+     * Apply a set of field errors, update the banner list, and toast a summary.
+     * @param {Object} errors - { fieldName: 'message', ... }
      */
     const applyErrors = (errors) => {
         setFieldErrors(errors);
@@ -149,9 +135,8 @@ export default function UserFormModal({ open, onClose, user }) {
     };
 
     /**
-     * Guard against axios setups that resolve (don't throw) on 4xx.
-     * If the adapter returns { success: false }, synthesise an error
-     * so the catch block always handles failures uniformly.
+     * Some axios setups do not throw on 4xx — the adapter returns raw response data.
+     * If we get back { success: false }, synthesise an error so catch handles it.
      */
     const handleServiceResult = (result) => {
         if (result && result.success === false) {
@@ -166,8 +151,8 @@ export default function UserFormModal({ open, onClose, user }) {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        // --- Client-side validation — collect ALL errors before bailing ---
-        if (!user) {
+        // --- Client-side validation (collect ALL errors before returning) ---
+        if (!agent) {
             const clientErrors = {};
 
             if (!form.name.trim()) {
@@ -177,9 +162,6 @@ export default function UserFormModal({ open, onClose, user }) {
                 clientErrors.email = 'Email is required';
             } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
                 clientErrors.email = 'Enter a valid email address';
-            }
-            if (!form.role_id) {
-                clientErrors.role_id = 'Role is required';
             }
             if (!form.password) {
                 clientErrors.password = 'Password is required';
@@ -203,33 +185,33 @@ export default function UserFormModal({ open, onClose, user }) {
         setLoading(true);
 
         try {
-            if (user) {
-                const result = await update(user.id, {
+            if (agent) {
+                const result = await update(agent.id, {
                     name: form.name,
                     phone: form.phone,
                     status: form.status,
-                    role_id: form.role_id,
                     cc_id: form.cc_id || null,
                 });
+                // Guard: adapter may return {success:false} instead of throwing
                 handleServiceResult(result);
-                showSnackbar({ type: 'success', message: 'User updated successfully' });
+                showSnackbar({ type: 'success', message: 'Agent updated successfully' });
                 onClose();
             } else {
                 const result = await create({
                     name: form.name,
                     email: form.email,
                     phone: form.phone,
-                    role_id: form.role_id,
                     cc_id: form.cc_id || null,
                     password: form.password,
                     password_confirmation: form.password_confirmation,
                 });
+                // Guard: adapter may return {success:false} instead of throwing
                 handleServiceResult(result);
-                showSnackbar({ type: 'success', message: 'User created. OTP sent to email.' });
+                showSnackbar({ type: 'success', message: 'Agent created. OTP sent to email.' });
                 onClose();
             }
         } catch (err) {
-            // Synthetic error from handleServiceResult ({ success: false } response)
+            // Synthetic error thrown by handleServiceResult (success:false response)
             if (err.__serviceError) {
                 const { errors, message } = err;
                 if (errors && Object.keys(errors).length > 0) {
@@ -247,12 +229,13 @@ export default function UserFormModal({ open, onClose, user }) {
                 return;
             }
 
-            // Laravel 422 validation error (axios throws on non-2xx)
+            // Handle Laravel validation errors thrown as HTTP 422
             if (err.response?.status === 422 && err.response?.data?.errors) {
                 const backendErrors = err.response.data.errors;
                 const newFieldErrors = {};
                 Object.keys(backendErrors).forEach((key) => {
-                    newFieldErrors[mapFieldKey(key)] = backendErrors[key][0];
+                    const msg = backendErrors[key][0];
+                    newFieldErrors[mapFieldKey(key)] = msg;
                 });
                 applyErrors(newFieldErrors);
             } else {
@@ -280,7 +263,7 @@ export default function UserFormModal({ open, onClose, user }) {
         >
             <form onSubmit={handleSubmit} noValidate>
                 <DialogTitle sx={{ pb: 1, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
-                    {user ? 'Edit User' : 'Add New User'}
+                    {agent ? 'Edit Sales Agent' : 'Add Sales Agent'}
                 </DialogTitle>
 
                 <DialogContent>
@@ -324,10 +307,10 @@ export default function UserFormModal({ open, onClose, user }) {
                             onChange={handleChange}
                             required
                             fullWidth
-                            disabled={!!user}
+                            disabled={!!agent}
                             size="small"
                             error={!!fieldErrors.email}
-                            helperText={fieldErrors.email || (user ? 'Email cannot be changed' : '')}
+                            helperText={fieldErrors.email || (agent ? 'Email cannot be changed' : '')}
                         />
 
                         <TextField
@@ -343,39 +326,15 @@ export default function UserFormModal({ open, onClose, user }) {
 
                         <TextField
                             select
-                            label="Role"
-                            name="role_id"
-                            value={form.role_id}
-                            onChange={handleChange}
-                            required
-                            fullWidth
-                            disabled={loadingOptions}
-                            size="small"
-                            error={!!fieldErrors.role_id}
-                            helperText={fieldErrors.role_id}
-                        >
-                            <MenuItem value="">Select Role</MenuItem>
-                            {roles.map((role) => (
-                                <MenuItem key={role.id} value={role.id}>
-                                    {role.display_name || role.name}
-                                </MenuItem>
-                            ))}
-                        </TextField>
-
-                        <TextField
-                            select
                             label="Collection Center"
                             name="cc_id"
                             value={form.cc_id}
                             onChange={handleChange}
                             fullWidth
                             disabled={loadingOptions}
-                            size="small"
+                            helperText={fieldErrors.cc_id || 'Assign to a collection center (recommended)'}
                             error={!!fieldErrors.cc_id}
-                            helperText={
-                                fieldErrors.cc_id ||
-                                'Assign to a collection center (required for transfer requests)'
-                            }
+                            size="small"
                         >
                             <MenuItem value="">None / Unassigned</MenuItem>
                             {collectionCenters.map((cc) => (
@@ -385,7 +344,7 @@ export default function UserFormModal({ open, onClose, user }) {
                             ))}
                         </TextField>
 
-                        {!user && (
+                        {!agent && (
                             <>
                                 <TextField
                                     label="Password"
@@ -417,7 +376,7 @@ export default function UserFormModal({ open, onClose, user }) {
                             </>
                         )}
 
-                        {user && (
+                        {agent && (
                             <TextField
                                 select
                                 label="Status"
@@ -443,7 +402,7 @@ export default function UserFormModal({ open, onClose, user }) {
                         Cancel
                     </Button>
                     <Button type="submit" variant="contained" disabled={loading || loadingOptions}>
-                        {loading ? <CircularProgress size={24} /> : user ? 'Update' : 'Create'}
+                        {loading ? <CircularProgress size={24} /> : agent ? 'Update' : 'Create'}
                     </Button>
                 </DialogActions>
             </form>

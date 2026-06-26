@@ -4,7 +4,7 @@ import classnames from 'classnames';
 import {useStyles} from "tss-react";
 
 
-const logo = '/assets/logo.png';
+const logo = '/assets/favicon.png';
 
 const ERROR_CONTENT = {
   403: {

@@ -1,3 +1,4 @@
+// hooks/useAgentSales.js
 import { useState, useCallback } from 'react';
 import { agentSalesService } from 'services/agent-sales.service';
 import { showSnackbar } from 'utils/snackbar';
@@ -12,7 +13,6 @@ export const useAgentSales = () => {
         try {
             const response = await agentSalesService.getAvailableStock();
             if (response.data?.success) {
-                // The API returns an array of products
                 setStock(response.data.data || []);
             } else {
                 setStock([]);
@@ -32,7 +32,7 @@ export const useAgentSales = () => {
         try {
             const response = await agentSalesService.sellProduct(saleData);
             if (response.data?.success) {
-                showSnackbar({ type: 'success', message: 'Sale completed successfully' });
+                // ✅ Success toast removed – component will handle it
                 await fetchStock(); // refresh stock after sale
                 return response.data.data;
             } else {

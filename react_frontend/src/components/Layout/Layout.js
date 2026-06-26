@@ -85,7 +85,10 @@ import AgentAnalyticsDashboard from "pages/dashboard/components/AgentAnalyticsDa
 import BranchOwnerStockReport from "pages/reports/BranchOwnerStockReport";
 import BranchOwnerAnalyticsDashboard from "pages/dashboard/components/BranchOwnerAnalyticsDashboard";
 
-import { usePermission } from 'hooks/usePermission'; // ✅ import permission hook
+// 👇 Import the AgentsList
+import AgentsList from "pages/agents/AgentsList";
+
+import { usePermission } from 'hooks/usePermission';
 
 function Layout() {
   const classes = useStyles();
@@ -97,14 +100,13 @@ function Layout() {
   };
   let layoutState = useLayoutState();
 
-  // ✅ Generate dynamic sidebar structure based on user permissions
   const { hasPermission } = usePermission();
   const dynamicStructure = getSidebarStructure(hasPermission);
 
   return (
       <div className={classes.root}>
         <Header />
-        <Sidebar structure={dynamicStructure} /> {/* ✅ use dynamic structure */}
+        <Sidebar structure={dynamicStructure} />
         <div
             className={classnames(classes.content, {
               [classes.contentShift]: layoutState.isSidebarOpened,
@@ -162,6 +164,7 @@ function Layout() {
 
             {/* User management */}
             <Route path="settings/users" element={<UsersList />} />
+            <Route path="settings/agents" element={<AgentsList />} />  {/* 👈 new route */}
             <Route path="settings/permissions" element={<PermissionsList />} />
             <Route path="settings/roles" element={<RoleList />} />
             <Route path="settings/audit" element={<AuditList />} />
@@ -219,28 +222,28 @@ function Layout() {
           <ColorChangeThemePopper id={id} open={open} anchorEl={anchorEl} />
           <Footer>
             <div>
-              <Link color="primary" href="https://flatlogic.com/" target="_blank" className={classes.link}>
-                Flatlogic
+              <Link color="primary" href="https://imaratech.co.tz" target="_blank" className={classes.link}>
+                Hanai Technologies
               </Link>
-              <Link color="primary" href="https://flatlogic.com/about" target="_blank" className={classes.link}>
+              <Link color="primary" href="https://my-potofolio-eight.vercel.app" target="_blank" className={classes.link}>
                 About Us
               </Link>
               <Link color="primary" href="https://flatlogic.com/blog" target="_blank" className={classes.link}>
-                Blog
+
               </Link>
             </div>
             <div>
-              <Link href="https://www.facebook.com/flatlogic" target="_blank">
+              <Link href="" target="_blank">
                 <IconButton aria-label="facebook">
                   <FacebookIcon style={{ color: '#6E6E6E99' }} />
                 </IconButton>
               </Link>
-              <Link href="https://twitter.com/flatlogic" target="_blank">
+              <Link href="" target="_blank">
                 <IconButton aria-label="twitter">
                   <TwitterIcon style={{ color: '#6E6E6E99' }} />
                 </IconButton>
               </Link>
-              <Link href="https://github.com/flatlogic" target="_blank">
+              <Link href="" target="_blank">
                 <IconButton aria-label="github" style={{ padding: '12px 0 12px 12px' }}>
                   <GithubIcon style={{ color: '#6E6E6E99' }} />
                 </IconButton>

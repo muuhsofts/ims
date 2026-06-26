@@ -52,14 +52,18 @@ export default function CustomerFormModal({ open, onClose, customer }) {
         try {
             if (customer) {
                 await update(customer.id, form);
-                showSnackbar({ type: 'success', message: 'Customer updated' });
+                showSnackbar({ type: 'success', message: 'Customer updated successfully' });
+                onClose(true);
             } else {
                 await create(form);
-                showSnackbar({ type: 'success', message: 'Customer created' });
+                showSnackbar({ type: 'success', message: 'Customer created successfully' });
+                onClose(true);
             }
-            onClose(true);
         } catch (err) {
-            showSnackbar({ type: 'error', message: err.response?.data?.message || 'Operation failed' });
+            showSnackbar({
+                type: 'error',
+                message: err.response?.data?.message || err.message || 'Operation failed'
+            });
         } finally {
             setLoading(false);
         }

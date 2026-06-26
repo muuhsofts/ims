@@ -1,3 +1,4 @@
+// App.js
 import React from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
@@ -36,6 +37,7 @@ import { DashboardProvider } from "context/DashboardContext";
 import { CcInventoryProvider } from "context/CollectionCenterContext";
 import { CollectionCenterProvider } from "context/CCInventoryContext";
 import { InvoiceProvider } from "context/InvoiceContext";
+import { AgentProvider } from "context/AgentContext";  // 👈 import AgentProvider
 
 function RouterNavigatorSync() {
     const navigate = useNavigate();
@@ -56,7 +58,6 @@ function AppContent() {
         <BrowserRouter basename={routerBase}>
             <RouterNavigatorSync />
             <Routes>
-                {/* Redirect to Sales Analytics instead of old dashboard */}
                 <Route path="/" element={<Navigate to="/app/sales-analytics" replace />} />
                 <Route path="/app" element={<Navigate to="/app/sales-analytics" replace />} />
                 <Route path="/403" element={<Error code={403} />} />
@@ -80,7 +81,6 @@ function AppContent() {
         return children;
     }
     function PublicRoute({ children }) {
-        // Redirect authenticated users to Sales Analytics
         if (isAuthenticated) return <Navigate to="/app/sales-analytics" replace />;
         return children;
     }
@@ -112,8 +112,10 @@ export default function App() {
                                                                                             <ReportProvider>
                                                                                                 <DashboardProvider>
                                                                                                     <InvoiceProvider>
-                                                                                                        <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} />
-                                                                                                        <AppContent />
+                                                                                                        <AgentProvider>   {/* 👈 wrap with AgentProvider */}
+                                                                                                            <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} />
+                                                                                                            <AppContent />
+                                                                                                        </AgentProvider>
                                                                                                     </InvoiceProvider>
                                                                                                 </DashboardProvider>
                                                                                             </ReportProvider>
