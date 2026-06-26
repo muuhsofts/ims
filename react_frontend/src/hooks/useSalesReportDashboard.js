@@ -19,7 +19,7 @@ export const useSalesReportDashboard = (days = 7, autoRefreshMs = 300000) => {
                 throw new Error(response.data.message || 'Failed to load sales report');
             }
         } catch (err) {
-            setError(err);
+            setError(err?.response?.data?.message || err.message || "An error occurred");
             showSnackbar({ type: 'error', message: err.message || 'Error loading sales report' });
             setData(null);
         } finally {

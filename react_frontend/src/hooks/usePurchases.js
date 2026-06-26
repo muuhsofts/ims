@@ -22,7 +22,7 @@ export const usePurchases = () => {
                 setTotal(0);
             }
         } catch (err) {
-            setError(err);
+            setError(err?.response?.data?.message || err.message || "An error occurred");
             showSnackbar({ type: 'error', message: 'Failed to fetch purchases' });
             setData([]);
             setTotal(0);

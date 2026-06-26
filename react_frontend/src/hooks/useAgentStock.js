@@ -15,7 +15,7 @@ export const useAgentStock = () => {
             // response.data is the array of stock items
             setData(response.data || []);
         } catch (err) {
-            setError(err);
+            setError(err?.response?.data?.message || err.message || "An error occurred");
             showSnackbar({ type: 'error', message: err.response?.data?.message || 'Failed to load stock' });
             setData([]);
         } finally {

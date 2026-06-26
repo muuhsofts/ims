@@ -2,8 +2,7 @@
   "name": "react-material-full",
   "description": "React Material Admin Full",
   "version": "3.0.1",
-  "private": true,
-  "homepage": "./",
+  "private": false,
   "scripts": {
     "build": "vite build",
     "start": "vite",
@@ -81,5 +80,8 @@
     "sass": "^1.97.3",
     "vite": "^7.3.2",
     "vitest": "^4.0.18"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.62.0"
   }
 }

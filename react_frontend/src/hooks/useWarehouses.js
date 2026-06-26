@@ -23,7 +23,7 @@ export const useWarehouses = () => {
                 setTotal(0);
             }
         } catch (err) {
-            setError(err);
+            setError(err?.response?.data?.message || err.message || "An error occurred");
             showSnackbar({ type: 'error', message: 'Failed to fetch warehouses' });
             setData([]);
             setTotal(0);

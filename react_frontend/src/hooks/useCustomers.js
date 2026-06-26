@@ -1,6 +1,7 @@
 // src/hooks/useCustomers.js
 import { useState, useCallback } from 'react';
 import { customerService } from 'services/customer.service';
+import {showSnackbar} from "utils/snackbar";
 
 export const useCustomers = () => {
     const [data, setData] = useState([]);
@@ -30,6 +31,8 @@ export const useCustomers = () => {
             }
         } catch (err) {
             setError(err);
+            setError(err?.response?.data?.message || err.message || "An error occurred");
+            showSnackbar({ type: 'error', message: 'Failed to fetch customers' });
             setData([]);
             setTotal(0);
         } finally {
@@ -53,6 +56,8 @@ export const useCustomers = () => {
             }
         } catch (err) {
             setError(err);
+            setError(err?.response?.data?.message || err.message || "An error occurred");
+            showSnackbar({ type: 'error', message: 'Failed to fetch your customers' });
             setData([]);
             setTotal(0);
         } finally {
@@ -61,6 +66,7 @@ export const useCustomers = () => {
     }, []);
 
     const create = useCallback(async (formData) => {
+        // eslint-disable-next-line no-useless-catch
         try {
             const response = await customerService.createCustomer(formData);
             if (!response.data?.success) throw new Error(response.data?.message);
@@ -72,6 +78,7 @@ export const useCustomers = () => {
     }, []);
 
     const update = useCallback(async (id, formData) => {
+        // eslint-disable-next-line no-useless-catch
         try {
             const response = await customerService.updateCustomer(id, formData);
             if (!response.data?.success) throw new Error(response.data?.message);
@@ -83,6 +90,7 @@ export const useCustomers = () => {
     }, []);
 
     const remove = useCallback(async (id) => {
+        // eslint-disable-next-line no-useless-catch
         try {
             const response = await customerService.deleteCustomer(id);
             if (!response.data?.success) throw new Error(response.data?.message);
@@ -93,6 +101,7 @@ export const useCustomers = () => {
     }, []);
 
     const restore = useCallback(async (id) => {
+        // eslint-disable-next-line no-useless-catch
         try {
             const response = await customerService.restoreCustomer(id);
             if (!response.data?.success) throw new Error(response.data?.message);

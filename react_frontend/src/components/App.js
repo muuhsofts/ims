@@ -11,7 +11,7 @@ import Login from "pages/login";
 import VerifyOTP from "pages/verify_otp/VerifyOTP";
 import ResetPassword from "pages/reset_password/ResetPassword";
 import ForgotPassword from "pages/forgot_password/ForgotPassword";
-import Error from "pages/Error";
+
 
 // Data contexts
 import { ProductCategoryProvider } from "context/ProductCategoryContext";
