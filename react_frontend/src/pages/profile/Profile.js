@@ -10,6 +10,8 @@ import {
   Chip,
   IconButton,
   InputAdornment,
+  useTheme,
+  useMediaQuery,
 } from '@mui/material';
 import {
   Facebook as FacebookIcon,
@@ -20,14 +22,17 @@ import {
   VisibilityOff,
 } from '@mui/icons-material';
 
-import useStyles from './styles';
+import useStyles from './profileStyles';   // <-- new styles file
 import Widget from '../../components/Widget/Widget';
-import {authService} from "services/auth.service";
-import {showSnackbar} from "utils/snackbar";
-import {useAuth} from "context/AuthContext";
+import { authService } from 'services/auth.service';
+import { showSnackbar } from 'utils/snackbar';
+import { useAuth } from 'context/AuthContext';
 
 export default function Profile() {
   const classes = useStyles();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
   const { user, updateUser, roles } = useAuth();
 
   const [editMode, setEditMode] = useState(false);
@@ -48,6 +53,7 @@ export default function Profile() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const roleDisplayName = user?.role?.display_name || (roles.length > 0 ? roles[0] : 'User');
+  const avatarSize = isMobile ? 80 : 120;
 
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
@@ -95,25 +101,49 @@ export default function Profile() {
   };
 
   return (
-      <Grid container spacing={3} sx={{ width: '100%', margin: 0, padding: 2 }}>
-        {/* Left column – Profile card (full width on mobile, half on desktop) */}
+      <Grid container spacing={3} sx={{ width: '100%', margin: 0, padding: { xs: 1, sm: 2 } }}>
+        {/* Left column – Profile card */}
         <Grid size={{ xs: 12, md: 6 }}>
           <Widget sx={{ height: '100%' }}>
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12, sm: 4 }} style={{ display: 'flex', justifyContent: 'center' }}>
+            <Grid container spacing={2} alignItems="center">
+              <Grid
+                  size={{ xs: 12, sm: 4 }}
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    flexDirection: 'column',
+                  }}
+              >
                 <div className={classes.visualProfile}>
                   <div className={classes.profileImage}>
-                    <Avatar sx={{ width: 120, height: 120 }} src={user?.avatar || ''}>
+                    <Avatar
+                        sx={{ width: avatarSize, height: avatarSize }}
+                        src={user?.avatar || ''}
+                    >
                       {user?.name?.charAt(0) || 'U'}
                     </Avatar>
                   </div>
-                  <Chip className={classes.chipMargin} color="secondary" label={roleDisplayName} />
+                  <Chip
+                      className={classes.chipMargin}
+                      color="secondary"
+                      label={roleDisplayName}
+                      sx={{ mt: 1 }}
+                  />
                 </div>
               </Grid>
-              <Grid size={{ xs: 12, sm: 8 }}>
+              <Grid
+                  size={{ xs: 12, sm: 8 }}
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: { xs: 'center', sm: 'flex-start' },
+                    textAlign: { xs: 'center', sm: 'left' },
+                  }}
+              >
                 <div className={classes.profileDescription}>
                   {editMode ? (
-                      <form onSubmit={handleProfileUpdate}>
+                      <form onSubmit={handleProfileUpdate} style={{ width: '100%' }}>
                         <TextField
                             fullWidth
                             margin="normal"
@@ -121,6 +151,7 @@ export default function Profile() {
                             value={profileForm.name}
                             onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
                             required
+                            size={isMobile ? 'small' : 'medium'}
                         />
                         <TextField
                             fullWidth
@@ -128,26 +159,65 @@ export default function Profile() {
                             label="Phone"
                             value={profileForm.phone}
                             onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                            size={isMobile ? 'small' : 'medium'}
                         />
-                        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                        <div
+                            style={{
+                              display: 'flex',
+                              gap: 8,
+                              marginTop: 16,
+                              flexWrap: 'wrap',
+                              justifyContent: isMobile ? 'center' : 'flex-start',
+                            }}
+                        >
                           <Button type="submit" variant="contained" color="primary" disabled={profileLoading}>
                             {profileLoading ? <CircularProgress size={24} /> : 'Save'}
                           </Button>
-                          <Button variant="outlined" onClick={() => setEditMode(false)}>Cancel</Button>
+                          <Button variant="outlined" onClick={() => setEditMode(false)}>
+                            Cancel
+                          </Button>
                         </div>
                       </form>
                   ) : (
                       <>
-                        <Typography variant="h4" className={classes.profileTitle}>{user?.name}</Typography>
-                        <Typography variant="subtitle1" className={classes.profileSubtitle}>{roleDisplayName}</Typography>
-                        <a className={classes.profileExternalRes} href={`mailto:${user?.email}`}>{user?.email}</a>
+                        <Typography
+                            variant={isMobile ? 'h5' : 'h4'}
+                            className={classes.profileTitle}
+                            gutterBottom
+                        >
+                          {user?.name}
+                        </Typography>
+                        <Typography
+                            variant="subtitle1"
+                            className={classes.profileSubtitle}
+                            gutterBottom
+                        >
+                          {roleDisplayName}
+                        </Typography>
+                        <a className={classes.profileExternalRes} href={`mailto:${user?.email}`}>
+                          {user?.email}
+                        </a>
                         <div className={classes.socials}>
-                          <a href="#"><FacebookIcon fontSize="small" /></a>
-                          <a href="#"><TwitterIcon fontSize="small" /></a>
-                          <a href="#"><LinkedInIcon fontSize="small" /></a>
-                          <a href="#"><InstagramIcon fontSize="small" /></a>
+                          <IconButton size="small" component="a" href="#">
+                            <FacebookIcon fontSize={isMobile ? 'small' : 'medium'} />
+                          </IconButton>
+                          <IconButton size="small" component="a" href="#">
+                            <TwitterIcon fontSize={isMobile ? 'small' : 'medium'} />
+                          </IconButton>
+                          <IconButton size="small" component="a" href="#">
+                            <LinkedInIcon fontSize={isMobile ? 'small' : 'medium'} />
+                          </IconButton>
+                          <IconButton size="small" component="a" href="#">
+                            <InstagramIcon fontSize={isMobile ? 'small' : 'medium'} />
+                          </IconButton>
                         </div>
-                        <Button variant="outlined" color="primary" onClick={() => setEditMode(true)}>
+                        <Button
+                            variant="outlined"
+                            color="primary"
+                            onClick={() => setEditMode(true)}
+                            sx={{ mt: 1 }}
+                            fullWidth={isMobile}
+                        >
                           Edit Profile
                         </Button>
                       </>
@@ -170,10 +240,15 @@ export default function Profile() {
                   value={passForm.current_password}
                   onChange={(e) => setPassForm({ ...passForm, current_password: e.target.value })}
                   required
+                  size={isMobile ? 'small' : 'medium'}
                   InputProps={{
                     endAdornment: (
                         <InputAdornment position="end">
-                          <IconButton onClick={() => setShowCurrentPassword(!showCurrentPassword)} edge="end">
+                          <IconButton
+                              onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                              edge="end"
+                              size={isMobile ? 'small' : 'medium'}
+                          >
                             {showCurrentPassword ? <VisibilityOff /> : <Visibility />}
                           </IconButton>
                         </InputAdornment>
@@ -188,10 +263,15 @@ export default function Profile() {
                   value={passForm.password}
                   onChange={(e) => setPassForm({ ...passForm, password: e.target.value })}
                   required
+                  size={isMobile ? 'small' : 'medium'}
                   InputProps={{
                     endAdornment: (
                         <InputAdornment position="end">
-                          <IconButton onClick={() => setShowNewPassword(!showNewPassword)} edge="end">
+                          <IconButton
+                              onClick={() => setShowNewPassword(!showNewPassword)}
+                              edge="end"
+                              size={isMobile ? 'small' : 'medium'}
+                          >
                             {showNewPassword ? <VisibilityOff /> : <Visibility />}
                           </IconButton>
                         </InputAdornment>
@@ -206,17 +286,29 @@ export default function Profile() {
                   value={passForm.password_confirmation}
                   onChange={(e) => setPassForm({ ...passForm, password_confirmation: e.target.value })}
                   required
+                  size={isMobile ? 'small' : 'medium'}
                   InputProps={{
                     endAdornment: (
                         <InputAdornment position="end">
-                          <IconButton onClick={() => setShowConfirmPassword(!showConfirmPassword)} edge="end">
+                          <IconButton
+                              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                              edge="end"
+                              size={isMobile ? 'small' : 'medium'}
+                          >
                             {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
                           </IconButton>
                         </InputAdornment>
                     ),
                   }}
               />
-              <Button type="submit" variant="contained" color="primary" disabled={passLoading} sx={{ mt: 2 }}>
+              <Button
+                  type="submit"
+                  variant="contained"
+                  color="primary"
+                  disabled={passLoading}
+                  sx={{ mt: 2 }}
+                  fullWidth={isMobile}
+              >
                 {passLoading ? <CircularProgress size={24} /> : 'Change Password'}
               </Button>
             </form>

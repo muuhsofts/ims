@@ -2,17 +2,7 @@ import { makeStyles } from 'styles/mui';
 import { alpha } from '@mui/material/styles';
 
 export default makeStyles((theme) => ({
-  logotype: {
-    color: 'white',
-    marginLeft: theme.spacing(2.5),
-    marginRight: theme.spacing(2.5),
-    fontWeight: 500,
-    fontSize: 18,
-    whiteSpace: 'nowrap',
-    [theme.breakpoints.down('xs')]: {
-      display: 'none',
-    },
-  },
+  // ----- Top Bar -----
   appBar: {
     width: '100%',
     zIndex: theme.zIndex.drawer + 1,
@@ -24,13 +14,34 @@ export default makeStyles((theme) => ({
   toolbar: {
     paddingLeft: theme.spacing(2),
     paddingRight: theme.spacing(2),
+    minHeight: 56, // better touch targets on mobile
+    [theme.breakpoints.up('sm')]: {
+      minHeight: 64,
+    },
+  },
+
+  // ----- Logo / Title -----
+  logotype: {
+    color: 'white',
+    marginLeft: theme.spacing(2.5),
+    marginRight: theme.spacing(2.5),
+    fontWeight: 500,
+    fontSize: 18,
+    whiteSpace: 'nowrap',
+    [theme.breakpoints.down('xs')]: {
+      display: 'none',
+    },
+  },
+
+  // ----- Utilities -----
+  grow: {
+    flexGrow: 1,
   },
   hide: {
     display: 'none',
   },
-  grow: {
-    flexGrow: 1,
-  },
+
+  // ----- Search (unused in current Header, kept for completeness) -----
   search: {
     position: 'relative',
     borderRadius: 25,
@@ -76,26 +87,15 @@ export default makeStyles((theme) => ({
     paddingRight: 36 + theme.spacing(1.25),
     width: '100%',
   },
-  messageContent: {
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  headerMenu: {
-    marginTop: theme.spacing(2),
-  },
-  headerMenuList: {
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  headerMenuItem: {
-    '&:hover, &:focus': {
-      backgroundColor: theme.palette.background.light,
-      // color: "white",
-    },
-  },
+
+  // ----- Header Buttons / Icons -----
   headerMenuButton: {
     marginLeft: theme.spacing(2),
     padding: theme.spacing(0.5),
+    // increase touch area on mobile
+    [theme.breakpoints.down('sm')]: {
+      padding: theme.spacing(1),
+    },
   },
   headerMenuButtonSandwich: {
     marginLeft: 9,
@@ -114,16 +114,41 @@ export default makeStyles((theme) => ({
   headerIconCollapse: {
     color: 'white',
   },
+
+  // ----- Profile Menu (Dropdown) -----
+  headerMenu: {
+    marginTop: theme.spacing(2),
+  },
+  headerMenuList: {
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  headerMenuItem: {
+    '&:hover, &:focus': {
+      backgroundColor: theme.palette.background.light,
+    },
+  },
+
   profileMenu: {
     minWidth: 265,
+    // On mobile, the paper will be full‑width via the sx prop, but we keep this as fallback:
+    [theme.breakpoints.down('sm')]: {
+      minWidth: '100%',
+    },
   },
   profileMenuUser: {
     display: 'flex',
     flexDirection: 'column',
     padding: theme.spacing(2),
+    borderBottom: `1px solid ${theme.palette.divider}`, // visual separation
   },
   profileMenuItem: {
     color: theme.palette.text.hint,
+    minHeight: 48, // larger touch target
+    padding: theme.spacing(1.5, 2),
+    '&:hover': {
+      backgroundColor: theme.palette.action.hover,
+    },
   },
   profileMenuIcon: {
     marginRight: theme.spacing(2),
@@ -135,9 +160,26 @@ export default makeStyles((theme) => ({
   profileMenuLink: {
     fontSize: 16,
     textDecoration: 'none',
+    padding: theme.spacing(1.5, 0),
+    display: 'inline-block',
     '&:hover': {
       cursor: 'pointer',
+      textDecoration: 'underline',
     },
+  },
+
+  // ----- Greeting Label -----
+  profileLabel: {
+    fontSize: 14,
+    [theme.breakpoints.down('xs')]: {
+      display: 'none', // hide on extra‑small screens to save space
+    },
+  },
+
+  // ----- Message & Other (unused in current Header, kept for completeness) -----
+  messageContent: {
+    display: 'flex',
+    flexDirection: 'column',
   },
   messageNotification: {
     height: 'auto',
@@ -171,10 +213,5 @@ export default makeStyles((theme) => ({
       display: 'none',
     },
     marginRight: theme.spacing(3),
-  },
-  profileLabel: {
-    [theme.breakpoints.down('xs')]: {
-      display: 'none',
-    },
   },
 }));
