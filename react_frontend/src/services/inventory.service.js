@@ -8,5 +8,4 @@ export const inventoryService = {
     updateInventory: (id, data) => api.put(`/v7/inventory/${id}`, data),
     deleteInventory: (id) => api.delete(`/v7/inventory/${id}`),
     getProductsInInventoryDropdown: (params) => api.get('/v7/inventory/product-in/inventory/dropdown', { params }),
-
 };

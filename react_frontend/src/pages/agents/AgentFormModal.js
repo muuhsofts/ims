@@ -14,18 +14,16 @@ import {
     useTheme,
     Alert,
     Collapse,
+    Typography,
 } from '@mui/material';
 import { useAgents } from 'context/AgentContext';
 import { collectionCenterService } from 'services/collection-center.service';
 import { showSnackbar } from 'utils/snackbar';
 
-const PASSWORD_MIN_LENGTH = 8;
-
 // Map backend field names to our form field names
 const mapFieldKey = (key) => {
     const mapping = {
         email: 'email',
-        password: 'password',
         name: 'name',
         phone: 'phone',
         cc_id: 'cc_id',
@@ -42,19 +40,17 @@ export default function AgentFormModal({ open, onClose, agent }) {
     const [loading, setLoading] = useState(false);
     const [collectionCenters, setCollectionCenters] = useState([]);
     const [loadingOptions, setLoadingOptions] = useState(false);
+    const [generatedPassword, setGeneratedPassword] = useState('');
 
     const [form, setForm] = useState({
         name: '',
         email: '',
         phone: '',
         cc_id: '',
-        password: '',
-        password_confirmation: '',
         status: 'active',
     });
 
     const [fieldErrors, setFieldErrors] = useState({});
-    // Flat list of all error messages to show in the banner
     const [errorList, setErrorList] = useState([]);
 
     // Load collection centers when modal opens
@@ -87,8 +83,6 @@ export default function AgentFormModal({ open, onClose, agent }) {
                 phone: agent.phone || '',
                 cc_id: agent.cc_id || '',
                 status: agent.status || 'active',
-                password: '',
-                password_confirmation: '',
             });
         } else {
             setForm({
@@ -96,10 +90,9 @@ export default function AgentFormModal({ open, onClose, agent }) {
                 email: '',
                 phone: '',
                 cc_id: '',
-                password: '',
-                password_confirmation: '',
                 status: 'active',
             });
+            setGeneratedPassword('');
         }
         setFieldErrors({});
         setErrorList([]);
@@ -108,7 +101,6 @@ export default function AgentFormModal({ open, onClose, agent }) {
     const handleChange = (e) => {
         const { name, value } = e.target;
         setForm((prev) => ({ ...prev, [name]: value }));
-        // Clear the specific field error on change, and rebuild the error list
         setFieldErrors((prev) => {
             const next = { ...prev, [name]: '' };
             setErrorList(Object.values(next).filter(Boolean));
@@ -116,10 +108,6 @@ export default function AgentFormModal({ open, onClose, agent }) {
         });
     };
 
-    /**
-     * Apply a set of field errors, update the banner list, and toast a summary.
-     * @param {Object} errors - { fieldName: 'message', ... }
-     */
     const applyErrors = (errors) => {
         setFieldErrors(errors);
         const messages = Object.values(errors).filter(Boolean);
@@ -134,10 +122,6 @@ export default function AgentFormModal({ open, onClose, agent }) {
         }
     };
 
-    /**
-     * Some axios setups do not throw on 4xx — the adapter returns raw response data.
-     * If we get back { success: false }, synthesise an error so catch handles it.
-     */
     const handleServiceResult = (result) => {
         if (result && result.success === false) {
             const err = new Error(result.message || 'Operation failed');
@@ -151,7 +135,7 @@ export default function AgentFormModal({ open, onClose, agent }) {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        // --- Client-side validation (collect ALL errors before returning) ---
+        // Client-side validation (no password validation needed anymore)
         if (!agent) {
             const clientErrors = {};
 
@@ -163,16 +147,6 @@ export default function AgentFormModal({ open, onClose, agent }) {
             } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
                 clientErrors.email = 'Enter a valid email address';
             }
-            if (!form.password) {
-                clientErrors.password = 'Password is required';
-            } else if (form.password.length < PASSWORD_MIN_LENGTH) {
-                clientErrors.password = `Password must be at least ${PASSWORD_MIN_LENGTH} characters`;
-            }
-            if (!form.password_confirmation) {
-                clientErrors.password_confirmation = 'Please confirm your password';
-            } else if (form.password && form.password !== form.password_confirmation) {
-                clientErrors.password_confirmation = 'Passwords do not match';
-            }
 
             if (Object.keys(clientErrors).length > 0) {
                 applyErrors(clientErrors);
@@ -183,6 +157,7 @@ export default function AgentFormModal({ open, onClose, agent }) {
         setFieldErrors({});
         setErrorList([]);
         setLoading(true);
+        setGeneratedPassword('');
 
         try {
             if (agent) {
@@ -192,7 +167,6 @@ export default function AgentFormModal({ open, onClose, agent }) {
                     status: form.status,
                     cc_id: form.cc_id || null,
                 });
-                // Guard: adapter may return {success:false} instead of throwing
                 handleServiceResult(result);
                 showSnackbar({ type: 'success', message: 'Agent updated successfully' });
                 onClose();
@@ -202,16 +176,26 @@ export default function AgentFormModal({ open, onClose, agent }) {
                     email: form.email,
                     phone: form.phone,
                     cc_id: form.cc_id || null,
-                    password: form.password,
-                    password_confirmation: form.password_confirmation,
                 });
-                // Guard: adapter may return {success:false} instead of throwing
                 handleServiceResult(result);
-                showSnackbar({ type: 'success', message: 'Agent created. OTP sent to email.' });
+
+                // ✅ FIX: Properly extract the generated password from the response
+                // The response structure is: { success: true, message: "...", data: { ... } }
+                const responseData = result?.data?.data || result?.data || result;
+                const password = responseData?.generated_password;
+
+                if (password) {
+                    setGeneratedPassword(password);
+                    showSnackbar({
+                        type: 'success',
+                        message: `Agent created successfully! Default password: ${password}`
+                    });
+                } else {
+                    showSnackbar({ type: 'success', message: 'Agent created. OTP sent to email.' });
+                }
                 onClose();
             }
         } catch (err) {
-            // Synthetic error thrown by handleServiceResult (success:false response)
             if (err.__serviceError) {
                 const { errors, message } = err;
                 if (errors && Object.keys(errors).length > 0) {
@@ -229,19 +213,15 @@ export default function AgentFormModal({ open, onClose, agent }) {
                 return;
             }
 
-            // Handle Laravel validation errors thrown as HTTP 422
             if (err.response?.status === 422 && err.response?.data?.errors) {
                 const backendErrors = err.response.data.errors;
                 const newFieldErrors = {};
                 Object.keys(backendErrors).forEach((key) => {
-                    const msg = backendErrors[key][0];
-                    newFieldErrors[mapFieldKey(key)] = msg;
+                    newFieldErrors[mapFieldKey(key)] = backendErrors[key][0];
                 });
                 applyErrors(newFieldErrors);
             } else {
-                // General / network error
-                const message =
-                    err.response?.data?.message || err.message || 'Operation failed';
+                const message = err.response?.data?.message || err.message || 'Operation failed';
                 setErrorList([message]);
                 showSnackbar({ type: 'error', message });
             }
@@ -267,7 +247,6 @@ export default function AgentFormModal({ open, onClose, agent }) {
                 </DialogTitle>
 
                 <DialogContent>
-                    {/* ── Error summary banner ── */}
                     <Collapse in={hasErrors}>
                         <Alert
                             severity="error"
@@ -286,6 +265,17 @@ export default function AgentFormModal({ open, onClose, agent }) {
                         </Alert>
                     </Collapse>
 
+                    {/* ✅ Display generated password when available */}
+                    {generatedPassword && (
+                        <Alert severity="info" sx={{ mb: 2 }}>
+                            <Typography variant="body2">
+                                <strong>Default Password:</strong> {generatedPassword}
+                                <br />
+                                <em>Please share this password with the agent.</em>
+                            </Typography>
+                        </Alert>
+                    )}
+
                     <Box display="flex" flexDirection="column" gap={2} mt={hasErrors ? 0 : 1}>
                         <TextField
                             label="Full Name"
@@ -297,6 +287,7 @@ export default function AgentFormModal({ open, onClose, agent }) {
                             size="small"
                             error={!!fieldErrors.name}
                             helperText={fieldErrors.name}
+                            autoFocus
                         />
 
                         <TextField
@@ -343,38 +334,6 @@ export default function AgentFormModal({ open, onClose, agent }) {
                                 </MenuItem>
                             ))}
                         </TextField>
-
-                        {!agent && (
-                            <>
-                                <TextField
-                                    label="Password"
-                                    name="password"
-                                    type="password"
-                                    value={form.password}
-                                    onChange={handleChange}
-                                    required
-                                    fullWidth
-                                    size="small"
-                                    error={!!fieldErrors.password}
-                                    helperText={
-                                        fieldErrors.password ||
-                                        `Minimum ${PASSWORD_MIN_LENGTH} characters`
-                                    }
-                                />
-                                <TextField
-                                    label="Confirm Password"
-                                    name="password_confirmation"
-                                    type="password"
-                                    value={form.password_confirmation}
-                                    onChange={handleChange}
-                                    required
-                                    fullWidth
-                                    size="small"
-                                    error={!!fieldErrors.password_confirmation}
-                                    helperText={fieldErrors.password_confirmation}
-                                />
-                            </>
-                        )}
 
                         {agent && (
                             <TextField

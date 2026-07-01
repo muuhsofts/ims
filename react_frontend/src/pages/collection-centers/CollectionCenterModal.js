@@ -26,8 +26,8 @@ export default function CollectionCenterModal({ open, onClose, center }) {
 
     const { create, update } = useCollectionCenters();
     const [loading, setLoading] = useState(false);
-    const [users, setUsers] = useState([]);
-    const [loadingUsers, setLoadingUsers] = useState(false);
+    const [branchOwners, setBranchOwners] = useState([]);
+    const [loadingOwners, setLoadingOwners] = useState(false);
     const [form, setForm] = useState({
         cc_name: '',
         location: '',
@@ -37,23 +37,24 @@ export default function CollectionCenterModal({ open, onClose, center }) {
 
     useEffect(() => {
         if (!open) return;
-        const fetchUsers = async () => {
-            setLoadingUsers(true);
+        const fetchBranchOwners = async () => {
+            setLoadingOwners(true);
             try {
-                const response = await userService.getUsersDropdown();
+                // Use the new branch owner dropdown endpoint
+                const response = await userService.getBranchOwnersDropdown();
                 if (response.data?.success && Array.isArray(response.data.data)) {
-                    setUsers(response.data.data);
+                    setBranchOwners(response.data.data);
                 } else {
-                    setUsers([]);
+                    setBranchOwners([]);
                 }
             } catch (err) {
-                console.error(err);
-                setUsers([]);
+                console.error('Error fetching branch owners:', err);
+                setBranchOwners([]);
             } finally {
-                setLoadingUsers(false);
+                setLoadingOwners(false);
             }
         };
-        fetchUsers();
+        fetchBranchOwners();
     }, [open]);
 
     useEffect(() => {
@@ -86,7 +87,7 @@ export default function CollectionCenterModal({ open, onClose, center }) {
             return;
         }
         if (!form.owner_id) {
-            showSnackbar({ type: 'error', message: 'Please select an owner' });
+            showSnackbar({ type: 'error', message: 'Please select a branch owner' });
             return;
         }
 
@@ -144,20 +145,20 @@ export default function CollectionCenterModal({ open, onClose, center }) {
                             size="small"
                         />
                         <FormControl fullWidth required size="small">
-                            <InputLabel>Owner *</InputLabel>
+                            <InputLabel>Branch Owner *</InputLabel>
                             <Select
                                 name="owner_id"
                                 value={form.owner_id}
-                                label="Owner *"
+                                label="Branch Owner *"
                                 onChange={handleChange}
-                                disabled={loadingUsers}
+                                disabled={loadingOwners}
                             >
                                 <MenuItem value="">
-                                    {loadingUsers ? 'Loading owners...' : 'Select an owner'}
+                                    {loadingOwners ? 'Loading branch owners...' : 'Select a branch owner'}
                                 </MenuItem>
-                                {users.map((user) => (
-                                    <MenuItem key={user.id} value={user.id}>
-                                        {user.name}
+                                {branchOwners.map((owner) => (
+                                    <MenuItem key={owner.value || owner.id} value={owner.value || owner.id}>
+                                        {owner.label || owner.name}
                                     </MenuItem>
                                 ))}
                             </Select>
@@ -179,7 +180,7 @@ export default function CollectionCenterModal({ open, onClose, center }) {
                 </DialogContent>
                 <DialogActions sx={{ p: { xs: 2, sm: 3 } }}>
                     <Button onClick={() => onClose(false)} disabled={loading}>Cancel</Button>
-                    <Button type="submit" variant="contained" disabled={loading || loadingUsers}>
+                    <Button type="submit" variant="contained" disabled={loading || loadingOwners}>
                         {loading ? <CircularProgress size={24} /> : center ? 'Update' : 'Create'}
                     </Button>
                 </DialogActions>

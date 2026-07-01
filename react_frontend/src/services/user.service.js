@@ -12,6 +12,10 @@ export const userService = {
     getUsersDropdown: (params) => api.get('/v1/users/dropdown', { params }),
     getSalesAgentsDropdown: (params) => api.get('/v1/users/sales-agents/dropdown', { params }),
 
+    // NEW: Branch Owner endpoints
+    getBranchOwners: (params) => api.get('/v1/users/branch-owners', { params }),
+    getBranchOwnersDropdown: (params) => api.get('/v1/users/branch-owners/dropdown', { params }),
+
     // Status changes
     activateUser: (id) => api.patch(`/v1/users/${id}/activate`),
     deactivateUser: (id) => api.patch(`/v1/users/${id}/deactivate`),

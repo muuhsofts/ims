@@ -1,7 +1,18 @@
 // src/pages/products/ProductList.js
 import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Switch, FormControlLabel, Card, CardContent, Divider, useMediaQuery, useTheme } from '@mui/material';
-import { Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon, Refresh as RefreshIcon, Search as SearchIcon, Restore as RestoreIcon, Block as BlockIcon, CheckCircle as CheckCircleIcon, Inventory as InventoryIcon, Category as CategoryIcon, QrCode as ImeiIcon, Sell as SellIcon, Money as MoneyIcon, CalendarToday as CalendarIcon } from '@mui/icons-material';
+import {
+    Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
+    IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody,
+    TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField,
+    Typography, CircularProgress, Switch, FormControlLabel, Card, CardContent,
+    Divider, useMediaQuery, useTheme, Tooltip
+} from '@mui/material';
+import {
+    Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
+    Refresh as RefreshIcon, Search as SearchIcon, Restore as RestoreIcon,
+    Block as BlockIcon, CheckCircle as CheckCircleIcon,
+    AttachMoney as CashIcon
+} from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { useProducts } from '@/hooks/useProducts';
@@ -12,7 +23,8 @@ const headCells = [
     { id: 'sku', label: 'SKU' },
     { id: 'imei', label: 'IMEI' },
     { id: 'buying_price', label: 'Buying Price (TSh)' },
-    { id: 'selling_price', label: 'Selling Price (TSh)' },
+    { id: 'cash_selling_price', label: 'Cash Selling Price (TSh)' },
+    { id: 'loan_selling_price', label: 'Loan Selling Price (TSh)' },
     { id: 'status', label: 'Status' },
     { id: 'stock_status', label: 'Stock Status' },
     { id: 'created_at', label: 'Created At' },
@@ -164,6 +176,11 @@ export default function ProductList() {
         return `Category: ${categoryName} | Model: ${model}`;
     };
 
+    const formatPrice = (price) => {
+        if (!price && price !== 0) return '-';
+        return `TSh ${parseFloat(price).toLocaleString()}`;
+    };
+
     // Card component for mobile/tablet view
     const ProductCard = ({ product, onEdit, onRestore, onToggleStatus }) => {
         const isDeleted = !!product.deleted_at;
@@ -182,10 +199,15 @@ export default function ProductList() {
                         <Typography variant="body2" sx={{ fontFamily: 'monospace' }}><strong>IMEI:</strong> {product.imei}</Typography>
                     </Box>
 
-                    {/* Prices */}
-                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                        <Typography variant="body2"><strong>Buying:</strong> TSh {parseFloat(product.buying_price).toLocaleString()}</Typography>
-                        <Typography variant="body2"><strong>Selling:</strong> TSh {parseFloat(product.selling_price).toLocaleString()}</Typography>
+                    {/* Prices - Buying, Cash, Loan */}
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={1} flexWrap="wrap" gap={0.5}>
+                        <Typography variant="body2"><strong>Buying:</strong> {formatPrice(product.buying_price)}</Typography>
+                        <Typography variant="body2" sx={{ color: 'success.main' }}>
+                            <strong>Cash:</strong> {formatPrice(product.cash_selling_price)}
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: 'primary.main' }}>
+                            <strong>Loan:</strong> {formatPrice(product.loan_selling_price)}
+                        </Typography>
                     </Box>
 
                     {/* Status chips */}
@@ -277,7 +299,7 @@ export default function ProductList() {
                 {/* Table or Card View */}
                 {showTableView ? (
                     <TableContainer sx={{ overflowX: 'auto' }}>
-                        <Table sx={{ minWidth: 1000 }}>
+                        <Table sx={{ minWidth: 1100 }}>
                             <TableHead>
                                 <TableRow>
                                     {headCells.map((cell) => (
@@ -295,9 +317,27 @@ export default function ProductList() {
                                         <TableRow key={product.product_id} hover>
                                             <TableCell>{getProductDetails(product)}</TableCell>
                                             <TableCell>{product.sku || '-'}</TableCell>
-                                            <TableCell><code>{product.imei}</code></TableCell>
-                                            <TableCell>TSh {parseFloat(product.buying_price).toLocaleString()}</TableCell>
-                                            <TableCell>TSh {parseFloat(product.selling_price).toLocaleString()}</TableCell>
+                                            <TableCell><code style={{ fontSize: '0.82rem' }}>{product.imei}</code></TableCell>
+                                            <TableCell>{formatPrice(product.buying_price)}</TableCell>
+                                            <TableCell>
+                                                {product.cash_selling_price ? (
+                                                    <Tooltip title="Cash Price">
+                                                        <Box display="flex" alignItems="center" gap={0.5}>
+                                                            <CashIcon fontSize="small" color="success" />
+                                                            {formatPrice(product.cash_selling_price)}
+                                                        </Box>
+                                                    </Tooltip>
+                                                ) : '-'}
+                                            </TableCell>
+                                            <TableCell>
+                                                {product.loan_selling_price ? (
+                                                    <Tooltip title="Loan Price">
+                                                        <Box display="flex" alignItems="center" gap={0.5}>
+                                                            {formatPrice(product.loan_selling_price)}
+                                                        </Box>
+                                                    </Tooltip>
+                                                ) : '-'}
+                                            </TableCell>
                                             <TableCell>{getStatusChip(product.status)}</TableCell>
                                             <TableCell>{getStockStatusChip(product.stock_status)}</TableCell>
                                             <TableCell>{new Date(product.created_at).toLocaleString()}</TableCell>

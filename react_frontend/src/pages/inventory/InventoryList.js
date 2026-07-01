@@ -1,7 +1,7 @@
 // src/pages/inventory/InventoryList.js
 import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Card, CardContent, Divider, useMediaQuery, useTheme, Grid } from '@mui/material';
-import { Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon, Refresh as RefreshIcon, Search as SearchIcon, Warehouse as WarehouseIcon, Inventory as InventoryIcon, Person as PersonIcon } from '@mui/icons-material';
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Card, CardContent, Divider, useMediaQuery, useTheme, Tooltip } from '@mui/material';
+import { Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon, Refresh as RefreshIcon, Search as SearchIcon, Warehouse as WarehouseIcon, Inventory as InventoryIcon, Person as PersonIcon, AttachMoney as CashIcon } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { useInventory } from '@/hooks/useInventory';
@@ -16,14 +16,19 @@ const headCells = [
     { id: 'actions', label: 'Actions', disableSort: true },
 ];
 
-// Helper for product label
+// Helper for product label - WITHOUT prices to avoid duplication
 const getProductLabel = (product) => {
-    const productName = product.product_name || 'N/A';
-    const category = product.category_name || product.category?.category_name || 'N/A';
+    const categoryName = product.category_name || product.category?.category_name || 'N/A';
     const model = product.category?.model || 'N/A';
     const sku = product.sku || 'N/A';
     const imei = product.imei || 'N/A';
-    return `Product: ${productName} | Category: ${category} | Model: ${model} | SKU: ${sku} | IMEI: ${imei}`;
+    return `${categoryName} | ${model} | SKU: ${sku} | IMEI: ${imei}`;
+};
+
+// Format price helper
+const formatPrice = (price) => {
+    if (!price && price !== 0) return null;
+    return `TSh ${parseFloat(price).toLocaleString()}`;
 };
 
 // Card component for mobile/tablet view
@@ -55,9 +60,27 @@ const InventoryCard = ({ inventory, canEdit, onEdit }) => {
                 <Box sx={{ maxHeight: 120, overflowY: 'auto', bgcolor: 'action.hover', borderRadius: 1, p: 1, mb: 1 }}>
                     {inventory.products && inventory.products.length > 0 ? (
                         inventory.products.map((p, idx) => (
-                            <Typography key={p.product_id} variant="caption" display="block" sx={{ py: 0.25, fontFamily: 'monospace' }}>
-                                {getProductLabel(p)}
-                            </Typography>
+                            <Box key={p.product_id} sx={{ py: 0.25 }}>
+                                <Typography variant="caption" display="block" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                                    {getProductLabel(p)}
+                                </Typography>
+                                {/* Show prices as a separate line with Cash icon only */}
+                                {(p.cash_selling_price || p.loan_selling_price) && (
+                                    <Box display="flex" gap={2} sx={{ ml: 1, mt: 0.25 }}>
+                                        {p.cash_selling_price && (
+                                            <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                <CashIcon fontSize="inherit" sx={{ fontSize: '0.7rem' }} />
+                                                Cash: {formatPrice(p.cash_selling_price)}
+                                            </Typography>
+                                        )}
+                                        {p.loan_selling_price && (
+                                            <Typography variant="caption" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                Loan: {formatPrice(p.loan_selling_price)}
+                                            </Typography>
+                                        )}
+                                    </Box>
+                                )}
+                            </Box>
                         ))
                     ) : (
                         <Typography variant="caption">No products</Typography>
@@ -225,14 +248,47 @@ export default function InventoryList() {
                                             <TableCell>
                                                 {inv.products && inv.products.length > 0 ? (
                                                     <Box>
-                                                        {inv.products.map(p => (
-                                                            <Chip
-                                                                key={p.product_id}
-                                                                label={getProductLabel(p)}
-                                                                size="small"
-                                                                sx={{ m: 0.3, maxWidth: '100%', height: 'auto', whiteSpace: 'normal' }}
-                                                            />
-                                                        ))}
+                                                        {inv.products.map(p => {
+                                                            // Build price string for tooltip
+                                                            const priceParts = [];
+                                                            if (p.cash_selling_price) {
+                                                                priceParts.push(`Cash: ${formatPrice(p.cash_selling_price)}`);
+                                                            }
+                                                            if (p.loan_selling_price) {
+                                                                priceParts.push(`Loan: ${formatPrice(p.loan_selling_price)}`);
+                                                            }
+                                                            const priceStr = priceParts.length > 0 ? ` | ${priceParts.join(' | ')}` : '';
+
+                                                            return (
+                                                                <Tooltip
+                                                                    key={p.product_id}
+                                                                    title={
+                                                                        <Box>
+                                                                            <Typography variant="caption" display="block">
+                                                                                {getProductLabel(p)}
+                                                                            </Typography>
+                                                                            {p.cash_selling_price && (
+                                                                                <Typography variant="caption" display="block" color="success.main">
+                                                                                    Cash: {formatPrice(p.cash_selling_price)}
+                                                                                </Typography>
+                                                                            )}
+                                                                            {p.loan_selling_price && (
+                                                                                <Typography variant="caption" display="block" color="primary.main">
+                                                                                    Loan: {formatPrice(p.loan_selling_price)}
+                                                                                </Typography>
+                                                                            )}
+                                                                        </Box>
+                                                                    }
+                                                                    arrow
+                                                                >
+                                                                    <Chip
+                                                                        label={getProductLabel(p)}
+                                                                        size="small"
+                                                                        sx={{ m: 0.3, maxWidth: '100%', height: 'auto', whiteSpace: 'normal', cursor: 'pointer' }}
+                                                                    />
+                                                                </Tooltip>
+                                                            );
+                                                        })}
                                                     </Box>
                                                 ) : (
                                                     <Typography variant="caption">No products</Typography>

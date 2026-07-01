@@ -5,7 +5,7 @@ import {
     IconButton, InputAdornment, Menu, MenuItem, Paper, Table,
     TableBody, TableCell, TableContainer, TableHead, TablePagination,
     TableRow, TableSortLabel, TextField, Typography, Switch, FormControlLabel,
-    useTheme, useMediaQuery, Card, CardContent, Divider, CircularProgress, Tooltip
+    useTheme, useMediaQuery, Card, CardContent, Divider, CircularProgress
 } from '@mui/material';
 import {
     Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
@@ -14,7 +14,7 @@ import {
     Refresh as RefreshIcon, Search as SearchIcon, Restore as RestoreIcon,
     DeleteSweep as DeleteSweepIcon, Person as PersonIcon,
     Email as EmailOutlinedIcon, Phone as PhoneIcon,
-    Work as WorkIcon, LocationOn as LocationIcon
+    Work as WorkIcon
 } from '@mui/icons-material';
 
 import UserFormModal from './UserFormModal';
@@ -23,12 +23,12 @@ import { usePermission } from "@/hooks/usePermission";
 import { useUsers } from "context/UserContext";
 import { userService } from "services/user.service";
 
+// ✅ REMOVED 'cc' column from headCells
 const headCells = [
     { id: 'name', label: 'Name' },
     { id: 'email', label: 'Email' },
     { id: 'phone', label: 'Phone' },
     { id: 'role', label: 'Role' },
-    { id: 'cc', label: 'Collection Center' },
     { id: 'status', label: 'Status' },
     { id: 'email_verified', label: 'Email Verified' },
     { id: 'created_at', label: 'Created At' },
@@ -283,7 +283,7 @@ export default function UsersList() {
     // Helper to format dates for cards
     const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString() : '-';
 
-    // Card component for mobile/tablet view
+    // Card component for mobile/tablet view - ✅ REMOVED LocationIcon and collection center display
     const UserCard = ({ user, isDeletedView }) => {
         const getStatusColor = (status) => {
             switch (status) {
@@ -328,12 +328,7 @@ export default function UsersList() {
                         </Typography>
                     </Box>
 
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                        <LocationIcon fontSize="small" color="action" />
-                        <Typography variant="body2">
-                            {user.collection_center?.cc_name || 'Unassigned'}
-                        </Typography>
-                    </Box>
+                    {/* ✅ REMOVED Collection Center section */}
 
                     <Divider sx={{ my: 1 }} />
 
@@ -460,7 +455,7 @@ export default function UsersList() {
                 {/* Records: Cards on mobile/tablet, Table on desktop */}
                 {showTableView ? (
                     <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
-                        <Table sx={{ width: '100%', minWidth: 800 }}>
+                        <Table sx={{ width: '100%', minWidth: 750 }}>
                             <TableHead>
                                 <TableRow>
                                     {headCells.map((cell) => (
@@ -498,7 +493,7 @@ export default function UsersList() {
                                             <TableCell>{user.email}</TableCell>
                                             <TableCell>{user.phone || '-'}</TableCell>
                                             <TableCell>{user.role?.display_name || user.role?.name || '-'}</TableCell>
-                                            <TableCell>{user.collection_center?.cc_name || '-'}</TableCell>
+                                            {/* ✅ REMOVED Collection Center column */}
                                             <TableCell>
                                                 {showDeleted ? (
                                                     <Chip label="Deleted" color="error" size="small" />

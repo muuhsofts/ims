@@ -17,7 +17,6 @@ import {
 } from '@mui/material';
 import { useUsers } from 'context/UserContext';
 import { roleService } from 'services/role.service';
-import { collectionCenterService } from 'services/collection-center.service';
 import { showSnackbar } from 'utils/snackbar';
 
 const PASSWORD_MIN_LENGTH = 8;
@@ -29,7 +28,6 @@ const mapFieldKey = (key) => {
         email: 'email',
         phone: 'phone',
         role_id: 'role_id',
-        cc_id: 'cc_id',
         password: 'password',
         status: 'status',
     };
@@ -43,7 +41,6 @@ export default function UserFormModal({ open, onClose, user }) {
     const { create, update } = useUsers();
     const [loading, setLoading] = useState(false);
     const [roles, setRoles] = useState([]);
-    const [collectionCenters, setCollectionCenters] = useState([]);
     const [loadingOptions, setLoadingOptions] = useState(false);
 
     const [form, setForm] = useState({
@@ -51,7 +48,6 @@ export default function UserFormModal({ open, onClose, user }) {
         email: '',
         phone: '',
         role_id: '',
-        cc_id: '',
         password: '',
         password_confirmation: '',
         status: 'active',
@@ -60,33 +56,25 @@ export default function UserFormModal({ open, onClose, user }) {
     const [fieldErrors, setFieldErrors] = useState({});
     const [errorList, setErrorList] = useState([]);
 
-    // Load roles + collection centers when modal opens
+    // Load roles when modal opens
     useEffect(() => {
         if (!open) return;
-        const fetchOptions = async () => {
+        const fetchRoles = async () => {
             setLoadingOptions(true);
             try {
-                const [rolesRes, centersRes] = await Promise.all([
-                    roleService.getRolesDropdown(),
-                    collectionCenterService.getCentersDropdown(),
-                ]);
+                const rolesRes = await roleService.getRolesDropdown();
                 setRoles(
                     rolesRes.data?.success && Array.isArray(rolesRes.data.data)
                         ? rolesRes.data.data
                         : []
                 );
-                setCollectionCenters(
-                    centersRes.data?.success && Array.isArray(centersRes.data.data)
-                        ? centersRes.data.data
-                        : []
-                );
             } catch {
-                showSnackbar({ type: 'error', message: 'Failed to load roles or centers' });
+                showSnackbar({ type: 'error', message: 'Failed to load roles' });
             } finally {
                 setLoadingOptions(false);
             }
         };
-        fetchOptions();
+        fetchRoles();
     }, [open]);
 
     // Populate or reset form when user/open changes
@@ -97,7 +85,6 @@ export default function UserFormModal({ open, onClose, user }) {
                 email: user.email || '',
                 phone: user.phone || '',
                 role_id: user.role_id || '',
-                cc_id: user.cc_id || '',
                 status: user.status || 'active',
                 password: '',
                 password_confirmation: '',
@@ -108,7 +95,6 @@ export default function UserFormModal({ open, onClose, user }) {
                 email: '',
                 phone: '',
                 role_id: '',
-                cc_id: '',
                 password: '',
                 password_confirmation: '',
                 status: 'active',
@@ -204,23 +190,23 @@ export default function UserFormModal({ open, onClose, user }) {
 
         try {
             if (user) {
+                // ✅ cc_id removed - not sent in update
                 const result = await update(user.id, {
                     name: form.name,
                     phone: form.phone,
                     status: form.status,
                     role_id: form.role_id,
-                    cc_id: form.cc_id || null,
                 });
                 handleServiceResult(result);
                 showSnackbar({ type: 'success', message: 'User updated successfully' });
                 onClose();
             } else {
+                // ✅ cc_id removed - not sent in create
                 const result = await create({
                     name: form.name,
                     email: form.email,
                     phone: form.phone,
                     role_id: form.role_id,
-                    cc_id: form.cc_id || null,
                     password: form.password,
                     password_confirmation: form.password_confirmation,
                 });
@@ -312,6 +298,7 @@ export default function UserFormModal({ open, onClose, user }) {
                             required
                             fullWidth
                             size="small"
+                            autoFocus
                             error={!!fieldErrors.name}
                             helperText={fieldErrors.name}
                         />
@@ -358,29 +345,6 @@ export default function UserFormModal({ open, onClose, user }) {
                             {roles.map((role) => (
                                 <MenuItem key={role.id} value={role.id}>
                                     {role.display_name || role.name}
-                                </MenuItem>
-                            ))}
-                        </TextField>
-
-                        <TextField
-                            select
-                            label="Collection Center"
-                            name="cc_id"
-                            value={form.cc_id}
-                            onChange={handleChange}
-                            fullWidth
-                            disabled={loadingOptions}
-                            size="small"
-                            error={!!fieldErrors.cc_id}
-                            helperText={
-                                fieldErrors.cc_id ||
-                                'Assign to a collection center (required for transfer requests)'
-                            }
-                        >
-                            <MenuItem value="">None / Unassigned</MenuItem>
-                            {collectionCenters.map((cc) => (
-                                <MenuItem key={cc.id} value={cc.id}>
-                                    {cc.label}
                                 </MenuItem>
                             ))}
                         </TextField>
