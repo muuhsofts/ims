@@ -20,6 +20,18 @@ class AgentsManagementController extends BaseApiController
 {
     use Auditable;
 
+    // =========================================================================
+    // PRIVATE HELPER METHODS
+    // =========================================================================
+
+    /**
+     * Generate a default password (fixed to 12345678 for simplicity)
+     */
+    private function generateDefaultPassword(): string
+    {
+        return '12345678';
+    }
+
     /**
      * Get the role ID for SALES_AGENT.
      */
@@ -67,6 +79,44 @@ class AgentsManagementController extends BaseApiController
     }
 
     /**
+     * Check if user has access to an agent (admin, creator, or owner).
+     */
+    private function hasAccessToAgent($agent, $user): bool
+    {
+        $isAdminOrManager = $this->canViewAllAgents();
+        $isCreator = $agent->created_by === $user->id;
+        $isOwnedByUser = $this->isAgentOwnedByUser($agent, $user);
+        
+        return $isAdminOrManager || $isCreator || $isOwnedByUser;
+    }
+
+    /**
+     * Apply filters to agent query.
+     */
+    private function applyAgentFilters($query, Request $request)
+    {
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->where(function($q) use ($s) {
+                $q->where('name', 'LIKE', "%{$s}%")
+                  ->orWhere('email', 'LIKE', "%{$s}%")
+                  ->orWhere('phone', 'LIKE', "%{$s}%");
+            });
+        }
+        if ($request->filled('cc_id')) {
+            $query->where('cc_id', $request->cc_id);
+        }
+        return $query;
+    }
+
+    // =========================================================================
+    // PUBLIC API METHODS
+    // =========================================================================
+
+    /**
      * List sales agents – filtered by:
      * - Admin/Manager: all agents
      * - Branch Owner: all agents assigned to any collection center they own
@@ -102,21 +152,7 @@ class AgentsManagementController extends BaseApiController
                 });
             }
 
-            // Optional filters
-            if ($request->filled('status')) {
-                $query->where('status', $request->status);
-            }
-            if ($request->filled('search')) {
-                $s = $request->search;
-                $query->where(function($q) use ($s) {
-                    $q->where('name', 'LIKE', "%{$s}%")
-                      ->orWhere('email', 'LIKE', "%{$s}%")
-                      ->orWhere('phone', 'LIKE', "%{$s}%");
-                });
-            }
-            if ($request->filled('cc_id')) {
-                $query->where('cc_id', $request->cc_id);
-            }
+            $this->applyAgentFilters($query, $request);
 
             $agents = $query->orderBy('created_at', 'desc')
                 ->paginate($request->get('per_page', 15));
@@ -145,12 +181,7 @@ class AgentsManagementController extends BaseApiController
                 ->where('role_id', $roleId)
                 ->findOrFail($id);
 
-            // Check access
-            $isAdminOrManager = $this->canViewAllAgents();
-            $isCreator = $agent->created_by === $authUser->id;
-            $isOwnedByUser = $this->isAgentOwnedByUser($agent, $authUser);
-
-            if (!$isAdminOrManager && !$isCreator && !$isOwnedByUser) {
+            if (!$this->hasAccessToAgent($agent, $authUser)) {
                 return $this->forbidden('You do not have permission to view this agent.');
             }
 
@@ -161,7 +192,7 @@ class AgentsManagementController extends BaseApiController
     }
 
     /**
-     * Create a new sales agent – automatically sets `created_by` to the logged‑in user.
+     * Create a new sales agent – automatically generates password (12345678).
      * Permission: sales_agent.create
      */
     public function store(Request $request)
@@ -175,7 +206,6 @@ class AgentsManagementController extends BaseApiController
             $request->validate([
                 'name'     => 'required|string|max:255',
                 'email'    => 'required|email|unique:users',
-                'password' => 'required|string|min:8',
                 'phone'    => 'nullable|string|max:20',
                 'cc_id'    => 'nullable|string|exists:collection_centers,cc_id',
             ]);
@@ -188,6 +218,7 @@ class AgentsManagementController extends BaseApiController
                 }
             }
 
+            $defaultPassword = $this->generateDefaultPassword();
             $roleId = $this->getSalesAgentRoleId();
 
             DB::beginTransaction();
@@ -196,7 +227,7 @@ class AgentsManagementController extends BaseApiController
                 'id'         => (string) Str::uuid(),
                 'name'       => $request->name,
                 'email'      => $request->email,
-                'password'   => Hash::make($request->password),
+                'password'   => Hash::make($defaultPassword),
                 'phone'      => $request->phone,
                 'status'     => 'pending',
                 'is_active'  => false,
@@ -218,8 +249,13 @@ class AgentsManagementController extends BaseApiController
             );
 
             DB::commit();
+
+            // Return the generated password so it can be displayed to the user
+            $response = $user->load('role', 'collectionCenter');
+            $response->generated_password = $defaultPassword;
+
             $this->logAudit('create_agent', 'user', $user->id, "Created sales agent {$user->email}");
-            return $this->created($user->load('role', 'collectionCenter'), 'Sales agent created. OTP sent.');
+            return $this->created($response, 'Sales agent created. OTP sent. Default password: ' . $defaultPassword);
         } catch (ValidationException $e) {
             DB::rollBack();
             return $this->validationError($e->errors());
@@ -244,12 +280,7 @@ class AgentsManagementController extends BaseApiController
 
             $agent = User::where('role_id', $roleId)->findOrFail($id);
 
-            // Check access
-            $isAdminOrManager = $this->canViewAllAgents();
-            $isCreator = $agent->created_by === $authUser->id;
-            $isOwnedByUser = $this->isAgentOwnedByUser($agent, $authUser);
-
-            if (!$isAdminOrManager && !$isCreator && !$isOwnedByUser) {
+            if (!$this->hasAccessToAgent($agent, $authUser)) {
                 return $this->forbidden('You do not have permission to edit this agent.');
             }
 
@@ -301,12 +332,7 @@ class AgentsManagementController extends BaseApiController
 
             $agent = User::where('role_id', $roleId)->findOrFail($id);
 
-            // Check access
-            $isAdminOrManager = $this->canViewAllAgents();
-            $isCreator = $agent->created_by === $authUser->id;
-            $isOwnedByUser = $this->isAgentOwnedByUser($agent, $authUser);
-
-            if (!$isAdminOrManager && !$isCreator && !$isOwnedByUser) {
+            if (!$this->hasAccessToAgent($agent, $authUser)) {
                 return $this->forbidden('You do not have permission to delete this agent.');
             }
 
@@ -338,11 +364,7 @@ class AgentsManagementController extends BaseApiController
 
             $agent = User::onlyTrashed()->where('role_id', $roleId)->findOrFail($id);
 
-            $isAdminOrManager = $this->canViewAllAgents();
-            $isCreator = $agent->created_by === $authUser->id;
-            $isOwnedByUser = $this->isAgentOwnedByUser($agent, $authUser);
-
-            if (!$isAdminOrManager && !$isCreator && !$isOwnedByUser) {
+            if (!$this->hasAccessToAgent($agent, $authUser)) {
                 return $this->forbidden('You do not have permission to restore this agent.');
             }
 
@@ -369,11 +391,7 @@ class AgentsManagementController extends BaseApiController
 
             $agent = User::onlyTrashed()->where('role_id', $roleId)->findOrFail($id);
 
-            $isAdminOrManager = $this->canViewAllAgents();
-            $isCreator = $agent->created_by === $authUser->id;
-            $isOwnedByUser = $this->isAgentOwnedByUser($agent, $authUser);
-
-            if (!$isAdminOrManager && !$isCreator && !$isOwnedByUser) {
+            if (!$this->hasAccessToAgent($agent, $authUser)) {
                 return $this->forbidden('You do not have permission to permanently delete this agent.');
             }
 
@@ -401,11 +419,7 @@ class AgentsManagementController extends BaseApiController
 
             $agent = User::where('role_id', $roleId)->findOrFail($id);
 
-            $isAdminOrManager = $this->canViewAllAgents();
-            $isCreator = $agent->created_by === $authUser->id;
-            $isOwnedByUser = $this->isAgentOwnedByUser($agent, $authUser);
-
-            if (!$isAdminOrManager && !$isCreator && !$isOwnedByUser) {
+            if (!$this->hasAccessToAgent($agent, $authUser)) {
                 return $this->forbidden('You do not have permission to activate this agent.');
             }
 
@@ -432,11 +446,7 @@ class AgentsManagementController extends BaseApiController
 
             $agent = User::where('role_id', $roleId)->findOrFail($id);
 
-            $isAdminOrManager = $this->canViewAllAgents();
-            $isCreator = $agent->created_by === $authUser->id;
-            $isOwnedByUser = $this->isAgentOwnedByUser($agent, $authUser);
-
-            if (!$isAdminOrManager && !$isCreator && !$isOwnedByUser) {
+            if (!$this->hasAccessToAgent($agent, $authUser)) {
                 return $this->forbidden('You do not have permission to deactivate this agent.');
             }
 
@@ -463,11 +473,7 @@ class AgentsManagementController extends BaseApiController
 
             $agent = User::where('role_id', $roleId)->findOrFail($id);
 
-            $isAdminOrManager = $this->canViewAllAgents();
-            $isCreator = $agent->created_by === $authUser->id;
-            $isOwnedByUser = $this->isAgentOwnedByUser($agent, $authUser);
-
-            if (!$isAdminOrManager && !$isCreator && !$isOwnedByUser) {
+            if (!$this->hasAccessToAgent($agent, $authUser)) {
                 return $this->forbidden('You do not have permission to suspend this agent.');
             }
 

@@ -244,7 +244,9 @@ class DashboardAnalyticsReportController extends BaseApiController
                     'total_categories'  => $totalCategories,
                     'inventory_level'   => $inventoryLevel,
                     'period'            => $periodLabel,
-                    'purchases_count'   => $periodPurchasesCount,
+                    // ✅ Add both keys for compatibility
+                    'total_purchases'   => $periodPurchasesCount,  // For frontend compatibility
+                    'purchases_count'   => $periodPurchasesCount,  // For backend consistency
                     'purchases_total'   => (float) $periodPurchasesTotal,
                     'sales_count'       => $periodSalesCount,
                     'sales_total'       => (float) $periodSalesTotal,
@@ -262,18 +264,12 @@ class DashboardAnalyticsReportController extends BaseApiController
                 'line' => $e->getLine(),
                 'trace' => $e->getTraceAsString(),
             ]);
-            // Return full error for debugging – remove or change in production
             return $this->serverError('Failed to load dashboard analytics: ' . $e->getMessage());
         }
     }
 
-
-
     /**
      * Get revenue analytics: total, pie chart (by category), histogram (by time)
-     *
-     * @param Request $request
-     * @return JsonResponse
      */
     public function getRevenueAnalytics(Request $request): JsonResponse
     {
@@ -282,7 +278,7 @@ class DashboardAnalyticsReportController extends BaseApiController
 
         try {
             // ----- 1. Parse period & date -----
-            $period = $request->query('period'); // daily, monthly, yearly
+            $period = $request->query('period');
             $dateInput = $request->query('date');
             $startDate = null;
             $endDate = null;

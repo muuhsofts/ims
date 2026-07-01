@@ -1,5 +1,5 @@
 <?php
-
+// app/Models/Purchase.php
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -25,10 +25,10 @@ class Purchase extends Model
     ];
 
     protected $casts = [
-        'unit_price'     => 'decimal:2',
-        'subtotal'       => 'decimal:2',
-        'selected_skus'  => 'array',      // <-- added
-        'status'         => 'string',
+        'unit_price' => 'decimal:2',
+        'subtotal' => 'decimal:2',
+        'selected_skus' => 'array',
+        'status' => 'string',
     ];
 
     protected static function boot()
@@ -54,5 +54,14 @@ class Purchase extends Model
     public function updateStatus($newStatus)
     {
         $this->update(['status' => $newStatus]);
+    }
+
+    // Get total purchased quantity for a specific SKU in this category
+    public function getPurchasedQuantityForSku($sku)
+    {
+        if (!in_array($sku, $this->selected_skus ?? [])) {
+            return 0;
+        }
+        return $this->quantity_ordered;
     }
 }

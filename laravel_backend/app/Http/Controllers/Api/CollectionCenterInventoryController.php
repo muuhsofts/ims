@@ -21,18 +21,25 @@ class CollectionCenterInventoryController extends BaseApiController
     use Auditable;
 
     // =========================================================================
-    // VALIDATION HELPERS (unchanged)
+    // VALIDATION HELPERS
     // =========================================================================
 
+    /**
+     * Validate that products are not already in any collection center inventory
+     */
     private function validateProductsNotInAnyCC(array $productIds): void
     {
         if (empty($productIds)) return;
-        $allCcProductIds = CollectionCenterInventory::pluck('product_ids')
-            ->filter()
-            ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
-            ->unique()
-            ->values()
-            ->toArray();
+        
+        $allCcInventories = CollectionCenterInventory::whereIn('cc_inventory_status', ['pending', 'arrived'])->get();
+        $allCcProductIds = [];
+        
+        foreach ($allCcInventories as $inv) {
+            $ids = is_array($inv->product_ids) ? $inv->product_ids : [];
+            $allCcProductIds = array_merge($allCcProductIds, $ids);
+        }
+        $allCcProductIds = array_unique($allCcProductIds);
+        
         $conflicting = array_intersect($productIds, $allCcProductIds);
         if (!empty($conflicting)) {
             $conflictingProducts = Product::whereIn('product_id', $conflicting)->pluck('imei', 'product_id');
@@ -45,12 +52,23 @@ class CollectionCenterInventoryController extends BaseApiController
         }
     }
 
+    /**
+     * Validate that products are not already in this specific collection center
+     */
     private function validateProductsNotAlreadyInThisCc(array $productIds, string $ccId): void
     {
         if (empty($productIds)) return;
-        $ccInventory = CollectionCenterInventory::where('cc_id', $ccId)->first();
-        if (!$ccInventory) return;
-        $existingIds = $ccInventory->product_ids ?? [];
+        
+        $ccInventories = CollectionCenterInventory::where('cc_id', $ccId)
+            ->whereIn('cc_inventory_status', ['pending', 'arrived'])
+            ->get();
+            
+        $existingIds = [];
+        foreach ($ccInventories as $inv) {
+            $ids = is_array($inv->product_ids) ? $inv->product_ids : [];
+            $existingIds = array_merge($existingIds, $ids);
+        }
+        
         $duplicates = array_intersect($productIds, $existingIds);
         if (!empty($duplicates)) {
             $dupProducts = Product::whereIn('product_id', $duplicates)->pluck('imei', 'product_id');
@@ -64,51 +82,115 @@ class CollectionCenterInventoryController extends BaseApiController
     }
 
     // =========================================================================
-    // STOCK MOVEMENT HELPERS (with new logging)
+    // CHECK PRODUCTS IN WAREHOUSE
     // =========================================================================
 
-    /**
- * Move products from warehouse(s) to a collection center.
- * Supports products from multiple warehouses.
- */
-/**
- * Move products from warehouse(s) to a collection center.
- * Supports products from multiple warehouses.
- */
-private function moveProductsToCC(array $productIds, string $toCcId, string $performedBy, ?string $requestId = null): void
+    private function getProductWarehouseMap(array $productIds): array
 {
-    if (empty($productIds)) return;
-
-    // 1. Find which warehouse contains each product
     $productWarehouseMap = [];
     $allInventories = Inventory::all();
+    $missingProducts = [];
+
+    $productIds = array_map(fn($id) => trim((string)$id), $productIds);
+
     foreach ($productIds as $pid) {
         $found = false;
+
         foreach ($allInventories as $inv) {
-            $invIds = is_array($inv->product_ids) ? $inv->product_ids : [];
-            if (in_array($pid, $invIds)) {
-                $productWarehouseMap[$pid] = $inv->warehouse_id;
+            $invIds = $inv->product_ids;
+            if (is_string($invIds)) $invIds = json_decode($invIds, true);
+            if (!is_array($invIds)) $invIds = [];
+            $invIds = array_map('strval', $invIds);
+
+            if (in_array(strval($pid), $invIds)) {
+                // Track BOTH the inventory row id and warehouse id
+                $productWarehouseMap[$pid] = [
+                    'inventory_id' => $inv->inventory_id,
+                    'warehouse_id' => $inv->warehouse_id,
+                ];
                 $found = true;
                 break;
             }
         }
+
         if (!$found) {
-            throw new \Exception("Product ID {$pid} not found in any warehouse inventory.");
+            $product = Product::find($pid) ?? Product::where('imei', $pid)->first();
+            $imei = $product->imei ?? $pid;
+            $sku = $product->sku ?? 'N/A';
+            $category = $product?->category?->category_name ?? 'N/A';
+            $missingProducts[] = "IMEI: {$imei} (SKU: {$sku}, Category: {$category})";
         }
     }
 
-    // 2. Group product IDs by warehouse
+    if (!empty($missingProducts)) {
+        throw new \Exception("The following products are not in any warehouse inventory:\n" . implode("\n", $missingProducts));
+    }
+
+    return $productWarehouseMap;
+}
+
+    // =========================================================================
+    // STOCK MOVEMENT HELPERS
+    // =========================================================================
+
+    /**
+     * Move products from warehouse to collection center - Creates a NEW record per transfer
+     * ALWAYS deducts from warehouse inventory
+     */
+     private function moveProductsToCC(array $productIds, string $toCcId, string $performedBy, ?string $requestId = null): CollectionCenterInventory
+{
+    if (empty($productIds)) {
+        throw new \Exception("No products to move.");
+    }
+
+    $productIds = array_map(fn($id) => trim((string)$id), $productIds);
+
+    // Map is now: product_id => ['inventory_id' => ..., 'warehouse_id' => ...]
+    $productWarehouseMap = $this->getProductWarehouseMap($productIds);
+
+    // Group product IDs by the SPECIFIC inventory row, not just warehouse_id
     $grouped = [];
-    foreach ($productWarehouseMap as $pid => $warehouseId) {
-        $grouped[$warehouseId][] = $pid;
+    foreach ($productWarehouseMap as $pid => $info) {
+        $grouped[$info['inventory_id']][] = $pid;
+    }
+
+    // Create a transfer request if none provided
+    if (is_null($requestId)) {
+        $transferRequest = \App\Models\TransferRequest::create([
+            'request_id' => (string) Str::uuid(),
+            'requester_id' => $performedBy,
+            'cc_id' => $toCcId,
+            'requested_items' => $productIds,
+            'total_quantity' => count($productIds),
+            'received_quantity' => 0,
+            'status' => 'completed', // Or 'approved' based on your workflow
+            'approved_by' => $performedBy,
+            'approved_at' => now(),
+            'notes' => "Direct transfer from warehouse to collection center",
+        ]);
+        $requestId = $transferRequest->request_id;
     }
 
     DB::transaction(function () use ($grouped, $toCcId, $performedBy, $requestId, $productIds, $productWarehouseMap) {
-        // 2.1 Remove products from each source warehouse inventory
-        foreach ($grouped as $warehouseId => $pids) {
-            $sourceInventory = Inventory::where('warehouse_id', $warehouseId)->first();
-            if (!$sourceInventory) continue;
-            $currentIds = $sourceInventory->product_ids ?? [];
+        foreach ($grouped as $inventoryId => $pids) {
+            $sourceInventory = Inventory::find($inventoryId);
+            if (!$sourceInventory) {
+                throw new \Exception("Warehouse inventory record not found: {$inventoryId}");
+            }
+
+            $currentIds = $sourceInventory->product_ids;
+            if (is_string($currentIds)) $currentIds = json_decode($currentIds, true);
+            if (!is_array($currentIds)) $currentIds = [];
+            $currentIds = array_map('strval', $currentIds);
+            $pids = array_map('strval', $pids);
+
+            $missing = array_diff($pids, $currentIds);
+            if (!empty($missing)) {
+                $missingProducts = Product::whereIn('product_id', $missing)->pluck('imei', 'product_id');
+                $missingImeis = $missingProducts->values()->implode(', ');
+                throw new \Exception("Products with IMEI(s) {$missingImeis} not found in warehouse.");
+            }
+
             $updatedIds = array_values(array_diff($currentIds, $pids));
             $sourceInventory->update([
                 'product_ids' => $updatedIds,
@@ -116,160 +198,176 @@ private function moveProductsToCC(array $productIds, string $toCcId, string $per
             ]);
         }
 
-        // 2.2 Mark products as transferred
         Product::whereIn('product_id', $productIds)->update(['stock_status' => 'transferred']);
-
-        // 2.3 Update or create CC inventory – merge all products
-        $ccInventory = CollectionCenterInventory::firstOrNew(['cc_id' => $toCcId]);
-        $existingIds = $ccInventory->product_ids ?? [];
-        $newIds = array_values(array_unique(array_merge($existingIds, $productIds)));
-        $sourceWarehouseId = (count($grouped) === 1) ? array_key_first($grouped) : null;
-        $ccInventory->fill([
-            'product_ids' => $newIds,
-            'quantity' => count($newIds),
-            'source_warehouse_id' => $sourceWarehouseId,
-        ])->save();
-
-        // 2.4 Log stock movements for each product (with correct from warehouse)
-        foreach ($productIds as $productId) {
-            $fromWarehouse = $productWarehouseMap[$productId] ?? null;
-            // Safety check – should never be null because we built the map
-            if (is_null($fromWarehouse)) {
-                throw new \Exception("Source warehouse not found for product {$productId}");
-            }
-
-            // Existing StockMovement
-            StockMovement::create([
-                'movement_id'   => (string) Str::uuid(),
-                'request_id'    => $requestId,
-                'product_id'    => $productId,
-                'from_type'     => 'warehouse',
-                'from_id'       => $fromWarehouse,
-                'to_type'       => 'collection_center',
-                'to_id'         => $toCcId,
-                'quantity'      => 1,
-                'movement_type' => 'transfer',
-                'notes'         => 'Transferred from warehouse to collection center',
-                'performed_by'  => $performedBy,
-            ]);
-
-            // New log table
-            StockMovementLog::create([
-                'product_id'    => $productId,
-                'from_type'     => 'warehouse',
-                'from_id'       => $fromWarehouse,
-                'to_type'       => 'collection_center',
-                'to_id'         => $toCcId,
-                'quantity'      => 1,
-                'movement_type' => 'transfer',
-                'reference_id'  => $requestId,
-                'notes'         => 'Transferred from warehouse to collection center',
-                'performed_by'  => $performedBy,
-                'created_at'    => now(),
-            ]);
-        }
     });
-}
 
+    // Use warehouse_id from the map for the CC record / stock movement logs
+    $warehouseIds = array_unique(array_column($productWarehouseMap, 'warehouse_id'));
+    $sourceWarehouseId = (count($warehouseIds) === 1) ? $warehouseIds[0] : null;
 
+    $ccInventory = CollectionCenterInventory::create([
+        'cc_id' => $toCcId,
+        'product_ids' => $productIds,
+        'quantity' => count($productIds),
+        'source_warehouse_id' => $sourceWarehouseId,
+        'cc_inventory_status' => 'pending',
+    ]);
 
-  /**
- * Return products from a collection center back to warehouse(s).
- * If the CC has multiple source warehouses (source_warehouse_id is null),
- * we fall back to the first active warehouse.
- */
-private function returnProductsToWarehouse(array $productIds, string $fromCcId, string $performedBy): void
-{
-    if (empty($productIds)) return;
-
-    $ccInventory = CollectionCenterInventory::where('cc_id', $fromCcId)->first();
-    if (!$ccInventory) return;
-
-    // Determine target warehouse(s) – if source_warehouse_id is null,
-    // we return to a default warehouse (e.g., the first active one)
-    $targetWarehouseId = $ccInventory->source_warehouse_id;
-    if (is_null($targetWarehouseId)) {
-        $defaultWarehouse = Warehouse::active()->first();
-        if (!$defaultWarehouse) {
-            throw new \Exception("No active warehouse found to return products.");
+    foreach ($productIds as $productId) {
+        $fromWarehouse = $productWarehouseMap[$productId]['warehouse_id'] ?? null;
+        if (is_null($fromWarehouse)) {
+            throw new \Exception("Source warehouse not found for product {$productId}");
         }
-        $targetWarehouseId = $defaultWarehouse->warehouse_id;
+
+        StockMovement::create([
+            'movement_id'   => (string) Str::uuid(),
+            'request_id'    => $requestId, // Now this is a valid transfer request ID
+            'reference_id'  => $ccInventory->cc_inventory_id,
+            'product_id'    => $productId,
+            'from_type'     => 'warehouse',
+            'from_id'       => $fromWarehouse,
+            'to_type'       => 'collection_center',
+            'to_id'         => $toCcId,
+            'quantity'      => 1,
+            'movement_type' => 'transfer',
+            'notes'         => "Transferred from warehouse to collection center (Transfer ID: {$ccInventory->cc_inventory_id})",
+            'performed_by'  => $performedBy,
+        ]);
+
+        StockMovementLog::create([
+            'product_id'    => $productId,
+            'from_type'     => 'warehouse',
+            'from_id'       => $fromWarehouse,
+            'to_type'       => 'collection_center',
+            'to_id'         => $toCcId,
+            'quantity'      => 1,
+            'movement_type' => 'transfer',
+            'reference_id'  => $ccInventory->cc_inventory_id,
+            'notes'         => "Transferred from warehouse to collection center",
+            'performed_by'  => $performedBy,
+            'created_at'    => now(),
+        ]);
     }
 
-    DB::transaction(function () use ($productIds, $fromCcId, $performedBy, $ccInventory, $targetWarehouseId) {
-        // 1. Remove from CC inventory
-        $currentCcIds = $ccInventory->product_ids ?? [];
-        $updatedCcIds = array_values(array_diff($currentCcIds, $productIds));
-        $ccInventory->update([
-            'product_ids' => $updatedCcIds,
-            'quantity' => count($updatedCcIds),
-        ]);
-        if (empty($updatedCcIds)) {
-            $ccInventory->delete();
-        }
-
-        // 2. Add back to the target warehouse inventory
-        $warehouseInventory = Inventory::firstOrCreate(
-            ['warehouse_id' => $targetWarehouseId],
-            ['product_ids' => [], 'quantity' => 0]
-        );
-        $currentWarehouseIds = $warehouseInventory->product_ids ?? [];
-        $mergedIds = array_values(array_unique(array_merge($currentWarehouseIds, $productIds)));
-        $warehouseInventory->update([
-            'product_ids' => $mergedIds,
-            'quantity' => count($mergedIds),
-        ]);
-
-        // 3. Update product status
-        Product::whereIn('product_id', $productIds)->update(['stock_status' => 'in_stock']);
-
-        // 4. Log returns
-        foreach ($productIds as $productId) {
-            StockMovement::create([
-                'movement_id'   => (string) Str::uuid(),
-                'product_id'    => $productId,
-                'from_type'     => 'collection_center',
-                'from_id'       => $fromCcId,
-                'to_type'       => 'warehouse',
-                'to_id'         => $targetWarehouseId,
-                'quantity'      => 1,
-                'movement_type' => 'return',
-                'notes'         => 'Returned from collection center to warehouse',
-                'performed_by'  => $performedBy,
-            ]);
-
-            StockMovementLog::create([
-                'product_id'    => $productId,
-                'from_type'     => 'collection_center',
-                'from_id'       => $fromCcId,
-                'to_type'       => 'warehouse',
-                'to_id'         => $targetWarehouseId,
-                'quantity'      => 1,
-                'movement_type' => 'return',
-                'reference_id'  => null,
-                'notes'         => 'Returned from collection center to warehouse',
-                'performed_by'  => $performedBy,
-                'created_at'    => now(),
-            ]);
-        }
-    });
+    return $ccInventory;
 }
 
-    private function findInventoriesContainingProducts(array $productIds)
+    /**
+     * Return products from collection center back to warehouse
+     * ALWAYS adds back to warehouse inventory
+     */
+    private function returnProductsToWarehouse(array $productIds, string $fromCcId, string $performedBy): void
     {
-        $allInventories = Inventory::all();
-        return $allInventories->filter(function ($inv) use ($productIds) {
-            $invIds = is_array($inv->product_ids) ? $inv->product_ids : [];
-            return count(array_intersect($invIds, $productIds)) > 0;
+        if (empty($productIds)) return;
+
+        // Find the specific inventory record containing these products
+        $ccInventory = null;
+        $inventories = CollectionCenterInventory::where('cc_id', $fromCcId)
+            ->whereIn('cc_inventory_status', ['pending', 'arrived'])
+            ->where('quantity', '>', 0)
+            ->get();
+            
+        foreach ($inventories as $inv) {
+            $ids = is_array($inv->product_ids) ? $inv->product_ids : [];
+            $intersect = array_intersect($productIds, $ids);
+            if (!empty($intersect)) {
+                $ccInventory = $inv;
+                break;
+            }
+        }
+
+        if (!$ccInventory) {
+            throw new \Exception("No inventory record found for these products.");
+        }
+
+        $targetWarehouseId = $ccInventory->source_warehouse_id;
+        if (is_null($targetWarehouseId)) {
+            $defaultWarehouse = Warehouse::active()->first();
+            if (!$defaultWarehouse) {
+                throw new \Exception("No active warehouse found to return products.");
+            }
+            $targetWarehouseId = $defaultWarehouse->warehouse_id;
+        }
+
+        DB::transaction(function () use ($productIds, $fromCcId, $performedBy, $ccInventory, $targetWarehouseId) {
+            // 1. Remove products from CC inventory
+            $currentCcIds = $ccInventory->product_ids ?? [];
+            $updatedCcIds = array_values(array_diff($currentCcIds, $productIds));
+            
+            if (empty($updatedCcIds)) {
+                $ccInventory->update([
+                    'product_ids' => [],
+                    'quantity' => 0,
+                    'cc_inventory_status' => 'rejected',
+                ]);
+            } else {
+                $ccInventory->update([
+                    'product_ids' => $updatedCcIds,
+                    'quantity' => count($updatedCcIds),
+                ]);
+            }
+
+            // 2. ADD products back to the target warehouse inventory
+            $warehouseInventory = Inventory::firstOrCreate(
+                ['warehouse_id' => $targetWarehouseId],
+                ['product_ids' => [], 'quantity' => 0]
+            );
+            $currentWarehouseIds = $warehouseInventory->product_ids ?? [];
+            $mergedIds = array_values(array_unique(array_merge($currentWarehouseIds, $productIds)));
+            $warehouseInventory->update([
+                'product_ids' => $mergedIds,
+                'quantity' => count($mergedIds),
+            ]);
+
+            // 3. Update product status back to in_stock
+            Product::whereIn('product_id', $productIds)->update(['stock_status' => 'in_stock']);
+
+            // 4. Log returns
+            foreach ($productIds as $productId) {
+                StockMovement::create([
+                    'movement_id'   => (string) Str::uuid(),
+                    'product_id'    => $productId,
+                    'from_type'     => 'collection_center',
+                    'from_id'       => $fromCcId,
+                    'to_type'       => 'warehouse',
+                    'to_id'         => $targetWarehouseId,
+                    'quantity'      => 1,
+                    'movement_type' => 'return',
+                    'notes'         => "Returned from collection center to warehouse",
+                    'performed_by'  => $performedBy,
+                ]);
+
+                StockMovementLog::create([
+                    'product_id'    => $productId,
+                    'from_type'     => 'collection_center',
+                    'from_id'       => $fromCcId,
+                    'to_type'       => 'warehouse',
+                    'to_id'         => $targetWarehouseId,
+                    'quantity'      => 1,
+                    'movement_type' => 'return',
+                    'reference_id'  => $ccInventory->cc_inventory_id,
+                    'notes'         => 'Returned from collection center to warehouse',
+                    'performed_by'  => $performedBy,
+                    'created_at'    => now(),
+                ]);
+            }
         });
     }
 
     // =========================================================================
-    // OTHER HELPERS (unchanged)
+    // OTHER HELPERS
     // =========================================================================
 
+    /**
+     * Attach product details to inventory record
+     */
     private function attachProducts($inventory)
     {
+        if (!$inventory || empty($inventory->product_ids)) {
+            $inventory->products = [];
+            return $inventory;
+        }
+        
         $inventory->products = Product::with('category')
             ->whereIn('product_id', $inventory->product_ids ?? [])
             ->get()
@@ -280,16 +378,110 @@ private function returnProductsToWarehouse(array $productIds, string $fromCcId, 
         return $inventory;
     }
 
+    /**
+     * Check if user is a restricted owner (BRANCH_OWNER or TBL)
+     */
     private function isRestrictedOwner($user): bool
     {
         return !$this->userCan('cc_inventory.view')
             && ($user->hasRole('BRANCH_OWNER') || $user->hasRole('TBL'));
     }
 
+    /**
+     * Convert IMEI to Product ID if needed
+     */
+    private function convertToProductIds(array $ids): array
+    {
+        $productIds = [];
+        
+        foreach ($ids as $id) {
+            $id = trim((string)$id);
+            
+            // Check if it's a valid UUID
+            if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id)) {
+                // It's a UUID, use as is
+                $productIds[] = $id;
+            } else {
+                // Not a UUID, try to find by IMEI
+                $product = Product::where('imei', $id)->first();
+                if ($product) {
+                    $productIds[] = $product->product_id;
+                } else {
+                    throw new \Exception("Product with IMEI or ID '{$id}' not found");
+                }
+            }
+        }
+        
+        return $productIds;
+    }
+
     // =========================================================================
-    // INDEX
+    // API ENDPOINTS
     // =========================================================================
 
+    /**
+     * Check if products are available in warehouse inventory
+     */
+    public function checkProductsInWarehouse(Request $request)
+    {
+        $perm = $this->checkPermission('cc_inventory.view');
+        if ($perm) return $perm;
+        
+        try {
+            $request->validate([
+                'product_ids' => 'required|array|min:1',
+                'product_ids.*' => 'required|string|exists:products,product_id',
+            ]);
+            
+            $productIds = $request->product_ids;
+            $result = [];
+            $allInventories = Inventory::all();
+            
+            foreach ($productIds as $pid) {
+                $product = Product::with('category')->find($pid);
+                $found = false;
+                $warehouseName = null;
+                
+                foreach ($allInventories as $inv) {
+                    $invIds = is_array($inv->product_ids) ? $inv->product_ids : [];
+                    if (in_array($pid, $invIds)) {
+                        $found = true;
+                        $warehouse = Warehouse::find($inv->warehouse_id);
+                        $warehouseName = $warehouse ? $warehouse->name : $inv->warehouse_id;
+                        break;
+                    }
+                }
+                
+                $result[] = [
+                    'product_id' => $pid,
+                    'imei' => $product ? $product->imei : 'N/A',
+                    'sku' => $product ? $product->sku : 'N/A',
+                    'category' => $product && $product->category ? $product->category->category_name : 'N/A',
+                    'in_warehouse' => $found,
+                    'warehouse' => $warehouseName,
+                ];
+            }
+            
+            $available = array_filter($result, fn($r) => $r['in_warehouse']);
+            $unavailable = array_filter($result, fn($r) => !$r['in_warehouse']);
+            
+            return $this->successResponse([
+                'available' => array_values($available),
+                'unavailable' => array_values($unavailable),
+                'total' => count($result),
+                'available_count' => count($available),
+                'unavailable_count' => count($unavailable),
+            ], 'Products availability checked');
+        } catch (ValidationException $e) {
+            return $this->validationError($e->errors());
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to check products: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * List all transfers
+     */
     public function index(Request $request)
     {
         $user = $request->user();
@@ -298,6 +490,7 @@ private function returnProductsToWarehouse(array $productIds, string $fromCcId, 
         }
         try {
             $query = CollectionCenterInventory::with('collectionCenter');
+            
             if ($this->isRestrictedOwner($user)) {
                 $assignedCcId = $user->cc_id;
                 if (!$assignedCcId) return $this->successResponse([], 'No collection center assigned to your account');
@@ -308,8 +501,29 @@ private function returnProductsToWarehouse(array $productIds, string $fromCcId, 
             } elseif ($request->filled('cc_id')) {
                 $query->where('cc_id', $request->cc_id);
             }
-            $inventories = $query->orderBy('created_at', 'desc')->paginate(15);
+            
+            if ($request->filled('status')) {
+                $query->where('cc_inventory_status', $request->status);
+            }
+            
+            if ($request->filled('from_date')) {
+                $query->whereDate('created_at', '>=', $request->from_date);
+            }
+            if ($request->filled('to_date')) {
+                $query->whereDate('created_at', '<=', $request->to_date);
+            }
+            
+            $inventories = $query->orderBy('created_at', 'desc')
+                ->paginate($request->get('per_page', 15));
+                
             $inventories->getCollection()->transform(fn($inv) => $this->attachProducts($inv));
+            
+            $inventories->setCollection(
+                $inventories->getCollection()->filter(function ($inv) {
+                    return !empty($inv->product_ids) && count($inv->product_ids) > 0;
+                })
+            );
+            
             $this->logAudit('view_collection_center_inventories', 'collection_center_inventory', null, 'Viewed inventory list');
             return $this->successResponse($inventories, 'Inventories retrieved');
         } catch (\Exception $e) {
@@ -317,10 +531,9 @@ private function returnProductsToWarehouse(array $productIds, string $fromCcId, 
         }
     }
 
-    // =========================================================================
-    // SHOW
-    // =========================================================================
-
+    /**
+     * Show a specific transfer
+     */
     public function show($id)
     {
         $user = request()->user();
@@ -343,10 +556,10 @@ private function returnProductsToWarehouse(array $productIds, string $fromCcId, 
         }
     }
 
-    // =========================================================================
-    // STORE
-    // =========================================================================
-
+    /**
+     * Create a new transfer (each transfer = separate record, NO MERGING!)
+     * FIXED: Converts IMEI to Product ID if needed
+     */
     public function store(Request $request)
     {
         $perm = $this->checkPermission('cc_inventory.create');
@@ -356,8 +569,14 @@ private function returnProductsToWarehouse(array $productIds, string $fromCcId, 
             $validated = $request->validate([
                 'cc_id'         => 'required|string|exists:collection_centers,cc_id',
                 'product_ids'   => 'required|array|min:1',
-                'product_ids.*' => 'required|string|exists:products,product_id',
+                'product_ids.*' => 'required|string',  // Accept UUID or IMEI
             ]);
+            
+            // 🔥 CONVERT IMEI TO PRODUCT ID IF NEEDED
+            $productIds = $this->convertToProductIds($validated['product_ids']);
+            $validated['product_ids'] = $productIds;
+            
+            // Check products are available (in_stock)
             $notAvailable = Product::whereIn('product_id', $validated['product_ids'])
                 ->where('stock_status', '!=', 'in_stock')
                 ->pluck('imei', 'product_id');
@@ -366,27 +585,40 @@ private function returnProductsToWarehouse(array $productIds, string $fromCcId, 
                     'product_ids' => $notAvailable->map(fn($imei, $id) => "Product IMEI {$imei} is not available (not in_stock).")->values()->toArray(),
                 ]);
             }
+            
+            // Check products are in warehouse inventory
+            try {
+                $productWarehouseMap = $this->getProductWarehouseMap($validated['product_ids']);
+            } catch (\Exception $e) {
+                return $this->validationError([
+                    'product_ids' => [$e->getMessage()],
+                ]);
+            }
+            
+            // Validate products not in any other CC
             $this->validateProductsNotInAnyCC($validated['product_ids']);
+            
             DB::beginTransaction();
-            $this->moveProductsToCC($validated['product_ids'], $validated['cc_id'], $authUser->id, null);
-            $inventory = CollectionCenterInventory::where('cc_id', $validated['cc_id'])->firstOrFail();
+            $inventory = $this->moveProductsToCC($validated['product_ids'], $validated['cc_id'], $authUser->id, null);
             DB::commit();
+            
             $this->attachProducts($inventory->load('collectionCenter'));
-            $this->logAudit('add_products_to_cc_inventory', 'collection_center_inventory', $inventory->cc_inventory_id, "Added " . count($validated['product_ids']) . " product(s) to CC inventory for {$inventory->cc_id}");
-            return $this->created($inventory, 'Products added to CC inventory successfully.');
+            $this->logAudit('add_products_to_cc_inventory', 'collection_center_inventory', $inventory->cc_inventory_id, 
+                "Created new transfer with " . count($validated['product_ids']) . " product(s) to CC {$inventory->cc_id}");
+            
+            return $this->created($inventory, 'Products transferred to CC successfully. Waiting for confirmation.');
         } catch (ValidationException $e) {
             DB::rollBack();
             return $this->validationError($e->errors());
         } catch (\Exception $e) {
             DB::rollBack();
-            return $this->serverError('Failed to add products: ' . $e->getMessage());
+            return $this->serverError('Failed to transfer products: ' . $e->getMessage());
         }
     }
 
-    // =========================================================================
-    // UPDATE
-    // =========================================================================
-
+    /**
+     * Update a specific transfer
+     */
     public function update(Request $request, $id)
     {
         $perm = $this->checkPermission('cc_inventory.edit');
@@ -394,14 +626,28 @@ private function returnProductsToWarehouse(array $productIds, string $fromCcId, 
         $authUser = $request->user();
         try {
             $inventory = CollectionCenterInventory::findOrFail($id);
+            
+            if ($inventory->cc_inventory_status === 'arrived') {
+                return $this->conflict('Cannot edit an already confirmed transfer. Please create a new transfer.');
+            }
+            if ($inventory->cc_inventory_status === 'rejected') {
+                return $this->conflict('Cannot edit a rejected transfer.');
+            }
+            
             $validated = $request->validate([
                 'product_ids'   => 'required|array|min:0',
-                'product_ids.*' => 'string|exists:products,product_id',
+                'product_ids.*' => 'required|string',
             ]);
+            
+            // 🔥 CONVERT IMEI TO PRODUCT ID IF NEEDED
+            $productIds = $this->convertToProductIds($validated['product_ids']);
+            $validated['product_ids'] = $productIds;
+            
             $oldIds = $inventory->product_ids ?? [];
             $newIds = $validated['product_ids'];
             $added  = array_values(array_diff($newIds, $oldIds));
             $removed = array_values(array_diff($oldIds, $newIds));
+            
             if (!empty($added)) {
                 $notAvailable = Product::whereIn('product_id', $added)
                     ->where('stock_status', '!=', 'in_stock')
@@ -411,52 +657,187 @@ private function returnProductsToWarehouse(array $productIds, string $fromCcId, 
                         'product_ids' => $notAvailable->map(fn($imei, $id) => "Product IMEI {$imei} is not available (not in_stock).")->values()->toArray(),
                     ]);
                 }
+                
+                try {
+                    $this->getProductWarehouseMap($added);
+                } catch (\Exception $e) {
+                    return $this->validationError([
+                        'product_ids' => [$e->getMessage()],
+                    ]);
+                }
+                
                 $this->validateProductsNotInAnyCC($added);
             }
+            
             DB::beginTransaction();
-            if (!empty($removed)) $this->returnProductsToWarehouse($removed, $inventory->cc_id, $authUser->id);
-            if (!empty($added)) $this->moveProductsToCC($added, $inventory->cc_id, $authUser->id);
+            if (!empty($removed)) {
+                $this->returnProductsToWarehouse($removed, $inventory->cc_id, $authUser->id);
+            }
+            if (!empty($added)) {
+                $this->moveProductsToCC($added, $inventory->cc_id, $authUser->id);
+            }
+            
+            if (!empty($newIds)) {
+                $inventory->update([
+                    'product_ids' => $newIds,
+                    'quantity' => count($newIds),
+                ]);
+            }
+            
             $inventory->refresh();
             $this->attachProducts($inventory->load('collectionCenter'));
             DB::commit();
-            $this->logAudit('update_collection_center_inventory', 'collection_center_inventory', $inventory->cc_inventory_id, "Updated CC inventory {$inventory->cc_id}: +".count($added)." transferred, -".count($removed)." returned to warehouse");
-            return $this->successResponse($inventory, 'CC inventory updated');
+            
+            $this->logAudit('update_collection_center_inventory', 'collection_center_inventory', $inventory->cc_inventory_id, 
+                "Updated transfer: +".count($added)." added, -".count($removed)." removed");
+            
+            return $this->successResponse($inventory, 'Transfer updated successfully');
         } catch (\Exception $e) {
             DB::rollBack();
-            return $this->serverError('Failed to update inventory: ' . $e->getMessage());
+            return $this->serverError('Failed to update transfer: ' . $e->getMessage());
         }
     }
 
-    // =========================================================================
-    // DESTROY
-    // =========================================================================
-
+    /**
+     * Delete/Reject a transfer
+     */
     public function destroy($id)
     {
         $perm = $this->checkPermission('cc_inventory.delete');
         if ($perm) return $perm;
         $authUser = request()->user();
         try {
-            $inventory  = CollectionCenterInventory::findOrFail($id);
-            $ccId       = $inventory->cc_id;
-            $invId      = $inventory->cc_inventory_id;
+            $inventory = CollectionCenterInventory::findOrFail($id);
+            
+            if ($inventory->cc_inventory_status === 'arrived') {
+                return $this->conflict('Cannot delete an already confirmed transfer. Please create a return transfer.');
+            }
+            
+            $ccId = $inventory->cc_id;
+            $invId = $inventory->cc_inventory_id;
             $productIds = is_array($inventory->product_ids) ? $inventory->product_ids : [];
+            
             DB::beginTransaction();
-            if (!empty($productIds)) $this->returnProductsToWarehouse($productIds, $ccId, $authUser->id);
+            if (!empty($productIds)) {
+                $this->returnProductsToWarehouse($productIds, $ccId, $authUser->id);
+            }
             $inventory->delete();
             DB::commit();
-            $this->logAudit('delete_collection_center_inventory', 'collection_center_inventory', $invId, "Deleted CC inventory for {$ccId}, returned " . count($productIds) . " product(s) to warehouse");
-            return $this->successResponse(null, 'CC inventory deleted. Products returned to warehouse.');
+            
+            $this->logAudit('delete_collection_center_inventory', 'collection_center_inventory', $invId, 
+                "Rejected transfer and returned " . count($productIds) . " product(s) to warehouse");
+            
+            return $this->successResponse(null, 'Transfer rejected. Products returned to warehouse.');
         } catch (\Exception $e) {
             DB::rollBack();
-            return $this->serverError('Failed to delete inventory: ' . $e->getMessage());
+            return $this->serverError('Failed to reject transfer: ' . $e->getMessage());
         }
     }
 
-    // =========================================================================
-    // FETCH MY CC PRODUCTS
-    // =========================================================================
+    /**
+     * Confirm a specific transfer receipt
+     */
+    public function confirmInventoryReceipt($id)
+    {
+        $user = request()->user();
+        if (!$this->userCan('collection_center.confirm_receipt')) {
+            return $this->forbidden('Missing permission: collection_center.confirm_receipt');
+        }
+        
+        $inventory = CollectionCenterInventory::with('collectionCenter')->find($id);
+        if (!$inventory) return $this->notFound('Transfer record not found.');
+        
+        $center = $inventory->collectionCenter;
+        if (!$center) return $this->notFound('Associated collection center not found.');
+        if ($center->owner_id !== $user->id) {
+            return $this->forbidden('You do not own this collection center.');
+        }
+        
+        if ($inventory->cc_inventory_status === 'arrived') {
+            return $this->conflict('This transfer has already been confirmed.');
+        }
+        if ($inventory->cc_inventory_status === 'rejected') {
+            return $this->conflict('This transfer was rejected. Cannot confirm.');
+        }
+        
+        $productIds = $inventory->product_ids ?? [];
+        if (!empty($productIds)) {
+            Product::whereIn('product_id', $productIds)->update(['stock_status' => 'received']);
+        }
+        
+        $inventory->cc_inventory_status = 'arrived';
+        $inventory->save();
+        
+        $this->attachProducts($inventory);
+        $this->logAudit('confirm_receipt_by_id', 'collection_center_inventory', $inventory->cc_inventory_id, 
+            "Confirmed transfer for center {$center->cc_name}");
+        
+        return $this->successResponse($inventory, 'Transfer confirmed successfully.');
+    }
 
+    /**
+     * Confirm ALL pending transfers for the logged-in user's CC
+     */
+    public function confirmMyReceipt(Request $request)
+    {
+        $user = $request->user();
+        if (!$this->userCan('collection_center.confirm_receipt')) {
+            return $this->forbidden('Missing permission: collection_center.confirm_receipt');
+        }
+        
+        $assignedCcId = $user->cc_id;
+        if (!$assignedCcId) return $this->forbidden('No collection center assigned to your account.');
+        
+        $center = CollectionCenter::find($assignedCcId);
+        if (!$center) return $this->forbidden('Assigned collection center not found.');
+        
+        $pendingTransfers = CollectionCenterInventory::where('cc_id', $center->cc_id)
+            ->where('cc_inventory_status', 'pending')
+            ->where('quantity', '>', 0)
+            ->orderBy('created_at', 'asc')
+            ->get();
+            
+        if ($pendingTransfers->isEmpty()) {
+            return $this->successResponse([], 'No pending transfers to confirm.');
+        }
+        
+        $confirmedCount = 0;
+        $allProductIds = [];
+        $confirmedTransfers = [];
+        
+        DB::beginTransaction();
+        try {
+            foreach ($pendingTransfers as $transfer) {
+                $productIds = $transfer->product_ids ?? [];
+                if (!empty($productIds)) {
+                    $allProductIds = array_merge($allProductIds, $productIds);
+                    Product::whereIn('product_id', $productIds)->update(['stock_status' => 'received']);
+                }
+                
+                $transfer->cc_inventory_status = 'arrived';
+                $transfer->save();
+                $confirmedCount++;
+                $confirmedTransfers[] = $transfer->cc_inventory_id;
+            }
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return $this->serverError('Failed to confirm transfers: ' . $e->getMessage());
+        }
+        
+        $this->logAudit('confirm_my_receipt', 'collection_center_inventory', null, 
+            "Confirmed {$confirmedCount} transfers for center {$center->cc_name}");
+        
+        return $this->successResponse([
+            'confirmed_count' => $confirmedCount,
+            'total_products' => count(array_unique($allProductIds)),
+            'confirmed_transfer_ids' => $confirmedTransfers,
+        ], "{$confirmedCount} transfers confirmed successfully.");
+    }
+
+    /**
+     * Get all products from confirmed transfers for the logged-in user's CC
+     */
     public function fetchMyCCProducts(Request $request)
     {
         $user = $request->user();
@@ -466,94 +847,96 @@ private function returnProductsToWarehouse(array $productIds, string $fromCcId, 
         try {
             $assignedCcId = $user->cc_id;
             if (!$assignedCcId) return $this->successResponse([], 'No collection center assigned to your account');
-            $inventory = CollectionCenterInventory::with('collectionCenter')->where('cc_id', $assignedCcId)->first();
-            if (!$inventory || empty($inventory->product_ids)) return $this->successResponse([], 'No products in your assigned collection center');
-            $this->attachProducts($inventory);
-            $allProducts = [];
-            foreach ($inventory->products ?? [] as $product) {
-                $productData = $product->toArray();
-                $productData['collection_center'] = [
-                    'cc_id' => $inventory->cc_id,
-                    'name'  => $inventory->collectionCenter?->cc_name ?? 'N/A',
-                ];
-                $allProducts[] = $productData;
+            
+            $transfers = CollectionCenterInventory::with('collectionCenter')
+                ->where('cc_id', $assignedCcId)
+                ->where('cc_inventory_status', 'arrived')
+                ->where('quantity', '>', 0)
+                ->orderBy('created_at', 'desc')
+                ->get();
+                
+            if ($transfers->isEmpty()) {
+                return $this->successResponse([], 'No products in your assigned collection center');
             }
-            return $this->successResponse($allProducts, 'Products retrieved successfully');
+            
+            $allProductIds = [];
+            $transferMap = [];
+            foreach ($transfers as $transfer) {
+                $ids = $transfer->product_ids ?? [];
+                foreach ($ids as $pid) {
+                    $allProductIds[] = $pid;
+                    $transferMap[$pid] = [
+                        'transfer_id' => $transfer->cc_inventory_id,
+                        'transfer_date' => $transfer->created_at,
+                        'status' => $transfer->cc_inventory_status,
+                    ];
+                }
+            }
+            $allProductIds = array_unique($allProductIds);
+            
+            if (empty($allProductIds)) {
+                return $this->successResponse([], 'No products in your assigned collection center');
+            }
+            
+            $products = Product::with('category')
+                ->whereIn('product_id', $allProductIds)
+                ->get()
+                ->map(function ($product) use ($assignedCcId, $transferMap) {
+                    $productData = $product->toArray();
+                    $productData['collection_center'] = [
+                        'cc_id' => $assignedCcId,
+                        'transfer_id' => $transferMap[$product->product_id]['transfer_id'] ?? null,
+                        'transfer_date' => $transferMap[$product->product_id]['transfer_date'] ?? null,
+                        'status' => $transferMap[$product->product_id]['status'] ?? null,
+                    ];
+                    $productData['product_name'] = $product->product_name;
+                    return $productData;
+                });
+                
+            return $this->successResponse($products, 'Products retrieved successfully');
         } catch (\Exception $e) {
-            return $this->serverError('Failed to fetch products');
+            return $this->serverError('Failed to fetch products: ' . $e->getMessage());
         }
     }
 
-    // =========================================================================
-    // CONFIRM RECEIPT BY ID
-    // =========================================================================
-
-    public function confirmInventoryReceipt($id)
-    {
-        $user = request()->user();
-        if (!$this->userCan('collection_center.confirm_receipt')) {
-            return $this->forbidden('Missing permission: collection_center.confirm_receipt');
-        }
-        $inventory = CollectionCenterInventory::with('collectionCenter')->find($id);
-        if (!$inventory) return $this->notFound('Inventory record not found.');
-        $center = $inventory->collectionCenter;
-        if (!$center) return $this->notFound('Associated collection center not found.');
-        if ($center->owner_id !== $user->id) return $this->forbidden('You do not own this collection center.');
-        if ($inventory->cc_inventory_status === 'arrived') return $this->conflict('Receipt already confirmed for this inventory.');
-        if ($inventory->cc_inventory_status === 'rejected') return $this->conflict('This inventory was rejected. Cannot confirm.');
-        $inventory->cc_inventory_status = 'arrived';
-        $inventory->save();
-        $this->logAudit('confirm_receipt_by_id', 'collection_center_inventory', $inventory->cc_inventory_id, "Branch owner confirmed receipt for center {$center->cc_name}");
-        return $this->successResponse($inventory, 'Receipt confirmed successfully.');
-    }
-
-    // =========================================================================
-    // CONFIRM MY RECEIPT
-    // =========================================================================
-
-    public function confirmMyReceipt(Request $request)
-    {
-        $user = $request->user();
-        if (!$this->userCan('collection_center.confirm_receipt')) {
-            return $this->forbidden('Missing permission: collection_center.confirm_receipt');
-        }
-        $assignedCcId = $user->cc_id;
-        if (!$assignedCcId) return $this->forbidden('No collection center assigned to your account.');
-        $center = CollectionCenter::find($assignedCcId);
-        if (!$center) return $this->forbidden('Assigned collection center not found.');
-        $inventory = CollectionCenterInventory::firstOrNew(['cc_id' => $center->cc_id]);
-        if ($inventory->cc_inventory_status === 'arrived') return $this->conflict('Receipt already confirmed for this inventory.');
-        if ($inventory->cc_inventory_status === 'rejected') return $this->conflict('This inventory was rejected. Cannot confirm.');
-        if (!$inventory->exists) {
-            $inventory->product_ids = [];
-            $inventory->quantity = 0;
-        }
-        $inventory->cc_inventory_status = 'arrived';
-        $inventory->save();
-        $inventory->load('collectionCenter');
-        $this->attachProducts($inventory);
-        $this->logAudit('confirm_my_receipt', 'collection_center_inventory', $inventory->cc_inventory_id, "Branch owner confirmed receipt for their own center {$center->cc_name}");
-        return $this->successResponse($inventory, 'Receipt confirmed for your center.');
-    }
-
-    // =========================================================================
-    // GET MY PRODUCTS DROPDOWN
-    // =========================================================================
-
+    /**
+     * Get dropdown of products from confirmed transfers for the logged-in user's CC
+     */
     public function getMyProductsDropdown(Request $request)
     {
         $user = $request->user();
         if (!$this->userCan('cc_inventory.view') && !$this->userCan('cc_inventory.view_own')) {
             return $this->forbidden('Missing permission');
         }
+        
         $assignedCcId = $user->cc_id;
         if (!$assignedCcId) return $this->successResponse([], 'No collection center assigned to your account');
+        
         $center = CollectionCenter::find($assignedCcId);
         if (!$center) return $this->successResponse([], 'Assigned collection center not found');
-        $inventory = CollectionCenterInventory::where('cc_id', $center->cc_id)->first();
-        if (!$inventory || empty($inventory->product_ids)) return $this->successResponse([], 'No products in your collection centre');
+        
+        $transfers = CollectionCenterInventory::where('cc_id', $center->cc_id)
+            ->where('cc_inventory_status', 'arrived')
+            ->where('quantity', '>', 0)
+            ->get();
+            
+        if ($transfers->isEmpty()) {
+            return $this->successResponse([], 'No products in your collection centre');
+        }
+        
+        $allProductIds = [];
+        foreach ($transfers as $transfer) {
+            $ids = $transfer->product_ids ?? [];
+            $allProductIds = array_merge($allProductIds, $ids);
+        }
+        $allProductIds = array_unique($allProductIds);
+        
+        if (empty($allProductIds)) {
+            return $this->successResponse([], 'No products in your collection centre');
+        }
+        
         $products = Product::with('category')
-            ->whereIn('product_id', $inventory->product_ids)
+            ->whereIn('product_id', $allProductIds)
             ->get()
             ->map(function ($product) use ($center) {
                 return [
@@ -562,7 +945,9 @@ private function returnProductsToWarehouse(array $productIds, string $fromCcId, 
                     'sku'               => $product->sku,
                     'category_name'     => $product->category?->category_name,
                     'model'             => $product->category?->model,
-                    'color'             => null,
+                    'cash_selling_price' => $product->cash_selling_price,
+                    'loan_selling_price' => $product->loan_selling_price,
+                    'buying_price'      => $product->buying_price,
                     'collection_center' => [
                         'cc_id' => $center->cc_id,
                         'name'  => $center->cc_name,
@@ -570,6 +955,42 @@ private function returnProductsToWarehouse(array $productIds, string $fromCcId, 
                     'product_name'      => $product->product_name,
                 ];
             });
+            
         return $this->successResponse($products, 'Products in your collection centre');
+    }
+
+    /**
+     * Get transfer history for a specific collection center
+     */
+    public function getTransferHistory($ccId, Request $request)
+    {
+        $perm = $this->checkPermission('cc_inventory.view');
+        if ($perm) return $perm;
+        
+        try {
+            $transfers = CollectionCenterInventory::with('collectionCenter')
+                ->where('cc_id', $ccId)
+                ->orderBy('created_at', 'desc')
+                ->paginate($request->get('per_page', 20));
+                
+            $transfers->getCollection()->transform(function ($transfer) {
+                return $this->attachProducts($transfer);
+            });
+            
+            $stats = [
+                'total_transfers' => CollectionCenterInventory::where('cc_id', $ccId)->count(),
+                'pending' => CollectionCenterInventory::where('cc_id', $ccId)->where('cc_inventory_status', 'pending')->count(),
+                'arrived' => CollectionCenterInventory::where('cc_id', $ccId)->where('cc_inventory_status', 'arrived')->count(),
+                'rejected' => CollectionCenterInventory::where('cc_id', $ccId)->where('cc_inventory_status', 'rejected')->count(),
+                'total_products' => CollectionCenterInventory::where('cc_id', $ccId)->sum('quantity'),
+            ];
+            
+            return $this->successResponse([
+                'stats' => $stats,
+                'transfers' => $transfers,
+            ], 'Transfer history retrieved');
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to fetch transfer history: ' . $e->getMessage());
+        }
     }
 }

@@ -483,4 +483,108 @@ public function resendOtp(Request $request, $id)
         return $this->serverError('Failed to resend OTP');
     }
 }
+
+/**
+ * Get all Branch Owner users with their IDs
+ * Permission: users.view
+ */
+public function getBranchOwners(Request $request)
+{
+    $perm = $this->checkPermission('users.view');
+    if ($perm) return $perm;
+
+    try {
+        // Find the BRANCH_OWNER role ID
+        $branchOwnerRole = Role::where('name', 'BRANCH_OWNER')->first();
+        
+        if (!$branchOwnerRole) {
+            return $this->notFound('BRANCH_OWNER role not found');
+        }
+
+        // Query users with BRANCH_OWNER role
+        $query = User::select('id', 'name', 'email', 'phone', 'status', 'cc_id', 'created_at')
+            ->where('role_id', $branchOwnerRole->id)
+            ->with('collectionCenter:id,cc_name,location')
+            ->orderBy('name', 'asc');
+
+        // Optional filters
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->where(function($q) use ($s) {
+                $q->where('name', 'LIKE', "%{$s}%")
+                  ->orWhere('email', 'LIKE', "%{$s}%")
+                  ->orWhere('phone', 'LIKE', "%{$s}%");
+            });
+        }
+
+        $branchOwners = $query->paginate($request->get('per_page', 50));
+
+        // Format the response with additional info
+        $formattedData = $branchOwners->through(function ($user) {
+            return [
+                'user_id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'phone' => $user->phone,
+                'status' => $user->status,
+                'collection_center' => $user->collectionCenter ? [
+                    'cc_id' => $user->collectionCenter->cc_id,
+                    'cc_name' => $user->collectionCenter->cc_name,
+                    'location' => $user->collectionCenter->location ?? 'N/A',
+                ] : null,
+                'created_at' => $user->created_at,
+            ];
+        });
+
+        $this->logAudit('view_branch_owners', 'user', null, 'Viewed branch owners list');
+        return $this->successResponse($formattedData, 'Branch owners retrieved successfully');
+        
+    } catch (\Exception $e) {
+        return $this->serverError('Failed to fetch branch owners: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Get a simple dropdown of Branch Owners (ID and Name only)
+ */
+public function getBranchOwnersDropdown(Request $request)
+{
+    try {
+        $branchOwnerRole = Role::where('name', 'BRANCH_OWNER')->first();
+        
+        if (!$branchOwnerRole) {
+            return $this->successResponse([], 'No branch owners found');
+        }
+
+        $query = User::select('id', 'name', 'email')
+            ->where('role_id', $branchOwnerRole->id)
+            ->where('status', 'active')
+            ->orderBy('name', 'asc');
+
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->where('name', 'LIKE', "%{$s}%");
+        }
+
+        $branchOwners = $query->limit(100)->get();
+
+        $formatted = $branchOwners->map(function ($user) {
+            return [
+                'value' => $user->id,  // For dropdown value
+                'label' => $user->name . ' (' . $user->email . ')',  // For dropdown label
+                'name' => $user->name,
+                'email' => $user->email,
+            ];
+        });
+
+        return $this->successResponse($formatted, 'Branch owners dropdown retrieved');
+        
+    } catch (\Exception $e) {
+        return $this->serverError('Failed to fetch branch owners dropdown');
+    }
+}
 }

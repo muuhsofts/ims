@@ -1,10 +1,11 @@
 <?php
-
+// app/Http/Controllers/Api/ProductController.php
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\BaseApiController;
 use App\Models\Product;
 use App\Models\Inventory;
+use App\Models\Purchase;
 use App\Traits\Auditable;
 use Illuminate\Http\Request;
 use App\Models\CollectionCenterInventory;
@@ -68,6 +69,34 @@ class ProductController extends BaseApiController
     }
 
     /**
+     * Get buying price from purchase history for a category and SKU
+     */
+    private function getBuyingPriceFromPurchase($categoryId, $sku)
+    {
+        // Get the most recent completed purchase for this category and SKU
+        $purchase = Purchase::where('category_id', $categoryId)
+            ->where('status', 'completed')
+            ->whereJsonContains('selected_skus', $sku)
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        return $purchase ? $purchase->unit_price : null;
+    }
+
+    /**
+     * Get total purchased quantity for a category and SKU
+     */
+    private function getTotalPurchasedQuantity($categoryId, $sku)
+    {
+        $total = Purchase::where('category_id', $categoryId)
+            ->where('status', 'completed')
+            ->whereJsonContains('selected_skus', $sku)
+            ->sum('quantity_ordered');
+
+        return $total;
+    }
+
+    /**
      * Bulk create products (multiple IMEIs, one category & SKU)
      * Permission: products.create
      */
@@ -78,12 +107,13 @@ class ProductController extends BaseApiController
 
         try {
             $request->validate([
-                'category_id'    => 'required|string|exists:product_categories,category_id',
-                'sku'            => 'required|string|max:255',
-                'imeis'          => 'required|string',
-                'buying_price'   => 'required|numeric|min:0',
-                'selling_price'  => 'required|numeric|min:0',
-                'status'         => 'sometimes|in:active,inactive,sold,damaged',
+                'category_id' => 'required|string|exists:product_categories,category_id',
+                'sku' => 'required|string|max:255',
+                'imeis' => 'required|string',
+                'buying_price' => 'sometimes|numeric|min:0|nullable',
+                'cash_selling_price' => 'sometimes|numeric|min:0|nullable',
+                'loan_selling_price' => 'sometimes|numeric|min:0|nullable',
+                'status' => 'sometimes|in:active,inactive,sold,damaged',
             ]);
 
             // Verify that the selected SKU belongs to the category's sku array
@@ -108,22 +138,50 @@ class ProductController extends BaseApiController
                 return $this->validationError(['imeis' => ['Duplicate IMEIs in the list']]);
             }
 
+            // Check existing IMEIs
             $existing = Product::whereIn('imei', $uniqueImeis)->pluck('imei')->toArray();
             if (!empty($existing)) {
                 return $this->validationError(['imeis' => ['IMEIs already exist: ' . implode(', ', $existing)]]);
+            }
+
+            // --- NEW LOGIC: Auto-fill buying price from purchase ---
+            $buyingPrice = $request->buying_price;
+            if (empty($buyingPrice) || $buyingPrice === null) {
+                $purchasePrice = $this->getBuyingPriceFromPurchase($request->category_id, $request->sku);
+                if ($purchasePrice !== null) {
+                    $buyingPrice = $purchasePrice;
+                } else {
+                    return $this->validationError(['buying_price' => ['No purchase record found for this category and SKU. Please enter buying price manually.']]);
+                }
+            }
+
+            // --- NEW LOGIC: Validate IMEI quantity against purchased items ---
+            $totalPurchased = $this->getTotalPurchasedQuantity($request->category_id, $request->sku);
+            $existingProducts = Product::where('category_id', $request->category_id)
+                ->where('sku', $request->sku)
+                ->count();
+            
+            $newTotal = $existingProducts + count($uniqueImeis);
+            if ($totalPurchased > 0 && $newTotal > $totalPurchased) {
+                return $this->validationError([
+                    'imeis' => [
+                        "Cannot add " . count($uniqueImeis) . " products. Only " . ($totalPurchased - $existingProducts) . " more items available from purchase (Total purchased: {$totalPurchased}, Already added: {$existingProducts})."
+                    ]
+                ]);
             }
 
             DB::beginTransaction();
             $created = [];
             foreach ($uniqueImeis as $imei) {
                 $product = Product::create([
-                    'category_id'    => $request->category_id,
-                    'sku'            => $request->sku,
-                    'imei'           => $imei,
-                    'buying_price'   => $request->buying_price,
-                    'selling_price'  => $request->selling_price,
-                    'status'         => $request->input('status', 'active'),
-                    'stock_status'   => 'in_stock',
+                    'category_id' => $request->category_id,
+                    'sku' => $request->sku,
+                    'imei' => $imei,
+                    'buying_price' => $buyingPrice,
+                    'cash_selling_price' => $request->cash_selling_price ?? null,
+                    'loan_selling_price' => $request->loan_selling_price ?? null,
+                    'status' => $request->input('status', 'active'),
+                    'stock_status' => 'in_stock',
                 ]);
                 $created[] = $product;
             }
@@ -155,15 +213,16 @@ class ProductController extends BaseApiController
             $product = Product::findOrFail($id);
 
             $request->validate([
-                'category_id'    => 'sometimes|string|exists:product_categories,category_id',
-                'sku'            => 'nullable|string|max:255',
-                'imei'           => 'nullable|string|max:255|unique:products,imei,' . $product->product_id . ',product_id',
-                'buying_price'   => 'sometimes|numeric|min:0',
-                'selling_price'  => 'sometimes|numeric|min:0',
-                'status'         => 'sometimes|in:active,inactive,sold,damaged',
+                'category_id' => 'sometimes|string|exists:product_categories,category_id',
+                'sku' => 'nullable|string|max:255',
+                'imei' => 'nullable|string|max:255|unique:products,imei,' . $product->product_id . ',product_id',
+                'buying_price' => 'sometimes|numeric|min:0',
+                'cash_selling_price' => 'sometimes|numeric|min:0|nullable',
+                'loan_selling_price' => 'sometimes|numeric|min:0|nullable',
+                'status' => 'sometimes|in:active,inactive,sold,damaged',
             ]);
 
-            $data = $request->only(['category_id', 'sku', 'imei', 'buying_price', 'selling_price', 'status']);
+            $data = $request->only(['category_id', 'sku', 'imei', 'buying_price', 'cash_selling_price', 'loan_selling_price', 'status']);
 
             // If category or SKU is changed, validate SKU belongs to new category
             if (($request->has('category_id') && $request->category_id != $product->category_id) ||
@@ -344,21 +403,137 @@ class ProductController extends BaseApiController
     // -------------------------------------------------------------------------
 
     /**
-     * Products NOT in any inventory – available for warehouse addition
+     * Get purchase info for a category and SKU
      */
-     /**
- * Products NOT already in any Collection Center Inventory – available for CC addition
- */
- /**
- * Products NOT in any inventory (warehouse or collection center) – available for new addition
- */
-public function Productdropdown(Request $request)
-{
-    $perm = $this->checkPermission('products.view');
-    if ($perm) return $perm;
+    public function getPurchaseInfo(Request $request)
+    {
+        try {
+            $request->validate([
+                'category_id' => 'required|string|exists:product_categories,category_id',
+                'sku' => 'required|string',
+            ]);
 
-    try {
-        // 1. Get all product IDs from warehouse inventory
+            $categoryId = $request->category_id;
+            $sku = $request->sku;
+
+            // Get latest completed purchase
+            $latestPurchase = Purchase::where('category_id', $categoryId)
+                ->where('status', 'completed')
+                ->whereJsonContains('selected_skus', $sku)
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            // Get total purchased quantity from ALL completed purchases
+            $totalPurchased = Purchase::where('category_id', $categoryId)
+                ->where('status', 'completed')
+                ->whereJsonContains('selected_skus', $sku)
+                ->sum('quantity_ordered');
+
+            // Get current products count
+            $currentCount = Product::where('category_id', $categoryId)
+                ->where('sku', $sku)
+                ->count();
+
+            // Get all purchases for this category and SKU
+            $purchases = Purchase::where('category_id', $categoryId)
+                ->where('status', 'completed')
+                ->whereJsonContains('selected_skus', $sku)
+                ->orderBy('created_at', 'desc')
+                ->get()
+                ->map(function ($purchase) {
+                    return [
+                        'purchase_id' => $purchase->purchase_id,
+                        'quantity_ordered' => $purchase->quantity_ordered,
+                        'unit_price' => $purchase->unit_price,
+                        'created_at' => $purchase->created_at,
+                    ];
+                });
+
+            return $this->successResponse([
+                'unit_price' => $latestPurchase?->unit_price,
+                'total_purchased' => $totalPurchased,
+                'current_count' => $currentCount,
+                'available_to_add' => max(0, $totalPurchased - $currentCount),
+                'purchase_exists' => $latestPurchase !== null,
+                'purchases' => $purchases,
+            ], 'Purchase info retrieved successfully');
+        } catch (ValidationException $e) {
+            return $this->validationError($e->errors());
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to fetch purchase info: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Products NOT in any inventory (warehouse or collection center) – available for new addition
+     */
+    public function Productdropdown(Request $request)
+    {
+        $perm = $this->checkPermission('products.view');
+        if ($perm) return $perm;
+
+        try {
+            // 1. Get all product IDs from warehouse inventory
+            $warehouseProductIds = Inventory::pluck('product_ids')
+                ->filter()
+                ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
+                ->unique()
+                ->values()
+                ->toArray();
+
+            // 2. Get all product IDs from CC inventory
+            $ccProductIds = CollectionCenterInventory::pluck('product_ids')
+                ->filter()
+                ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
+                ->unique()
+                ->values()
+                ->toArray();
+
+            // 3. Merge both arrays and remove duplicates
+            $excludedIds = array_unique(array_merge($warehouseProductIds, $ccProductIds));
+
+            // 4. Build product query, excluding those already used anywhere
+            $products = Product::select('product_id', 'imei', 'sku', 'category_id', 'stock_status',
+                'cash_selling_price', 'loan_selling_price')
+                ->with(['category' => fn($q) => $q->select('category_id', 'category_name', 'model')])
+                ->where('status', 'active')
+                ->where('stock_status', 'in_stock')
+                ->whereNull('deleted_at')
+                ->when(!empty($excludedIds), fn($q) => $q->whereNotIn('product_id', $excludedIds))
+                ->when($request->filled('category_id'), fn($q) => $q->where('category_id', $request->category_id))
+                ->when($request->filled('search'), function ($q) use ($request) {
+                    $s = $request->search;
+                    $q->where(fn($q) => $q->where('imei', 'LIKE', "%{$s}%")
+                                          ->orWhere('sku', 'LIKE', "%{$s}%"));
+                })
+                ->orderBy('imei')
+                ->get()
+                ->map(fn($p) => [
+                    'id' => $p->product_id,
+                    'label' => ($p->category?->category_name ?? 'No Category') . ' | ' .
+                               ($p->category?->model ?? 'No Model') . ' | ' .
+                               ($p->sku ?? 'No SKU') . ' | IMEI: ' . ($p->imei ?? ''),
+                    'cash_selling_price' => $p->cash_selling_price,
+                    'loan_selling_price' => $p->loan_selling_price,
+                ]);
+
+            return $this->successResponse($products, 'Products available for addition retrieved');
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to fetch available products: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Products currently in warehouse inventory (stock_status = in_stock) available to move to CC
+     */
+    public function productsInInventoryDropdown(Request $request)
+    {
+        // Permission check
+        if (!$this->userCan('products.view')) {
+            return $this->forbidden();
+        }
+
+        // Get all product IDs that are currently in ANY warehouse inventory
         $warehouseProductIds = Inventory::pluck('product_ids')
             ->filter()
             ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
@@ -366,89 +541,31 @@ public function Productdropdown(Request $request)
             ->values()
             ->toArray();
 
-        // 2. Get all product IDs from CC inventory
+        // Get all product IDs that are already in ANY CC inventory
         $ccProductIds = CollectionCenterInventory::pluck('product_ids')
             ->filter()
             ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
             ->unique()
-            ->values()
             ->toArray();
 
-        // 3. Merge both arrays and remove duplicates
-        $excludedIds = array_unique(array_merge($warehouseProductIds, $ccProductIds));
+        // Available = in warehouse but NOT in any CC
+        $availableIds = array_diff($warehouseProductIds, $ccProductIds);
 
-        // 4. Build product query, excluding those already used anywhere
-        $products = Product::select('product_id', 'imei', 'sku', 'category_id', 'stock_status')
-            ->with(['category' => fn($q) => $q->select('category_id', 'category_name', 'model')])
-            ->where('status', 'active')
+        if (empty($availableIds)) {
+            return $this->successResponse([], 'No products available to move');
+        }
+
+        $products = Product::whereIn('product_id', $availableIds)
             ->where('stock_status', 'in_stock')
-            ->whereNull('deleted_at')
-            ->when(!empty($excludedIds), fn($q) => $q->whereNotIn('product_id', $excludedIds))
-            ->when($request->filled('category_id'), fn($q) => $q->where('category_id', $request->category_id))
-            ->when($request->filled('search'), function ($q) use ($request) {
-                $s = $request->search;
-                $q->where(fn($q) => $q->where('imei', 'LIKE', "%{$s}%")
-                                      ->orWhere('sku', 'LIKE', "%{$s}%"));
-            })
-            ->orderBy('imei')
+            ->with('category')
             ->get()
             ->map(fn($p) => [
-                'id'    => $p->product_id,
-                'label' => ($p->category?->category_name ?? 'No Category') . ' | ' .
-                           ($p->category?->model ?? 'No Model') . ' | ' .
-                           ($p->sku ?? 'No SKU') . ' | IMEI: ' . ($p->imei ?? ''),
+                'id' => $p->product_id,
+                'label' => "Cate: {$p->category?->category_name}, Model: {$p->category?->model}, SKU: {$p->sku} | IMEI: {$p->imei}",
+                'cash_selling_price' => $p->cash_selling_price,
+                'loan_selling_price' => $p->loan_selling_price,
             ]);
 
-        return $this->successResponse($products, 'Products available for addition retrieved');
-    } catch (\Exception $e) {
-        return $this->serverError('Failed to fetch available products: ' . $e->getMessage());
+        return $this->successResponse($products);
     }
-}
-
-    /**
-     * Products currently in warehouse inventory (stock_status = in_stock) available to move to CC
-     */
-
-public function productsInInventoryDropdown(Request $request)
-{
-    // Permission check
-    if (!$this->userCan('products.view')) {
-        return $this->forbidden();
-    }
-
-    // Get all product IDs that are currently in ANY warehouse inventory
-    $warehouseProductIds = Inventory::pluck('product_ids')
-        ->filter()
-        ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
-        ->unique()
-        ->values()
-        ->toArray();
-
-    // Get all product IDs that are already in ANY CC inventory
-    $ccProductIds = CollectionCenterInventory::pluck('product_ids')
-        ->filter()
-        ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
-        ->unique()
-        ->toArray();
-
-    // Available = in warehouse but NOT in any CC
-    $availableIds = array_diff($warehouseProductIds, $ccProductIds);
-
-    if (empty($availableIds)) {
-        return $this->successResponse([], 'No products available to move');
-    }
-
-    $products = Product::whereIn('product_id', $availableIds)
-        ->where('stock_status', 'in_stock')
-        ->with('category')
-        ->get()
-        ->map(fn($p) => [
-            'id'    => $p->product_id,
-            'label' => "Cate: {$p->category?->category_name}, Model: {$p->category?->model}, SKU: {$p->sku} | IMEI: {$p->imei}",
-        ]);
-
-    return $this->successResponse($products);
-}
-
-
 }

@@ -98,6 +98,8 @@ Route::prefix('v1')->group(function () {
     Route::delete('/{id}/force',        [UserManagementController::class, 'forceDelete']);
     Route::get('/dropdown', [UserManagementController::class, 'Userdropdown']);
     Route::get('/sales-agents/dropdown', [UserManagementController::class, 'salesAgentDropdown']);
+    Route::get('/branch-owners', [UserManagementController::class, 'getBranchOwners']);
+    Route::get('/branch-owners/dropdown', [UserManagementController::class, 'getBranchOwnersDropdown']);
 
     Route::get('/',                     [UserManagementController::class, 'index']);
     Route::post('/',                    [UserManagementController::class, 'store']);
@@ -197,7 +199,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     // v3 – Products
 Route::prefix('v3')->group(function () {
     Route::prefix('products')->group(function () {
-        Route::get('/dropdown',               [ProductController::class, 'Productdropdown']);     
+        Route::get('/dropdown',               [ProductController::class, 'Productdropdown']);   
+        Route::get('/purchase-info', [ProductController::class, 'getPurchaseInfo']);  
         Route::get('/scan/imei/{imei}',       [ProductController::class, 'scanByImei']);
         Route::post('/scan/imei',             [ProductController::class, 'scanImeiPost']);
         Route::patch('/{id}/assign-imei',     [ProductController::class, 'assignImei']);
