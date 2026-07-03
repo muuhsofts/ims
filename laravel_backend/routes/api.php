@@ -29,6 +29,7 @@ use App\Http\Controllers\Api\AgentAnalyticsReportController;
 use App\Http\Controllers\Api\BranchOwnerAnalyticsReportController;
 use App\Http\Controllers\Api\BranchOwnerReportController;
 use App\Http\Controllers\Api\RevenueAnalyticsController;
+use App\Http\Controllers\Api\ReturnsController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\AgentsManagementController;
 
@@ -463,6 +464,31 @@ Route::prefix('v16')->group(function () {
         Route::get('/{id}',    [AgentsManagementController::class, 'show']);
         Route::put('/{id}',    [AgentsManagementController::class, 'update']);
         Route::delete('/{id}', [AgentsManagementController::class, 'destroy']);
+    });
+});
+
+
+// ====================== v17 – RETURNS MANAGEMENT ======================
+    Route::prefix('v17')->group(function () {
+    Route::prefix('returns')->group(function () {
+        // List and search
+        Route::get('/', [ReturnsController::class, 'index']);
+        Route::get('/statistics', [ReturnsController::class, 'statistics']);
+        Route::get('/search', [ReturnsController::class, 'search']);
+        Route::get('/my-returns', [ReturnsController::class, 'myReturns']); // Agent's own returns
+        Route::get('/agent-sales', [ReturnsController::class, 'getAgentSales']); // Get agent's sales
+        
+        // Stock Controller only
+        Route::get('/pending-approval', [ReturnsController::class, 'pendingForApproval']);
+        Route::post('/{id}/approve', [ReturnsController::class, 'approveReturn']);
+        
+        // IMEI validation
+        Route::get('/validate-imei', [ReturnsController::class, 'validateImei']);
+        
+        // CRUD
+        Route::get('/{id}', [ReturnsController::class, 'show']);
+        Route::post('/', [ReturnsController::class, 'store']);
+        Route::post('/{id}/cancel', [ReturnsController::class, 'cancelReturn']);
     });
 });
 
