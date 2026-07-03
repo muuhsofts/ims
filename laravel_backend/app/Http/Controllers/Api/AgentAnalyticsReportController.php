@@ -6,11 +6,9 @@ use App\Http\Controllers\Api\BaseApiController;
 use App\Traits\Auditable;
 use App\Models\AgentInventory;
 use App\Models\Sale;
-use App\Models\Product;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class AgentAnalyticsReportController extends BaseApiController
@@ -28,7 +26,7 @@ class AgentAnalyticsReportController extends BaseApiController
         }
 
         try {
-            // ----- PERIOD FILTERING -----
+            // ----- PERIOD FILTERING (unchanged) -----
             $period = $request->query('period');
             $dateInput = $request->query('date');
             $startDate = null;
@@ -73,100 +71,50 @@ class AgentAnalyticsReportController extends BaseApiController
                 }
             }
 
-            // ========== STEP 1: Get ALL product IDs from inventory for this agent ==========
+            // ========== GET INVENTORY RECORDS ==========
             $inventoryRecords = AgentInventory::where('user_id', $agentId)->get();
-            
-            $inventoryProductIds = [];
-            
-            foreach ($inventoryRecords as $record) {
-                if (!empty($record->product_id)) {
-                    $inventoryProductIds[] = $record->product_id;
-                }
-            }
-            
-            // Log inventory product IDs
-            Log::info('Inventory Product IDs:', [
-                'count' => count($inventoryProductIds),
-                'ids' => $inventoryProductIds
-            ]);
 
-            // ========== STEP 2: Get ALL product IDs from sales ==========
-            $salesRecords = Sale::where('agent_id', $agentId)
-                ->where('status', 'completed')
-                ->whereNotNull('product_id')
-                ->get();
-            
-            $soldProductIds = [];
-            
-            foreach ($salesRecords as $record) {
-                if (!empty($record->product_id)) {
-                    $soldProductIds[] = $record->product_id;
-                }
-            }
-            
-            // Log sold product IDs
-            Log::info('Sold Product IDs:', [
-                'count' => count($soldProductIds),
-                'ids' => $soldProductIds
-            ]);
-
-            // ========== STEP 3: Calculate remaining stock ==========
+            $totalStock = 0;
             $remainingStock = 0;
-            $unsoldProducts = [];
 
-            // Loop through each product in inventory
-            foreach ($inventoryProductIds as $inventoryProductId) {
-                $isSold = false;
-                
-                // Check if this product is in the sold list
-                foreach ($soldProductIds as $soldProductId) {
-                    if ($inventoryProductId === $soldProductId) {
-                        $isSold = true;
-                        break;
-                    }
+            foreach ($inventoryRecords as $record) {
+                // --- Total Stock: use quantity_received (or 1 as fallback) ---
+                $totalStock += $record->quantity_received ?? 1;
+
+                // --- Remaining Stock: count items in product_ids array ---
+                if (!empty($record->product_ids) && is_array($record->product_ids)) {
+                    $remainingStock += count($record->product_ids);
                 }
-                
-                // If not sold, count it as remaining stock
-                if (!$isSold) {
-                    $remainingStock++;
-                    $unsoldProducts[] = $inventoryProductId;
-                }
+                // if product_ids is empty, this record contributes 0 to remaining stock
             }
 
-            // Log remaining stock calculation
-            Log::info('Remaining Stock Calculation:', [
-                'remaining_count' => $remainingStock,
-                'unsold_products' => $unsoldProducts
-            ]);
-
-            // Total stock
-            $totalStock = count(array_unique($inventoryProductIds));
-
-            // Total transactions
-            $totalSalesCount = Sale::where('agent_id', $agentId)
+            // ========== TOTAL SALES COUNT (for the "Total Transactions" card) ==========
+            $salesQuery = Sale::where('agent_id', $agentId)
                 ->where('status', 'completed');
-            
-            if ($startDate && $endDate) {
-                $totalSalesCount->whereBetween('created_at', [$startDate, $endDate]);
-            }
-            $totalSalesCount = $totalSalesCount->count();
 
-            // Log final results
-            Log::info('Final Results:', [
-                'total_stock' => $totalStock,
-                'remaining_stock' => $remainingStock,
-                'total_sales_count' => $totalSalesCount
+            if ($startDate && $endDate) {
+                $salesQuery->whereBetween('created_at', [$startDate, $endDate]);
+            }
+            $totalSalesCount = $salesQuery->count();
+
+            // ========== LOG FOR DEBUGGING ==========
+            Log::info('Agent Analytics Results:', [
+                'agent_id'          => $agentId,
+                'total_stock'       => $totalStock,
+                'remaining_stock'   => $remainingStock,
+                'total_sales_count' => $totalSalesCount,
+                'period'            => $periodLabel,
             ]);
 
-            // ========== STEP 4: Get TOP 5 SALES ==========
+            // ========== TOP 5 SALES ==========
             $topSalesQuery = Sale::where('agent_id', $agentId)
                 ->where('status', 'completed')
                 ->with(['customer', 'product.category']);
-            
+
             if ($startDate && $endDate) {
                 $topSalesQuery->whereBetween('created_at', [$startDate, $endDate]);
             }
-            
+
             $topSales = $topSalesQuery->orderBy('created_at', 'desc')
                 ->limit(5)
                 ->get()

@@ -260,15 +260,21 @@ Route::prefix('v5')->group(function () {
         });
     });
 
+    
     // v7 – Inventory
-     Route::prefix('v7')->group(function () {
+Route::prefix('v7')->group(function () {
     Route::prefix('inventory')->group(function () {
         Route::get('/product-in/inventory/dropdown', [ProductController::class, 'productsInInventoryDropdown']); 
-        Route::get('/',                  [InventoryController::class, 'index']);
-        Route::post('/',                 [InventoryController::class, 'store']);
-        Route::get('/{id}',              [InventoryController::class, 'show']);
-        Route::put('/{id}',              [InventoryController::class, 'update']);
-        Route::delete('/{id}',           [InventoryController::class, 'destroy']);
+        Route::get('/summary', [InventoryController::class, 'summary']);
+        Route::get('/statistics', [InventoryController::class, 'statistics']);
+        Route::get('/', [InventoryController::class, 'index']);
+        Route::post('/', [InventoryController::class, 'store']);
+        Route::get('/{id}', [InventoryController::class, 'show']);
+        Route::put('/{id}', [InventoryController::class, 'update']);
+        Route::delete('/{id}', [InventoryController::class, 'destroy']);
+        Route::get('/{id}/products', [InventoryController::class, 'getProducts']);
+        Route::post('/{id}/products', [InventoryController::class, 'addProducts']);
+        Route::delete('/{id}/products', [InventoryController::class, 'removeProducts']);
     });
 });
 
