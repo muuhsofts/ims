@@ -4,7 +4,7 @@ import {
     Dialog, DialogTitle, DialogContent, DialogActions,
     TextField, Button, Box, CircularProgress,
     FormControl, InputLabel, Select, MenuItem,
-    Typography, Chip, Alert
+    Typography, Chip, Alert, Divider
 } from '@mui/material';
 import { showSnackbar } from 'utils/snackbar';
 import { useReturns } from '@/hooks/useReturns';
@@ -65,6 +65,8 @@ export default function ApproveReturnModal({ open, onClose, returnItem, onSucces
         }
     };
 
+    if (!returnItem) return null;
+
     return (
         <Dialog
             open={open}
@@ -80,28 +82,31 @@ export default function ApproveReturnModal({ open, onClose, returnItem, onSucces
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
                         {/* Return Info */}
-                        <Alert severity="info" sx={{ mb: 2 }}>
+                        <Alert severity="info">
                             <Typography variant="body2">
-                                <strong>Customer:</strong> {returnItem?.customer_name}
+                                <strong>Customer:</strong> {returnItem.customer_name}
                             </Typography>
                             <Typography variant="body2">
-                                <strong>IMEI:</strong> {returnItem?.imei}
+                                <strong>IMEI:</strong> {returnItem.imei}
                             </Typography>
                             <Typography variant="body2">
-                                <strong>Product:</strong> {returnItem?.product?.sku || 'N/A'}
+                                <strong>Product:</strong> {returnItem.product?.sku || 'N/A'} - {returnItem.product?.category?.category_name || 'N/A'}
                             </Typography>
-                            {returnItem?.sale && (
+                            {returnItem.sale && (
                                 <Typography variant="body2">
-                                    <strong>Sale Amount:</strong> {returnItem.sale.total_amount} TSh
+                                    <strong>Sale Amount:</strong> {returnItem.sale.total_amount} TSh ({returnItem.sale.payment_method})
                                 </Typography>
                             )}
-                            <Chip
-                                label="Pending Approval"
-                                color="warning"
-                                size="small"
-                                sx={{ mt: 1 }}
-                            />
+                            <Box mt={1}>
+                                <Chip
+                                    label="Pending Approval"
+                                    color="warning"
+                                    size="small"
+                                />
+                            </Box>
                         </Alert>
+
+                        <Divider />
 
                         {/* Warehouse Selection */}
                         <FormControl fullWidth required>
@@ -134,7 +139,7 @@ export default function ApproveReturnModal({ open, onClose, returnItem, onSucces
                             fullWidth
                             size="small"
                             disabled={submitting}
-                            placeholder="Any additional information about the return"
+                            placeholder="Any additional information about the return approval"
                         />
                     </Box>
                 </DialogContent>
