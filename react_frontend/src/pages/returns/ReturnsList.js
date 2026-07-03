@@ -18,7 +18,8 @@ import {
     CheckCircle as CheckCircleIcon,
     Cancel as CancelIcon,
     Pending as PendingIcon,
-    Approve as ApproveIcon
+    ThumbUp as ApproveIcon,  // Changed from Approve to ThumbUp
+    Warehouse as WarehouseIcon
 } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
@@ -128,6 +129,7 @@ const ReturnCard = ({ returnItem, canApprove, canCancel, onAction }) => {
                             variant="contained"
                             color="primary"
                             onClick={() => onAction('approve', returnItem)}
+                            startIcon={<ApproveIcon />}
                         >
                             Approve
                         </Button>
@@ -138,6 +140,7 @@ const ReturnCard = ({ returnItem, canApprove, canCancel, onAction }) => {
                             variant="outlined"
                             color="error"
                             onClick={() => onAction('cancel', returnItem)}
+                            startIcon={<CancelIcon />}
                         >
                             Cancel
                         </Button>
