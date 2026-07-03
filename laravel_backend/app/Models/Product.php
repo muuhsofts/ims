@@ -26,6 +26,8 @@ class Product extends Model
         'loan_selling_price',
         'status',
         'stock_status',
+        'pending_return', 
+        'returned'
     ];
 
     protected $casts = [
