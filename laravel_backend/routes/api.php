@@ -261,7 +261,7 @@ Route::prefix('v5')->group(function () {
     });
 
     
-    // v7 – Inventory
+ // routes file (v17 group)
 Route::prefix('v17')->group(function () {
     Route::prefix('returns')->group(function () {
         // List and search
@@ -285,7 +285,6 @@ Route::prefix('v17')->group(function () {
         Route::post('/{id}/cancel', [ReturnsController::class, 'cancelReturn']);
     });
 });
-
 
     // v8 – Transfer Requests
     Route::prefix('v8')->group(function () {

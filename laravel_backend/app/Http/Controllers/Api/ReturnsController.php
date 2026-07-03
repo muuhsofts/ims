@@ -160,7 +160,7 @@ class ReturnsController extends BaseApiController
 
             // Check if product is already returned
             $existingReturn = Returns::where('product_id', $product->product_id)
-                ->whereIn('status', ['pending', 'approved'])
+                ->whereIn('status', ['returned', 'approved'])
                 ->first();
 
             if ($existingReturn) {
@@ -185,7 +185,7 @@ class ReturnsController extends BaseApiController
 
             DB::beginTransaction();
 
-            // Create return record with status 'pending'
+            // Create return record with status 'returned'
             $return = Returns::create([
                 'return_id' => (string) Str::uuid(),
                 'customer_name' => $request->customer_name,
@@ -195,7 +195,7 @@ class ReturnsController extends BaseApiController
                 'agent_id' => $user->id,
                 'customer_id' => $sale->customer_id,
                 'request_id' => null,
-                'status' => 'pending',
+                'status' => 'returned',
                 'return_reason' => $request->return_reason,
                 'return_date' => now(),
                 'notes' => $request->notes,
@@ -271,9 +271,9 @@ class ReturnsController extends BaseApiController
             $return = Returns::with(['product', 'sale'])->findOrFail($id);
 
             // Check if return can be approved
-            if ($return->status !== 'pending') {
+            if ($return->status !== 'returned') {
                 return $this->validationError([
-                    'status' => ['Only pending returns can be approved. Current status: ' . $return->status]
+                    'status' => ['Only returned returns can be approved. Current status: ' . $return->status]
                 ]);
             }
 
@@ -318,7 +318,6 @@ class ReturnsController extends BaseApiController
             $return->status = 'approved';
             $return->approved_by = auth()->id();
             $return->approved_at = now();
-            $return->completed_date = now();
             $return->condition = $request->condition ?? 'good';
             $return->notes = ($return->notes ? $return->notes . "\n" : '') .
                            "Approved by " . auth()->user()->name . " on " . now() .
@@ -370,7 +369,7 @@ class ReturnsController extends BaseApiController
     }
 
     /**
-     * Cancel a pending return
+     * Cancel a returned return
      * Permission: returns.cancel
      */
     public function cancelReturn($id)
@@ -388,10 +387,10 @@ class ReturnsController extends BaseApiController
                 return $this->forbidden('You are not authorized to cancel this return');
             }
 
-            // Only pending returns can be cancelled
-            if ($return->status !== 'pending') {
+            // Only returned status can be cancelled
+            if ($return->status !== 'returned') {
                 return $this->validationError([
-                    'status' => ['Only pending returns can be cancelled. Current status: ' . $return->status]
+                    'status' => ['Only returned returns can be cancelled. Current status: ' . $return->status]
                 ]);
             }
 
@@ -493,6 +492,7 @@ class ReturnsController extends BaseApiController
             // Update return status to completed
             $return->status = 'completed';
             $return->completed_at = now();
+            $return->completed_date = now();
             $return->completed_by = auth()->id();
             $return->notes = ($return->notes ? $return->notes . "\n" : '') .
                            "Completed on " . now() . " by " . auth()->user()->name;
@@ -574,11 +574,11 @@ class ReturnsController extends BaseApiController
 
             $stats = [
                 'total' => $query->count(),
-                'pending' => (clone $query)->where('status', 'pending')->count(),
+                'returned' => (clone $query)->where('status', 'returned')->count(),
                 'approved' => (clone $query)->where('status', 'approved')->count(),
                 'completed' => (clone $query)->where('status', 'completed')->count(),
                 'cancelled' => (clone $query)->where('status', 'cancelled')->count(),
-                'recent_pending' => (clone $query)->where('status', 'pending')
+                'recent_returns' => (clone $query)->where('status', 'returned')
                     ->whereDate('created_at', '>=', now()->subDays(7))
                     ->count(),
                 'completion_rate' => 0,
@@ -647,18 +647,18 @@ class ReturnsController extends BaseApiController
             // Get customer info
             $customer = Customer::find($sale->customer_id);
 
-            // Check for pending or approved return
-            $pendingReturn = Returns::where('product_id', $product->product_id)
-                ->whereIn('status', ['pending', 'approved'])
+            // Check for existing returns
+            $existingReturn = Returns::where('product_id', $product->product_id)
+                ->whereIn('status', ['returned', 'approved'])
                 ->first();
 
-            if ($pendingReturn) {
+            if ($existingReturn) {
                 return $this->successResponse([
                     'valid' => false,
                     'message' => 'This product already has a pending or approved return',
-                    'return_id' => $pendingReturn->return_id,
-                    'status' => $pendingReturn->status,
-                    'return_date' => $pendingReturn->return_date,
+                    'return_id' => $existingReturn->return_id,
+                    'status' => $existingReturn->status,
+                    'return_date' => $existingReturn->return_date,
                 ], 'IMEI has pending return');
             }
 
@@ -758,7 +758,7 @@ class ReturnsController extends BaseApiController
             }
 
             $query = Returns::with(['product', 'product.category', 'performedBy', 'agent', 'customer', 'sale'])
-                ->where('status', 'pending');
+                ->where('status', 'returned');
 
             if ($request->filled('imei')) {
                 $query->where('imei', 'LIKE', "%{$request->imei}%");
