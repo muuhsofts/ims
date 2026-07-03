@@ -84,7 +84,8 @@ class AgentSalesController extends BaseApiController
             'model'             => $product->category->model ?? null,
             'color'             => $product->color ?? null,
             'buying_price'      => (float) $product->buying_price,
-            'selling_price'     => (float) $product->selling_price,
+            'cash_selling_price' => (float) $product->cash_selling_price,
+            'loan_selling_price' => (float) $product->loan_selling_price,
             'stock_status'      => $product->stock_status,
             'quantity_received' => $inventory->quantity_received,
             'quantity_sold'     => $inventory->quantity_sold,
@@ -138,15 +139,16 @@ class AgentSalesController extends BaseApiController
             }
 
             return $this->successResponse([
-                'product_id'        => $product->product_id,
-                'product_name'      => $product->product_name,
-                'imei'              => $product->imei,
-                'category_name'     => $product->category->category_name ?? null,
-                'model'             => $product->category->model ?? null,
-                'sku'               => $product->sku,
-                'color'             => $product->color,
-                'selling_price'     => (float) $product->selling_price,
-                'available_quantity'=> $available,
+                'product_id'         => $product->product_id,
+                'product_name'       => $product->product_name,
+                'imei'               => $product->imei,
+                'category_name'      => $product->category->category_name ?? null,
+                'model'              => $product->category->model ?? null,
+                'sku'                => $product->sku,
+                'color'              => $product->color,
+                'cash_selling_price' => (float) $product->cash_selling_price,
+                'loan_selling_price' => (float) $product->loan_selling_price,
+                'available_quantity' => $available,
             ], 'Product found – ready for sale');
 
         } catch (ValidationException $e) {
@@ -173,9 +175,9 @@ class AgentSalesController extends BaseApiController
 
             $validated = $request->validate([
                 'product_id'     => 'required|string|exists:products,product_id',
-                'total_amount'   => 'required|numeric|min:0',
                 'customer_id'    => 'required|string|exists:customers,customer_id',
                 'payment_method' => 'required|in:cash,loan',
+                'total_amount'   => 'nullable|numeric|min:0', // allow manual discount
                 'notes'          => 'nullable|string',
             ]);
 
@@ -196,17 +198,40 @@ class AgentSalesController extends BaseApiController
                 return $this->badRequest('Product not in your inventory');
             }
 
+            // Fetch the product to get the correct selling price
+            $product = Product::find($validated['product_id']);
+            if (!$product) {
+                return $this->badRequest('Product not found');
+            }
+
+            // Determine the total amount: use provided total_amount if present, else compute from product price
+            if (isset($validated['total_amount']) && !is_null($validated['total_amount'])) {
+                $totalAmount = $validated['total_amount'];
+                // Optionally, you could add validation that discount doesn't exceed original price
+                // but we'll just accept any non-negative amount.
+            } else {
+                if ($validated['payment_method'] === 'cash') {
+                    if (is_null($product->cash_selling_price)) {
+                        return $this->badRequest('Cash selling price is not set for this product.');
+                    }
+                    $totalAmount = $product->cash_selling_price;
+                } else { // loan
+                    if (is_null($product->loan_selling_price)) {
+                        return $this->badRequest('Loan selling price is not set for this product.');
+                    }
+                    $totalAmount = $product->loan_selling_price;
+                }
+            }
+
             // Handle new structure (product_ids array)
             if (!empty($inventory->product_ids) && is_array($inventory->product_ids)) {
-                // Convert to a local array for manipulation
                 $productIds = $inventory->product_ids;
                 $index = array_search($validated['product_id'], $productIds);
                 if ($index === false) {
                     return $this->badRequest('Product not available in your inventory (not in product_ids array)');
                 }
-                // Remove one occurrence
                 array_splice($productIds, $index, 1);
-                $inventory->product_ids = $productIds;  // Re-assign the modified array
+                $inventory->product_ids = $productIds;
                 $inventory->save();
             }
             // Legacy structure
@@ -224,15 +249,14 @@ class AgentSalesController extends BaseApiController
                 'agent_id'       => $authUser->id,
                 'customer_id'    => $validated['customer_id'],
                 'product_id'     => $validated['product_id'],
-                'total_amount'   => $validated['total_amount'],
+                'total_amount'   => $totalAmount,
                 'payment_method' => $validated['payment_method'],
                 'status'         => 'completed',
                 'notes'          => $validated['notes'] ?? null,
             ]);
 
             // Mark product as sold in products table
-            $product = Product::find($validated['product_id']);
-            if ($product && $product->stock_status !== 'sold') {
+            if ($product->stock_status !== 'sold') {
                 $product->stock_status = 'sold';
                 $product->save();
             }
@@ -256,7 +280,7 @@ class AgentSalesController extends BaseApiController
             $receipt->load('creator');
             DB::commit();
 
-            $this->logAudit('sell_product', 'sale', $sale->sale_id, "Sold product {$validated['product_id']} for {$validated['total_amount']}");
+            $this->logAudit('sell_product', 'sale', $sale->sale_id, "Sold product {$validated['product_id']} for {$totalAmount}");
 
             return $this->created([
                 'sale'    => $sale->load('agent', 'customer', 'product'),
@@ -314,7 +338,7 @@ class AgentSalesController extends BaseApiController
                 for ($i = 0; $i < $validated['quantity']; $i++) {
                     $productIds[] = $validated['product_id'];
                 }
-                $inventory->product_ids = $productIds;  // Re-assign the modified array
+                $inventory->product_ids = $productIds;
                 $inventory->save();
             }
             // Legacy structure: reduce quantity_sold (return means unsold)
@@ -369,6 +393,8 @@ class AgentSalesController extends BaseApiController
                     $sale->sku = $product->sku;
                     $sale->category_name = $product->category->category_name ?? null;
                     $sale->model = $product->category->model ?? null;
+                    $sale->cash_selling_price = (float) $product->cash_selling_price;
+                    $sale->loan_selling_price = (float) $product->loan_selling_price;
                 }
                 return $sale;
             });
@@ -405,6 +431,8 @@ class AgentSalesController extends BaseApiController
                 $sale->sku = $product->sku;
                 $sale->category_name = $product->category->category_name ?? null;
                 $sale->model = $product->category->model ?? null;
+                $sale->cash_selling_price = (float) $product->cash_selling_price;
+                $sale->loan_selling_price = (float) $product->loan_selling_price;
             }
 
             return $this->successResponse($sale, 'Sale details with full product info');

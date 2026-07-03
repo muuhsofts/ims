@@ -54,149 +54,138 @@ class ReportController extends BaseApiController
     }
 
     /**
-     * WAREHOUSE STOCK DATA - Stock in warehouse with values
+     * WAREHOUSE STOCK DATA - Uses SKU directly from products table
      * GET /api/v14/reports/stock?type=warehouse&warehouse_id=&category_id=&product_id=
      */
-    /**
- * WAREHOUSE STOCK DATA - Shows each product as individual row
- * GET /api/v14/reports/stock?type=warehouse&warehouse_id=&category_id=&product_id=
- */
-/**
- * WAREHOUSE STOCK DATA - Uses products table directly (not movements)
- * GET /api/v14/reports/stock?type=warehouse&warehouse_id=&category_id=&product_id=
- */
-/**
- * WAREHOUSE STOCK DATA - Uses SKU directly from products table
- * GET /api/v14/reports/stock?type=warehouse&warehouse_id=&category_id=&product_id=
- */
-private function warehouseStockData(Request $request)
-{
-    $perm = $this->checkPermission('reports.stock.view');
-    if ($perm) return $perm;
+    private function warehouseStockData(Request $request)
+    {
+        $perm = $this->checkPermission('reports.stock.view');
+        if ($perm) return $perm;
 
-    try {
-        $warehouseId = $request->get('warehouse_id');
-        $categoryId = $request->get('category_id');
-        $productId = $request->get('product_id');
+        try {
+            $warehouseId = $request->get('warehouse_id');
+            $categoryId = $request->get('category_id');
+            $productId = $request->get('product_id');
 
-        // Get warehouse
-        $warehouse = null;
-        if ($warehouseId) {
-            $warehouse = Warehouse::find($warehouseId);
-        } else {
-            $warehouse = Warehouse::where('status', 'active')->first();
-        }
-        
-        if (!$warehouse) {
-            return $this->errorResponse('No warehouse found', 404);
-        }
-        
-        $warehouseInfo = [
-            'warehouse_id' => $warehouse->warehouse_id,
-            'name' => $warehouse->name,
-            'location' => $warehouse->location,
-            'manager_id' => $warehouse->manager_id,
-            'status' => $warehouse->status,
-        ];
-        
-        // Get products with category - only in_stock products
-        $productsQuery = Product::with('category')
-            ->where('status', 'active')
-            ->where('stock_status', 'in_stock');
-        
-        if ($categoryId) {
-            $productsQuery->where('category_id', $categoryId);
-        }
-        
-        if ($productId) {
-            $productsQuery->where('product_id', $productId);
-        }
-        
-        $products = $productsQuery->get();
-        
-        $allProducts = [];
-        $totalUnits = 0;
-        $totalValue = 0;
-        $productsByCategory = [];
-        
-        foreach ($products as $product) {
-            $category = $product->category;
-            $buyingPrice = floatval($product->buying_price ?? 0);
-            $sellingPrice = floatval($product->selling_price ?? 0);
+            // Get warehouse
+            $warehouse = null;
+            if ($warehouseId) {
+                $warehouse = Warehouse::find($warehouseId);
+            } else {
+                $warehouse = Warehouse::where('status', 'active')->first();
+            }
             
-            // Use SKU directly from products table - NO MORE ARRAY!
-            $productSku = $product->sku ?? 'N/A';
+            if (!$warehouse) {
+                return $this->errorResponse('No warehouse found', 404);
+            }
             
-            $productData = [
-                'product_id' => $product->product_id,
-                'imei' => $product->imei ?? 'N/A',
-                'color' => $product->color ?? 'N/A',
-                'buying_price' => $buyingPrice,
-                'selling_price' => $sellingPrice,
-                'quantity' => 1,
-                'stock_value' => $buyingPrice,
-                'stock_status' => $product->stock_status ?? '',
-                'product_status' => $product->status ?? '',
-                'category_id' => $product->category_id ?? '',
-                'category_name' => $category->category_name ?? '',
-                'model' => $category->model ?? '',
-                'sku' => $productSku,  // Now it's a string, not an array!
+            $warehouseInfo = [
                 'warehouse_id' => $warehouse->warehouse_id,
-                'warehouse_name' => $warehouse->name,
-                'warehouse_location' => $warehouse->location,
+                'name' => $warehouse->name,
+                'location' => $warehouse->location,
+                'manager_id' => $warehouse->manager_id,
+                'status' => $warehouse->status,
             ];
             
-            $allProducts[] = $productData;
-            $totalUnits++;
-            $totalValue += $buyingPrice;
+            // Get products with category - only in_stock products
+            $productsQuery = Product::with('category')
+                ->where('status', 'active')
+                ->where('stock_status', 'in_stock');
             
-            // Group by category
-            $catKey = ($category->category_id ?? 'uncategorized');
-            if (!isset($productsByCategory[$catKey])) {
-                $productsByCategory[$catKey] = [
-                    'category_id' => $category->category_id ?? null,
-                    'category_name' => $category->category_name ?? 'Uncategorized',
+            if ($categoryId) {
+                $productsQuery->where('category_id', $categoryId);
+            }
+            
+            if ($productId) {
+                $productsQuery->where('product_id', $productId);
+            }
+            
+            $products = $productsQuery->get();
+            
+            $allProducts = [];
+            $totalUnits = 0;
+            $totalValue = 0;
+            $productsByCategory = [];
+            
+            foreach ($products as $product) {
+                $category = $product->category;
+                $buyingPrice = floatval($product->buying_price ?? 0);
+                $sellingPrice = floatval($product->selling_price ?? 0);
+                
+                $productSku = $product->sku ?? 'N/A';
+                
+                $productData = [
+                    'product_id' => $product->product_id,
+                    'imei' => $product->imei ?? 'N/A',
+                    'color' => $product->color ?? 'N/A',
+                    'buying_price' => $buyingPrice,
+                    'selling_price' => $sellingPrice,
+                    'cash_selling_price' => floatval($product->cash_selling_price ?? 0),
+                    'loan_selling_price' => floatval($product->loan_selling_price ?? 0),
+                    'quantity' => 1,
+                    'stock_value' => $buyingPrice,
+                    'stock_status' => $product->stock_status ?? '',
+                    'product_status' => $product->status ?? '',
+                    'category_id' => $product->category_id ?? '',
+                    'category_name' => $category->category_name ?? '',
                     'model' => $category->model ?? '',
-                    'sku' => $category->sku ?? '',  // Category SKU can remain as array or string
+                    'sku' => $productSku,
                     'warehouse_id' => $warehouse->warehouse_id,
                     'warehouse_name' => $warehouse->name,
                     'warehouse_location' => $warehouse->location,
-                    'products' => [],
-                    'total_units' => 0,
-                    'total_value' => 0,
                 ];
+                
+                $allProducts[] = $productData;
+                $totalUnits++;
+                $totalValue += $buyingPrice;
+                
+                // Group by category
+                $catKey = ($category->category_id ?? 'uncategorized');
+                if (!isset($productsByCategory[$catKey])) {
+                    $productsByCategory[$catKey] = [
+                        'category_id' => $category->category_id ?? null,
+                        'category_name' => $category->category_name ?? 'Uncategorized',
+                        'model' => $category->model ?? '',
+                        'sku' => $category->sku ?? '',
+                        'warehouse_id' => $warehouse->warehouse_id,
+                        'warehouse_name' => $warehouse->name,
+                        'warehouse_location' => $warehouse->location,
+                        'products' => [],
+                        'total_units' => 0,
+                        'total_value' => 0,
+                    ];
+                }
+                
+                $productsByCategory[$catKey]['products'][] = $productData;
+                $productsByCategory[$catKey]['total_units']++;
+                $productsByCategory[$catKey]['total_value'] += $buyingPrice;
             }
             
-            $productsByCategory[$catKey]['products'][] = $productData;
-            $productsByCategory[$catKey]['total_units']++;
-            $productsByCategory[$catKey]['total_value'] += $buyingPrice;
+            $result = [
+                'location_type' => 'warehouse',
+                'location' => $warehouseInfo,
+                'summary' => [
+                    'total_unique_products' => count($allProducts),
+                    'total_units' => $totalUnits,
+                    'total_value' => number_format($totalValue, 2),
+                    'average_unit_price' => $totalUnits > 0 ? number_format($totalValue / $totalUnits, 2) : 0,
+                ],
+                'stock_by_category' => array_values($productsByCategory),
+                'all_products' => $allProducts,
+            ];
+            
+            $this->logAudit('view_warehouse_stock_report', 'report', null, 'Viewed warehouse stock report');
+            return $this->successResponse($result, 'Warehouse stock report retrieved successfully');
+            
+        } catch (\Exception $e) {
+            \Log::error('Warehouse stock report error: ' . $e->getMessage());
+            \Log::error($e->getTraceAsString());
+            return $this->serverError('Failed to generate warehouse stock report: ' . $e->getMessage());
         }
-        
-        $result = [
-            'location_type' => 'warehouse',
-            'location' => $warehouseInfo,
-            'summary' => [
-                'total_unique_products' => count($allProducts),
-                'total_units' => $totalUnits,
-                'total_value' => number_format($totalValue, 2),
-                'average_unit_price' => $totalUnits > 0 ? number_format($totalValue / $totalUnits, 2) : 0,
-            ],
-            'stock_by_category' => array_values($productsByCategory),
-            'all_products' => $allProducts,
-        ];
-        
-        $this->logAudit('view_warehouse_stock_report', 'report', null, 'Viewed warehouse stock report');
-        return $this->successResponse($result, 'Warehouse stock report retrieved successfully');
-        
-    } catch (\Exception $e) {
-        \Log::error('Warehouse stock report error: ' . $e->getMessage());
-        \Log::error($e->getTraceAsString());
-        return $this->serverError('Failed to generate warehouse stock report: ' . $e->getMessage());
     }
-}
+
     /**
-     * COLLECTION CENTER STOCK DATA - Stock in collection center with values
-     * GET /api/v14/reports/stock?type=collection_center&cc_id=&category_id=&product_id=
+     * COLLECTION CENTER STOCK DATA
      */
     private function collectionCenterStockData(Request $request)
     {
@@ -208,7 +197,6 @@ private function warehouseStockData(Request $request)
             $categoryId = $request->get('category_id');
             $productId = $request->get('product_id');
 
-            // Get collection centers to filter
             $ccQuery = CollectionCenter::where('status', 'active');
             if ($ccId) {
                 $ccQuery->where('cc_id', $ccId);
@@ -221,9 +209,7 @@ private function warehouseStockData(Request $request)
             $productsByCategory = [];
             $ccInfo = null;
             
-            // Set collection center info - FIXED: Now shows location even without cc_id
             if ($ccId) {
-                // Specific CC requested
                 $cc = $collectionCenters->first();
                 if ($cc) {
                     $ccInfo = [
@@ -235,7 +221,6 @@ private function warehouseStockData(Request $request)
                     ];
                 }
             } elseif ($collectionCenters->count() === 1) {
-                // Only one CC exists - show it
                 $cc = $collectionCenters->first();
                 $ccInfo = [
                     'cc_id' => $cc->cc_id,
@@ -245,7 +230,6 @@ private function warehouseStockData(Request $request)
                     'status' => $cc->status,
                 ];
             } elseif ($collectionCenters->count() > 1) {
-                // Multiple CCs exist - show summary info
                 $ccInfo = [
                     'note' => 'Multiple collection centers available',
                     'total_collection_centers' => $collectionCenters->count(),
@@ -258,7 +242,6 @@ private function warehouseStockData(Request $request)
             }
             
             foreach ($collectionCenters as $cc) {
-                // Get all products that have movements in this collection center
                 $productIdsQuery = StockMovementLog::where(function($q) use ($cc) {
                         $q->where('to_type', 'collection_center')->where('to_id', $cc->cc_id)
                           ->orWhere('from_type', 'collection_center')->where('from_id', $cc->cc_id);
@@ -267,7 +250,6 @@ private function warehouseStockData(Request $request)
                 
                 $productIds = $productIdsQuery->pluck('product_id');
                 
-                // Apply filters
                 if ($categoryId) {
                     $productIds = Product::whereIn('product_id', $productIds)
                         ->where('category_id', $categoryId)
@@ -284,7 +266,6 @@ private function warehouseStockData(Request $request)
                     $product = Product::with('category')->find($prodId);
                     if (!$product) continue;
                     
-                    // Calculate current stock for this specific collection center from movement logs
                     $movements = StockMovementLog::where('product_id', $prodId)
                         ->where(function($q) use ($cc) {
                             $q->where(function($sub) use ($cc) {
@@ -330,6 +311,8 @@ private function warehouseStockData(Request $request)
                             'color' => $product->color ?? 'N/A',
                             'buying_price' => $buyingPrice,
                             'selling_price' => $sellingPrice,
+                            'cash_selling_price' => floatval($product->cash_selling_price ?? 0),
+                            'loan_selling_price' => floatval($product->loan_selling_price ?? 0),
                             'quantity' => $currentStock,
                             'stock_value' => $stockValue,
                             'potential_revenue' => $potentialRevenue,
@@ -345,7 +328,6 @@ private function warehouseStockData(Request $request)
                             'collection_center_location' => $cc->location,
                         ];
                         
-                        // Check if product already exists from another CC
                         $existingKey = $product->product_id . '_' . $cc->cc_id;
                         $found = false;
                         foreach ($allProducts as $key => $existing) {
@@ -366,7 +348,6 @@ private function warehouseStockData(Request $request)
                         $totalUnits += $currentStock;
                         $totalValue += $stockValue;
                         
-                        // Group by category
                         $catKey = ($category->category_id ?? 'uncategorized') . '_' . $cc->cc_id;
                         if (!isset($productsByCategory[$catKey])) {
                             $productsByCategory[$catKey] = [
@@ -384,7 +365,6 @@ private function warehouseStockData(Request $request)
                             ];
                         }
                         
-                        // Check if product already in category group
                         $productExists = false;
                         foreach ($productsByCategory[$catKey]['products'] as $idx => $prod) {
                             if ($prod['product_id'] == $product->product_id && $prod['collection_center_id'] == $cc->cc_id) {
@@ -439,8 +419,7 @@ private function warehouseStockData(Request $request)
     }
 
     /**
-     * STOCK MOVEMENT REPORT - Complete stock tracking using movement logs
-     * GET /api/v14/reports/stock?type=movement&from_date=&to_date=&product_id=&location_type=&location_id=&movement_type=
+     * STOCK MOVEMENT REPORT
      */
     public function stockMovementReport(Request $request)
     {
@@ -458,7 +437,6 @@ private function warehouseStockData(Request $request)
             $startDate = Carbon::parse($fromDate)->startOfDay();
             $endDate = Carbon::parse($toDate)->endOfDay();
             
-            // Build query
             $query = StockMovementLog::query();
             
             if ($productId) {
@@ -487,7 +465,6 @@ private function warehouseStockData(Request $request)
             
             $movements = $query->orderBy('created_at', 'desc')->get();
             
-            // Process movements
             $processedMovements = [];
             $totalInbound = 0;
             $totalOutbound = 0;
@@ -535,6 +512,8 @@ private function warehouseStockData(Request $request)
                         'color' => $product->color ?? 'N/A',
                         'buying_price' => $product ? floatval($product->buying_price) : 0,
                         'selling_price' => $product ? floatval($product->selling_price) : 0,
+                        'cash_selling_price' => $product ? floatval($product->cash_selling_price ?? 0) : 0,
+                        'loan_selling_price' => $product ? floatval($product->loan_selling_price ?? 0) : 0,
                         'category_name' => $category ? $category->category_name : 'Unknown',
                         'model' => $category ? $category->model : '',
                         'sku' => $category ? $this->formatSku($category->sku) : 'N/A',
@@ -623,8 +602,7 @@ private function warehouseStockData(Request $request)
     }
 
     /**
-     * OWNER STOCK DATA - Complete stock overview for business owner
-     * Shows all stock across all locations with values
+     * OWNER STOCK DATA
      */
     private function ownerStockData(Request $request)
     {
@@ -668,6 +646,8 @@ private function warehouseStockData(Request $request)
                         'category_name' => $category ? $category->category_name : 'Unknown',
                         'buying_price' => number_format($buyingPrice, 2),
                         'selling_price' => number_format($sellingPrice, 2),
+                        'cash_selling_price' => number_format($product->cash_selling_price ?? 0, 2),
+                        'loan_selling_price' => number_format($product->loan_selling_price ?? 0, 2),
                         'current_stock' => $currentStock,
                         'stock_value' => number_format($stockValue, 2),
                         'potential_revenue' => number_format($potentialRevenue, 2),
@@ -763,7 +743,7 @@ private function warehouseStockData(Request $request)
     }
     
     /**
-     * STOCK SUMMARY DATA - Quick dashboard view
+     * STOCK SUMMARY DATA
      */
     private function stockSummaryData(Request $request)
     {
@@ -837,7 +817,7 @@ private function warehouseStockData(Request $request)
     }
     
     /**
-     * STOCK BY LOCATION DATA - See where your stock is across all locations
+     * STOCK BY LOCATION DATA
      */
     private function stockByLocationData(Request $request)
     {
@@ -933,678 +913,651 @@ private function warehouseStockData(Request $request)
     }
 
     /**
-     * PURCHASES REPORT - Complete purchase analysis (ORIGINAL - NOT ALTERED)
-     * GET /api/v14/reports/purchases
+     * PURCHASES REPORT
      */
-    /**
- * PURCHASES REPORT - Complete purchase analysis with proper SKU display
- * GET /api/v14/reports/purchases?period=monthly&year=2026&month=6&from_date=&to_date=&supplier_id=&category_id=&status=completed
- */
-/**
- * PURCHASES REPORT - Complete purchase analysis with proper SKU display
- * GET /api/v14/reports/purchases?period=monthly&year=2026&month=6&from_date=&to_date=&supplier_id=&category_id=&status=completed
- */
-/**
- * PURCHASES REPORT - Complete purchase analysis with proper SKU display
- * GET /api/v14/reports/purchases
- */
-/**
- * PURCHASES REPORT - Complete purchase analysis with proper SKU display
- * GET /api/v14/reports/purchases?period=monthly&year=2026&month=6&from_date=&to_date=&supplier_id=&category_id=&status=completed
- */
-public function purchasesReport(Request $request)
-{
-    $perm = $this->checkPermission('reports.purchases.view');
-    if ($perm) return $perm;
+    public function purchasesReport(Request $request)
+    {
+        $perm = $this->checkPermission('reports.purchases.view');
+        if ($perm) return $perm;
 
-    try {
-        $period = $request->get('period', 'custom');
-        $from = $request->get('from_date');
-        $to = $request->get('to_date');
-        $supplierId = $request->get('supplier_id');
-        $categoryId = $request->get('category_id');
-        $status = $request->get('status', 'all');
-        
-        list($fromDate, $toDate) = $this->getDateRange($period, $request, $from, $to);
-
-        $query = Purchase::with(['supplier', 'category'])
-            ->whereBetween('created_at', [$fromDate, $toDate]);
-        
-        if ($status !== 'all') {
-            $query->where('status', $status);
-        }
-        if ($supplierId) {
-            $query->where('supplier_id', $supplierId);
-        }
-        if ($categoryId) {
-            $query->where('category_id', $categoryId);
-        }
-
-        $purchases = $query->orderBy('created_at', 'desc')->get();
-        
-        // Process purchases
-        $processedPurchases = [];
-        $totalAmount = 0;
-        $totalQuantity = 0;
-        
-        // For summaries
-        $supplierSummary = [];
-        $categorySummary = [];
-        $skuSummary = [];
-        $statusSummary = [];
-        
-        foreach ($purchases as $purchase) {
-            $supplier = $purchase->supplier;
-            $category = $purchase->category;
+        try {
+            $period = $request->get('period', 'custom');
+            $from = $request->get('from_date');
+            $to = $request->get('to_date');
+            $supplierId = $request->get('supplier_id');
+            $categoryId = $request->get('category_id');
+            $status = $request->get('status', 'all');
             
-            // Format selected_skus from JSON array to string
-            $selectedSkus = $purchase->selected_skus;
-            $skuDisplay = '';
-            $skuArray = [];
+            list($fromDate, $toDate) = $this->getDateRange($period, $request, $from, $to);
+
+            $query = Purchase::with(['supplier', 'category'])
+                ->whereBetween('created_at', [$fromDate, $toDate]);
             
-            if (is_array($selectedSkus)) {
-                $skuArray = $selectedSkus;
-                $skuDisplay = implode(', ', $selectedSkus);
-            } elseif (is_string($selectedSkus)) {
-                $decoded = json_decode($selectedSkus, true);
-                if (is_array($decoded)) {
-                    $skuArray = $decoded;
-                    $skuDisplay = implode(', ', $decoded);
-                } else {
-                    $skuDisplay = $selectedSkus;
-                    $skuArray = [$selectedSkus];
+            if ($status !== 'all') {
+                $query->where('status', $status);
+            }
+            if ($supplierId) {
+                $query->where('supplier_id', $supplierId);
+            }
+            if ($categoryId) {
+                $query->where('category_id', $categoryId);
+            }
+
+            $purchases = $query->orderBy('created_at', 'desc')->get();
+            
+            $processedPurchases = [];
+            $totalAmount = 0;
+            $totalQuantity = 0;
+            
+            $supplierSummary = [];
+            $categorySummary = [];
+            $skuSummary = [];
+            $statusSummary = [];
+            
+            foreach ($purchases as $purchase) {
+                $supplier = $purchase->supplier;
+                $category = $purchase->category;
+                
+                $selectedSkus = $purchase->selected_skus;
+                $skuDisplay = '';
+                $skuArray = [];
+                
+                if (is_array($selectedSkus)) {
+                    $skuArray = $selectedSkus;
+                    $skuDisplay = implode(', ', $selectedSkus);
+                } elseif (is_string($selectedSkus)) {
+                    $decoded = json_decode($selectedSkus, true);
+                    if (is_array($decoded)) {
+                        $skuArray = $decoded;
+                        $skuDisplay = implode(', ', $decoded);
+                    } else {
+                        $skuDisplay = $selectedSkus;
+                        $skuArray = [$selectedSkus];
+                    }
                 }
-            }
-            
-            // Get model from category if NULL
-            $modelName = $purchase->model;
-            if (empty($modelName) && $category) {
-                $modelName = $category->model ?? '';
-            }
-            
-            $processedPurchases[] = [
-                'purchase_id' => $purchase->purchase_id,
-                'supplier' => $supplier ? [
-                    'supplier_id' => $supplier->supplier_id,
-                    'supplier_name' => $supplier->supplier_name,
-                    'supplier_phone' => $supplier->phone ?? '',
-                    'email' => $supplier->email ?? '',
-                    'contact_person' => $supplier->contact_person ?? '',
-                ] : null,
-                'category' => $category ? [
-                    'category_id' => $category->category_id,
-                    'category_name' => $category->category_name,
-                    'model' => $category->model,
-                    'sku_options' => $category->sku,
-                ] : null,
-                'model' => $modelName,
-                'quantity_ordered' => (int)$purchase->quantity_ordered,
-                'unit_price' => (float)$purchase->unit_price,
-                'subtotal' => (float)$purchase->subtotal,
-                'selected_skus' => $skuDisplay,
-                'selected_skus_array' => $skuArray,
-                'status' => $purchase->status,
-                'created_at' => $purchase->created_at ? $purchase->created_at->format('Y-m-d H:i:s') : null,
-                'updated_at' => $purchase->updated_at ? $purchase->updated_at->format('Y-m-d H:i:s') : null,
-            ];
-            
-            $totalAmount += (float)$purchase->subtotal;
-            $totalQuantity += (int)$purchase->quantity_ordered;
-            
-            // Supplier summary
-            $supId = $purchase->supplier_id;
-            if (!isset($supplierSummary[$supId])) {
-                $supplierSummary[$supId] = [
-                    'supplier_id' => $supId,
-                    'supplier_name' => $supplier->supplier_name ?? 'Unknown',
-                    'contact_person' => $supplier->contact_person ?? '',
-                    'phone' => $supplier->phone ?? '',
-                    'email' => $supplier->email ?? '',
-                    'purchase_count' => 0,
-                    'quantity' => 0,
-                    'amount' => 0,
+                
+                $modelName = $purchase->model;
+                if (empty($modelName) && $category) {
+                    $modelName = $category->model ?? '';
+                }
+                
+                $processedPurchases[] = [
+                    'purchase_id' => $purchase->purchase_id,
+                    'supplier' => $supplier ? [
+                        'supplier_id' => $supplier->supplier_id,
+                        'supplier_name' => $supplier->supplier_name,
+                        'supplier_phone' => $supplier->phone ?? '',
+                        'email' => $supplier->email ?? '',
+                        'contact_person' => $supplier->contact_person ?? '',
+                    ] : null,
+                    'category' => $category ? [
+                        'category_id' => $category->category_id,
+                        'category_name' => $category->category_name,
+                        'model' => $category->model,
+                        'sku_options' => $category->sku,
+                    ] : null,
+                    'model' => $modelName,
+                    'quantity_ordered' => (int)$purchase->quantity_ordered,
+                    'unit_price' => (float)$purchase->unit_price,
+                    'subtotal' => (float)$purchase->subtotal,
+                    'selected_skus' => $skuDisplay,
+                    'selected_skus_array' => $skuArray,
+                    'status' => $purchase->status,
+                    'created_at' => $purchase->created_at ? $purchase->created_at->format('Y-m-d H:i:s') : null,
+                    'updated_at' => $purchase->updated_at ? $purchase->updated_at->format('Y-m-d H:i:s') : null,
                 ];
-            }
-            $supplierSummary[$supId]['purchase_count']++;
-            $supplierSummary[$supId]['quantity'] += (int)$purchase->quantity_ordered;
-            $supplierSummary[$supId]['amount'] += (float)$purchase->subtotal;
-            
-            // Category summary
-            $catId = $purchase->category_id ?? 'uncategorized';
-            if (!isset($categorySummary[$catId])) {
-                $categorySummary[$catId] = [
-                    'category_id' => $catId,
-                    'category_name' => $category->category_name ?? 'Unknown',
-                    'model' => $category->model ?? '',
-                    'sku_options' => $category->sku ?? [],
-                    'purchase_count' => 0,
-                    'quantity' => 0,
-                    'amount' => 0,
-                ];
-            }
-            $categorySummary[$catId]['purchase_count']++;
-            $categorySummary[$catId]['quantity'] += (int)$purchase->quantity_ordered;
-            $categorySummary[$catId]['amount'] += (float)$purchase->subtotal;
-            
-            // SKU summary - IMPORTANT: Use individual SKUs from selected_skus
-            foreach ($skuArray as $sku) {
-                if (!isset($skuSummary[$sku])) {
-                    $skuSummary[$sku] = [
-                        'sku' => $sku,
+                
+                $totalAmount += (float)$purchase->subtotal;
+                $totalQuantity += (int)$purchase->quantity_ordered;
+                
+                $supId = $purchase->supplier_id;
+                if (!isset($supplierSummary[$supId])) {
+                    $supplierSummary[$supId] = [
+                        'supplier_id' => $supId,
+                        'supplier_name' => $supplier->supplier_name ?? 'Unknown',
+                        'contact_person' => $supplier->contact_person ?? '',
+                        'phone' => $supplier->phone ?? '',
+                        'email' => $supplier->email ?? '',
                         'purchase_count' => 0,
                         'quantity' => 0,
                         'amount' => 0,
                     ];
                 }
-                $skuSummary[$sku]['purchase_count']++;
-                $skuSummary[$sku]['quantity'] += (int)$purchase->quantity_ordered;
-                $skuSummary[$sku]['amount'] += (float)$purchase->subtotal;
-            }
-            
-            // Status summary
-            if (!isset($statusSummary[$purchase->status])) {
-                $statusSummary[$purchase->status] = [
-                    'status' => $purchase->status,
-                    'count' => 0,
-                    'quantity' => 0,
-                    'amount' => 0,
-                ];
-            }
-            $statusSummary[$purchase->status]['count']++;
-            $statusSummary[$purchase->status]['quantity'] += (int)$purchase->quantity_ordered;
-            $statusSummary[$purchase->status]['amount'] += (float)$purchase->subtotal;
-        }
-        
-        // Calculate percentages and sort
-        $bySupplier = array_values($supplierSummary);
-        foreach ($bySupplier as &$supp) {
-            $supp['percentage'] = $totalAmount > 0 ? round(($supp['amount'] / $totalAmount) * 100, 2) : 0;
-        }
-        usort($bySupplier, fn($a, $b) => $b['amount'] - $a['amount']);
-        
-        $byCategory = array_values($categorySummary);
-        foreach ($byCategory as &$cat) {
-            $cat['percentage'] = $totalAmount > 0 ? round(($cat['amount'] / $totalAmount) * 100, 2) : 0;
-        }
-        usort($byCategory, fn($a, $b) => $b['amount'] - $a['amount']);
-        
-        $bySku = array_values($skuSummary);
-        usort($bySku, fn($a, $b) => $b['amount'] - $a['amount']);
-        
-        $byStatus = array_values($statusSummary);
-        
-        // Get trends by period
-        $trends = $this->groupPurchasesByPeriod($purchases, $period, $fromDate, $toDate);
-        
-        $summary = [
-            'total_purchases' => $purchases->count(),
-            'total_quantity' => $totalQuantity,
-            'total_amount' => round($totalAmount, 2),
-            'average_order_value' => $purchases->count() > 0 ? round($totalAmount / $purchases->count(), 2) : 0,
-            'average_unit_price' => $totalQuantity > 0 ? round($totalAmount / $totalQuantity, 2) : 0,
-            'by_supplier' => $bySupplier,
-            'by_category' => $byCategory,
-            'by_sku' => $bySku,
-            'by_status' => $byStatus,
-        ];
-        
-        // Get available filters for frontend
-        $suppliers = Supplier::where('status', 'active')->get();
-        $categories = ProductCategory::where('status', 'active')->get();
-        
-        $this->logAudit('view_purchases_report', 'report', null, 
-            "Purchases report from {$fromDate->toDateString()} to {$toDate->toDateString()}");
-        
-        return $this->successResponse([
-            'report_date' => Carbon::now()->format('Y-m-d H:i:s'),
-            'period_display' => $this->getPeriodDisplayText($period, $fromDate, $toDate, $request),
-            'filter' => [
-                'period' => $period,
-                'from_date' => $fromDate->toDateString(),
-                'to_date' => $toDate->toDateString(),
-                'status' => $status,
-                'supplier_id' => $supplierId,
-                'category_id' => $categoryId,
-            ],
-            'available_filters' => [
-                'suppliers' => $suppliers->map(fn($s) => [
-                    'supplier_id' => $s->supplier_id,
-                    'supplier_name' => $s->supplier_name,
-                    'contact_person' => $s->contact_person,
-                    'phone' => $s->phone,
-                ]),
-                'categories' => $categories->map(fn($c) => [
-                    'category_id' => $c->category_id,
-                    'category_name' => $c->category_name,
-                    'model' => $c->model,
-                ]),
-                'statuses' => ['pending', 'completed', 'cancelled', 'all'],
-            ],
-            'summary' => $summary,
-            'trends' => $trends,
-            'purchases' => $processedPurchases,
-            'total_records' => count($processedPurchases),
-        ], 'Purchases report retrieved successfully');
-
-    } catch (\Exception $e) {
-        \Log::error('Purchases report error: ' . $e->getMessage());
-        \Log::error($e->getTraceAsString());
-        return $this->serverError('Failed to generate purchases report: ' . $e->getMessage());
-    }
-}
-
-private function getPeriodDisplayText($period, $fromDate, $toDate, $request)
-{
-    switch ($period) {
-        case 'weekly':
-            $week = $request->get('week', Carbon::now()->weekOfYear);
-            $year = $request->get('year', Carbon::now()->year);
-            return "Week {$week}, {$year}";
-        case 'monthly':
-            $month = $request->get('month', Carbon::now()->month);
-            $year = $request->get('year', Carbon::now()->year);
-            return Carbon::createFromDate($year, $month, 1)->format('F Y');
-        case 'yearly':
-            $year = $request->get('year', Carbon::now()->year);
-            return "Year {$year}";
-        case 'custom':
-        default:
-            return $fromDate->format('d/m/Y') . ' - ' . $toDate->format('d/m/Y');
-    }
-}
-    /**
-     * CLEAR SALES REPORT - Complete sales analysis (ORIGINAL - NOT ALTERED)
-     * GET /api/v14/reports/sales/clear
-     */
-    /**
- * CLEAR SALES REPORT - Complete sales analysis with product SKU from products table
- * GET /api/v14/reports/sales/clear
- */
-public function clearSalesReport(Request $request)
-{
-    $perm = $this->checkPermission('reports.sales.view');
-    if ($perm) return $perm;
-
-    try {
-        $fromDate = $request->get('from_date', Carbon::now()->startOfMonth()->toDateString());
-        $toDate = $request->get('to_date', Carbon::now()->toDateString());
-        $agentId = $request->get('agent_id');
-        $customerId = $request->get('customer_id');
-        $categoryId = $request->get('category_id');
-        $productId = $request->get('product_id');
-        $paymentMethod = $request->get('payment_method');
-        $status = $request->get('status', 'completed');
-        $ccId = $request->get('cc_id');
-        
-        $startDate = Carbon::parse($fromDate)->startOfDay();
-        $endDate = Carbon::parse($toDate)->endOfDay();
-        
-        $allCollectionCenters = CollectionCenter::all()->keyBy('cc_id');
-        
-        $query = Sale::with(['agent', 'customer', 'product.category'])
-            ->whereBetween('created_at', [$startDate, $endDate]);
-        
-        if ($status !== 'all') {
-            $query->where('status', $status);
-        }
-        if ($agentId) {
-            $query->where('agent_id', $agentId);
-        }
-        if ($customerId) {
-            $query->where('customer_id', $customerId);
-        }
-        if ($productId) {
-            $query->where('product_id', $productId);
-        }
-        if ($paymentMethod) {
-            $query->where('payment_method', $paymentMethod);
-        }
-        if ($categoryId) {
-            $query->whereHas('product', function($q) use ($categoryId) {
-                $q->where('category_id', $categoryId);
-            });
-        }
-        if ($ccId) {
-            $query->whereHas('agent', function($q) use ($ccId) {
-                $q->where('cc_id', $ccId);
-            });
-        }
-        
-        $sales = $query->orderBy('created_at', 'desc')->get();
-        
-        $salesData = [];
-        $totalRevenue = 0;
-        $totalProfit = 0;
-        
-        foreach ($sales as $sale) {
-            $product = $sale->product;
-            $category = $product ? $product->category : null;
-            $agent = $sale->agent;
-            $customer = $sale->customer;
-            
-            $collectionCenter = null;
-            if ($agent && $agent->cc_id) {
-                $collectionCenter = $allCollectionCenters->get($agent->cc_id);
-            }
-            
-            $buyingPrice = $product ? floatval($product->buying_price) : 0;
-            $sellingPrice = floatval($sale->total_amount);
-            $profit = $sellingPrice - $buyingPrice;
-            
-            // IMPORTANT FIX: Use product SKU from products table, not from category
-            $productSku = $product ? ($product->sku ?? 'N/A') : 'N/A';
-            
-            $saleObject = [
-                'sale_id' => $sale->sale_id,
-                'agent_id' => $sale->agent_id,
-                'customer_id' => $sale->customer_id,
-                'total_amount' => $sellingPrice,
-                'payment_method' => $sale->payment_method,
-                'status' => $sale->status,
-                'product_id' => $sale->product_id,
-                'notes' => $sale->notes,
-                'created_at' => $sale->created_at,
-                'updated_at' => $sale->updated_at,
-                'agent' => $agent ? [
-                    'id' => $agent->id,
-                    'name' => $agent->name,
-                    'email' => $agent->email,
-                    'phone' => $agent->phone,
-                    'cc_id' => $agent->cc_id,
-                ] : null,
-                'collection_center' => $collectionCenter ? [
-                    'cc_id' => $collectionCenter->cc_id,
-                    'cc_name' => $collectionCenter->cc_name,
-                    'location' => $collectionCenter->location,
-                    'owner_id' => $collectionCenter->owner_id,
-                    'status' => $collectionCenter->status,
-                ] : null,
-                'customer' => $customer ? [
-                    'customer_id' => $customer->customer_id,
-                    'customer_name' => $customer->customer_name,
-                    'customer_phone' => $customer->customer_phone,
-                    'msisdn' => $customer->msisdn,
-                    'email' => $customer->email,
-                ] : null,
-                'product' => $product ? [
-                    'product_id' => $product->product_id,
-                    'category_id' => $product->category_id,
-                    'imei' => $product->imei,
-                    'color' => $product->color,
-                    'buying_price' => floatval($product->buying_price),
-                    'selling_price' => floatval($product->selling_price),
-                    'stock_status' => $product->stock_status,
-                    'sku' => $productSku,  // FIXED: Using product SKU, not category SKU
-                    'category' => $category ? [
-                        'category_id' => $category->category_id,
-                        'category_name' => $category->category_name,
-                        'model' => $category->model,
-                        'sku_options' => $category->sku, // Category SKU options kept for reference
-                    ] : null,
-                ] : null,
-            ];
-            
-            $salesData[] = $saleObject;
-            $totalRevenue += $sellingPrice;
-            $totalProfit += $profit;
-        }
-        
-        $totalTransactions = $sales->count();
-        
-        $paymentBreakdown = $sales->groupBy('payment_method')->map(function($group) use ($totalRevenue) {
-            $amount = $group->sum('total_amount');
-            return [
-                'method' => $group->first()->payment_method,
-                'count' => $group->count(),
-                'amount' => round($amount, 2),
-                'percentage' => $totalRevenue > 0 ? round(($amount / $totalRevenue) * 100, 2) : 0,
-            ];
-        })->values();
-        
-        $statusBreakdown = $sales->groupBy('status')->map(function($group) {
-            return [
-                'status' => $group->first()->status,
-                'count' => $group->count(),
-                'amount' => round($group->sum('total_amount'), 2),
-            ];
-        })->values();
-        
-        // Fix top products to use product SKU
-        $topProducts = $this->getTopProductsFromSalesWithProductSku($sales, 10);
-        
-        $agentPerformance = $sales->groupBy('agent_id')->map(function($group) use ($allCollectionCenters) {
-            $firstSale = $group->first();
-            $agent = $firstSale->agent;
-            $collectionCenter = $agent && $agent->cc_id ? $allCollectionCenters->get($agent->cc_id) : null;
-            $revenue = $group->sum('total_amount');
-            $profit = 0;
-            foreach ($group as $sale) {
-                $product = $sale->product;
-                if ($product) {
-                    $profit += floatval($sale->total_amount) - floatval($product->buying_price);
-                }
-            }
-            return [
-                'agent_id' => $group->first()->agent_id,
-                'agent_name' => $agent ? $agent->name : 'Unknown',
-                'agent_email' => $agent ? $agent->email : null,
-                'collection_center_id' => $collectionCenter ? $collectionCenter->cc_id : null,
-                'collection_center_name' => $collectionCenter ? $collectionCenter->cc_name : 'Unknown',
-                'collection_center_location' => $collectionCenter ? $collectionCenter->location : 'N/A',
-                'sales_count' => $group->count(),
-                'revenue' => round($revenue, 2),
-                'profit' => round($profit, 2),
-                'average_ticket' => $group->count() > 0 ? round($revenue / $group->count(), 2) : 0,
-            ];
-        })->sortByDesc('revenue')->values();
-        
-        $ccPerformance = $sales->groupBy(function($sale) {
-            $agent = $sale->agent;
-            return $agent ? $agent->cc_id : 'unknown';
-        })->map(function($group) use ($allCollectionCenters) {
-            $firstSale = $group->first();
-            $agent = $firstSale->agent;
-            $collectionCenter = $agent && $agent->cc_id ? $allCollectionCenters->get($agent->cc_id) : null;
-            $revenue = $group->sum('total_amount');
-            $profit = 0;
-            foreach ($group as $sale) {
-                $product = $sale->product;
-                if ($product) {
-                    $profit += floatval($sale->total_amount) - floatval($product->buying_price);
-                }
-            }
-            return [
-                'collection_center_id' => $collectionCenter ? $collectionCenter->cc_id : null,
-                'collection_center_name' => $collectionCenter ? $collectionCenter->cc_name : 'Unknown',
-                'location' => $collectionCenter ? $collectionCenter->location : 'N/A',
-                'total_transactions' => $group->count(),
-                'total_revenue' => round($revenue, 2),
-                'total_profit' => round($profit, 2),
-                'profit_margin' => $revenue > 0 ? round(($profit / $revenue) * 100, 2) : 0,
-                'average_transaction_value' => $group->count() > 0 ? round($revenue / $group->count(), 2) : 0,
-            ];
-        })->sortByDesc('total_revenue')->values();
-        
-        $categoryPerformance = $sales->groupBy(function($sale) {
-            $product = $sale->product;
-            return $product && $product->category ? $product->category->category_id : 'unknown';
-        })->map(function($group) {
-            $firstSale = $group->first();
-            $product = $firstSale->product;
-            $category = $product ? $product->category : null;
-            $revenue = $group->sum('total_amount');
-            $profit = 0;
-            foreach ($group as $sale) {
-                $prod = $sale->product;
-                if ($prod) {
-                    $profit += floatval($sale->total_amount) - floatval($prod->buying_price);
-                }
-            }
-            return [
-                'category_id' => $category ? $category->category_id : null,
-                'category_name' => $category ? $category->category_name : 'Unknown',
-                'model' => $category ? $category->model : '',
-                'sku_options' => $category ? $category->sku : [],
-                'quantity_sold' => $group->count(),
-                'revenue' => round($revenue, 2),
-                'profit' => round($profit, 2),
-                'profit_margin' => $revenue > 0 ? round(($profit / $revenue) * 100, 2) : 0,
-            ];
-        })->sortByDesc('revenue')->values();
-        
-        $topCustomers = $sales->groupBy('customer_id')->map(function($group) {
-            $customer = $group->first()->customer;
-            $total = $group->sum('total_amount');
-            return [
-                'customer_id' => $group->first()->customer_id,
-                'customer_name' => $customer ? $customer->customer_name : 'Walk-in Customer',
-                'customer_phone' => $customer ? ($customer->msisdn ?: $customer->customer_phone) : 'N/A',
-                'purchase_count' => $group->count(),
-                'total_spent' => round($total, 2),
-                'average_spent' => round($total / $group->count(), 2),
-            ];
-        })->sortByDesc('total_spent')->values()->take(10);
-        
-        $dailyBreakdown = $sales->groupBy(function($sale) {
-            return $sale->created_at->format('Y-m-d');
-        })->map(function($group, $date) {
-            $dailyProfit = 0;
-            foreach ($group as $sale) {
-                $product = $sale->product;
-                if ($product) {
-                    $dailyProfit += floatval($sale->total_amount) - floatval($product->buying_price);
-                }
-            }
-            return [
-                'date' => $date,
-                'day_name' => Carbon::parse($date)->format('l'),
-                'transactions' => $group->count(),
-                'revenue' => round($group->sum('total_amount'), 2),
-                'profit' => round($dailyProfit, 2),
-            ];
-        })->sortBy('date')->values();
-        
-        $collectionCenters = CollectionCenter::where('status', 'active')->get();
-        $agents = User::where('status', 'active')->get();
-        $categories = ProductCategory::where('status', 'active')->get();
-        
-        $summary = [
-            'date_range' => [
-                'from' => $startDate->format('Y-m-d'),
-                'to' => $endDate->format('Y-m-d'),
-            ],
-            'total_transactions' => $totalTransactions,
-            'total_revenue' => round($totalRevenue, 2),
-            'total_profit' => round($totalProfit, 2),
-            'average_transaction_value' => $totalTransactions > 0 ? round($totalRevenue / $totalTransactions, 2) : 0,
-            'average_profit_per_transaction' => $totalTransactions > 0 ? round($totalProfit / $totalTransactions, 2) : 0,
-            'overall_profit_margin' => $totalRevenue > 0 ? round(($totalProfit / $totalRevenue) * 100, 2) : 0,
-            'payment_methods' => $paymentBreakdown,
-            'by_status' => $statusBreakdown,
-            'top_products' => $topProducts,
-            'agent_performance' => $agentPerformance,
-            'collection_center_performance' => $ccPerformance,
-            'category_performance' => $categoryPerformance,
-            'top_customers' => $topCustomers,
-        ];
-        
-        $this->logAudit('view_clear_sales_report', 'report', null, 
-            "Clear sales report from {$startDate->toDateString()} to {$endDate->toDateString()}");
-        
-        return $this->successResponse([
-            'filter_applied' => [
-                'date_range' => ['from' => $fromDate, 'to' => $toDate],
-                'agent_id' => $agentId,
-                'customer_id' => $customerId,
-                'category_id' => $categoryId,
-                'product_id' => $productId,
-                'payment_method' => $paymentMethod,
-                'status' => $status,
-                'collection_center_id' => $ccId,
-            ],
-            'available_filters' => [
-                'collection_centers' => $collectionCenters->map(function($cc) {
-                    return [
-                        'cc_id' => $cc->cc_id,
-                        'cc_name' => $cc->cc_name,
-                        'location' => $cc->location,
+                $supplierSummary[$supId]['purchase_count']++;
+                $supplierSummary[$supId]['quantity'] += (int)$purchase->quantity_ordered;
+                $supplierSummary[$supId]['amount'] += (float)$purchase->subtotal;
+                
+                $catId = $purchase->category_id ?? 'uncategorized';
+                if (!isset($categorySummary[$catId])) {
+                    $categorySummary[$catId] = [
+                        'category_id' => $catId,
+                        'category_name' => $category->category_name ?? 'Unknown',
+                        'model' => $category->model ?? '',
+                        'sku_options' => $category->sku ?? [],
+                        'purchase_count' => 0,
+                        'quantity' => 0,
+                        'amount' => 0,
                     ];
-                }),
-                'agents' => $agents->map(function($agent) {
-                    return [
+                }
+                $categorySummary[$catId]['purchase_count']++;
+                $categorySummary[$catId]['quantity'] += (int)$purchase->quantity_ordered;
+                $categorySummary[$catId]['amount'] += (float)$purchase->subtotal;
+                
+                foreach ($skuArray as $sku) {
+                    if (!isset($skuSummary[$sku])) {
+                        $skuSummary[$sku] = [
+                            'sku' => $sku,
+                            'purchase_count' => 0,
+                            'quantity' => 0,
+                            'amount' => 0,
+                        ];
+                    }
+                    $skuSummary[$sku]['purchase_count']++;
+                    $skuSummary[$sku]['quantity'] += (int)$purchase->quantity_ordered;
+                    $skuSummary[$sku]['amount'] += (float)$purchase->subtotal;
+                }
+                
+                if (!isset($statusSummary[$purchase->status])) {
+                    $statusSummary[$purchase->status] = [
+                        'status' => $purchase->status,
+                        'count' => 0,
+                        'quantity' => 0,
+                        'amount' => 0,
+                    ];
+                }
+                $statusSummary[$purchase->status]['count']++;
+                $statusSummary[$purchase->status]['quantity'] += (int)$purchase->quantity_ordered;
+                $statusSummary[$purchase->status]['amount'] += (float)$purchase->subtotal;
+            }
+            
+            $bySupplier = array_values($supplierSummary);
+            foreach ($bySupplier as &$supp) {
+                $supp['percentage'] = $totalAmount > 0 ? round(($supp['amount'] / $totalAmount) * 100, 2) : 0;
+            }
+            usort($bySupplier, fn($a, $b) => $b['amount'] - $a['amount']);
+            
+            $byCategory = array_values($categorySummary);
+            foreach ($byCategory as &$cat) {
+                $cat['percentage'] = $totalAmount > 0 ? round(($cat['amount'] / $totalAmount) * 100, 2) : 0;
+            }
+            usort($byCategory, fn($a, $b) => $b['amount'] - $a['amount']);
+            
+            $bySku = array_values($skuSummary);
+            usort($bySku, fn($a, $b) => $b['amount'] - $a['amount']);
+            
+            $byStatus = array_values($statusSummary);
+            
+            $trends = $this->groupPurchasesByPeriod($purchases, $period, $fromDate, $toDate);
+            
+            $summary = [
+                'total_purchases' => $purchases->count(),
+                'total_quantity' => $totalQuantity,
+                'total_amount' => round($totalAmount, 2),
+                'average_order_value' => $purchases->count() > 0 ? round($totalAmount / $purchases->count(), 2) : 0,
+                'average_unit_price' => $totalQuantity > 0 ? round($totalAmount / $totalQuantity, 2) : 0,
+                'by_supplier' => $bySupplier,
+                'by_category' => $byCategory,
+                'by_sku' => $bySku,
+                'by_status' => $byStatus,
+            ];
+            
+            $suppliers = Supplier::where('status', 'active')->get();
+            $categories = ProductCategory::where('status', 'active')->get();
+            
+            $this->logAudit('view_purchases_report', 'report', null, 
+                "Purchases report from {$fromDate->toDateString()} to {$toDate->toDateString()}");
+            
+            return $this->successResponse([
+                'report_date' => Carbon::now()->format('Y-m-d H:i:s'),
+                'period_display' => $this->getPeriodDisplayText($period, $fromDate, $toDate, $request),
+                'filter' => [
+                    'period' => $period,
+                    'from_date' => $fromDate->toDateString(),
+                    'to_date' => $toDate->toDateString(),
+                    'status' => $status,
+                    'supplier_id' => $supplierId,
+                    'category_id' => $categoryId,
+                ],
+                'available_filters' => [
+                    'suppliers' => $suppliers->map(fn($s) => [
+                        'supplier_id' => $s->supplier_id,
+                        'supplier_name' => $s->supplier_name,
+                        'contact_person' => $s->contact_person,
+                        'phone' => $s->phone,
+                    ]),
+                    'categories' => $categories->map(fn($c) => [
+                        'category_id' => $c->category_id,
+                        'category_name' => $c->category_name,
+                        'model' => $c->model,
+                    ]),
+                    'statuses' => ['pending', 'completed', 'cancelled', 'all'],
+                ],
+                'summary' => $summary,
+                'trends' => $trends,
+                'purchases' => $processedPurchases,
+                'total_records' => count($processedPurchases),
+            ], 'Purchases report retrieved successfully');
+
+        } catch (\Exception $e) {
+            \Log::error('Purchases report error: ' . $e->getMessage());
+            \Log::error($e->getTraceAsString());
+            return $this->serverError('Failed to generate purchases report: ' . $e->getMessage());
+        }
+    }
+
+    private function getPeriodDisplayText($period, $fromDate, $toDate, $request)
+    {
+        switch ($period) {
+            case 'weekly':
+                $week = $request->get('week', Carbon::now()->weekOfYear);
+                $year = $request->get('year', Carbon::now()->year);
+                return "Week {$week}, {$year}";
+            case 'monthly':
+                $month = $request->get('month', Carbon::now()->month);
+                $year = $request->get('year', Carbon::now()->year);
+                return Carbon::createFromDate($year, $month, 1)->format('F Y');
+            case 'yearly':
+                $year = $request->get('year', Carbon::now()->year);
+                return "Year {$year}";
+            case 'custom':
+            default:
+                return $fromDate->format('d/m/Y') . ' - ' . $toDate->format('d/m/Y');
+        }
+    }
+
+    /**
+     * CLEAR SALES REPORT - Complete sales analysis with product SKU from products table
+     * GET /api/v14/reports/sales/clear
+     * 
+     * UPDATED: Added cash_selling_price and loan_selling_price to product data
+     */
+    public function clearSalesReport(Request $request)
+    {
+        $perm = $this->checkPermission('reports.sales.view');
+        if ($perm) return $perm;
+
+        try {
+            $fromDate = $request->get('from_date', Carbon::now()->startOfMonth()->toDateString());
+            $toDate = $request->get('to_date', Carbon::now()->toDateString());
+            $agentId = $request->get('agent_id');
+            $customerId = $request->get('customer_id');
+            $categoryId = $request->get('category_id');
+            $productId = $request->get('product_id');
+            $paymentMethod = $request->get('payment_method');
+            $status = $request->get('status', 'completed');
+            $ccId = $request->get('cc_id');
+            
+            $startDate = Carbon::parse($fromDate)->startOfDay();
+            $endDate = Carbon::parse($toDate)->endOfDay();
+            
+            $allCollectionCenters = CollectionCenter::all()->keyBy('cc_id');
+            
+            $query = Sale::with(['agent', 'customer', 'product.category'])
+                ->whereBetween('created_at', [$startDate, $endDate]);
+            
+            if ($status !== 'all') {
+                $query->where('status', $status);
+            }
+            if ($agentId) {
+                $query->where('agent_id', $agentId);
+            }
+            if ($customerId) {
+                $query->where('customer_id', $customerId);
+            }
+            if ($productId) {
+                $query->where('product_id', $productId);
+            }
+            if ($paymentMethod) {
+                $query->where('payment_method', $paymentMethod);
+            }
+            if ($categoryId) {
+                $query->whereHas('product', function($q) use ($categoryId) {
+                    $q->where('category_id', $categoryId);
+                });
+            }
+            if ($ccId) {
+                $query->whereHas('agent', function($q) use ($ccId) {
+                    $q->where('cc_id', $ccId);
+                });
+            }
+            
+            $sales = $query->orderBy('created_at', 'desc')->get();
+            
+            $salesData = [];
+            $totalRevenue = 0;
+            $totalProfit = 0;
+            
+            foreach ($sales as $sale) {
+                $product = $sale->product;
+                $category = $product ? $product->category : null;
+                $agent = $sale->agent;
+                $customer = $sale->customer;
+                
+                $collectionCenter = null;
+                if ($agent && $agent->cc_id) {
+                    $collectionCenter = $allCollectionCenters->get($agent->cc_id);
+                }
+                
+                $buyingPrice = $product ? floatval($product->buying_price) : 0;
+                $sellingPrice = floatval($sale->total_amount);
+                $profit = $sellingPrice - $buyingPrice;
+                
+                $productSku = $product ? ($product->sku ?? 'N/A') : 'N/A';
+                
+                $saleObject = [
+                    'sale_id' => $sale->sale_id,
+                    'agent_id' => $sale->agent_id,
+                    'customer_id' => $sale->customer_id,
+                    'total_amount' => $sellingPrice,
+                    'payment_method' => $sale->payment_method,
+                    'status' => $sale->status,
+                    'product_id' => $sale->product_id,
+                    'notes' => $sale->notes,
+                    'created_at' => $sale->created_at,
+                    'updated_at' => $sale->updated_at,
+                    'agent' => $agent ? [
                         'id' => $agent->id,
                         'name' => $agent->name,
                         'email' => $agent->email,
-                    ];
-                }),
-                'categories' => $categories->map(function($cat) {
-                    return [
-                        'category_id' => $cat->category_id,
-                        'category_name' => $cat->category_name,
-                        'model' => $cat->model,
-                        'sku_options' => $cat->sku,
-                    ];
-                }),
-            ],
-            'summary' => $summary,
-            'daily_breakdown' => $dailyBreakdown,
-            'sales' => $salesData,
-            'total_records' => count($salesData),
-        ], 'Sales report retrieved successfully');
-        
-    } catch (\Exception $e) {
-        \Log::error('Clear sales report error: ' . $e->getMessage());
-        \Log::error($e->getTraceAsString());
-        return $this->serverError('Failed to generate sales report: ' . $e->getMessage());
-    }
-}
-
-/**
- * Get top products from sales collection using product SKU from products table
- */
-private function getTopProductsFromSalesWithProductSku($sales, $limit = 10)
-{
-    $productSales = [];
-    
-    foreach ($sales as $sale) {
-        $product = $sale->product;
-        if (!$product) continue;
-        
-        $productId = $product->product_id;
-        if (!isset($productSales[$productId])) {
-            $category = $product->category;
-            // Use product SKU from products table
-            $productSku = $product->sku ?? 'N/A';
+                        'phone' => $agent->phone,
+                        'cc_id' => $agent->cc_id,
+                    ] : null,
+                    'collection_center' => $collectionCenter ? [
+                        'cc_id' => $collectionCenter->cc_id,
+                        'cc_name' => $collectionCenter->cc_name,
+                        'location' => $collectionCenter->location,
+                        'owner_id' => $collectionCenter->owner_id,
+                        'status' => $collectionCenter->status,
+                    ] : null,
+                    'customer' => $customer ? [
+                        'customer_id' => $customer->customer_id,
+                        'customer_name' => $customer->customer_name,
+                        'customer_phone' => $customer->customer_phone,
+                        'msisdn' => $customer->msisdn,
+                        'email' => $customer->email,
+                    ] : null,
+                    'product' => $product ? [
+                        'product_id' => $product->product_id,
+                        'category_id' => $product->category_id,
+                        'imei' => $product->imei,
+                        'color' => $product->color,
+                        'buying_price' => floatval($product->buying_price),
+                        'selling_price' => floatval($product->selling_price),
+                        // NEW: added cash and loan selling prices
+                        'cash_selling_price' => floatval($product->cash_selling_price ?? 0),
+                        'loan_selling_price' => floatval($product->loan_selling_price ?? 0),
+                        'stock_status' => $product->stock_status,
+                        'sku' => $productSku,
+                        'category' => $category ? [
+                            'category_id' => $category->category_id,
+                            'category_name' => $category->category_name,
+                            'model' => $category->model,
+                            'sku_options' => $category->sku,
+                        ] : null,
+                    ] : null,
+                ];
+                
+                $salesData[] = $saleObject;
+                $totalRevenue += $sellingPrice;
+                $totalProfit += $profit;
+            }
             
-            $productSales[$productId] = [
-                'product_id' => $productId,
-                'product_imei' => $product->imei ?? 'N/A',
-                'product_color' => $product->color ?? 'N/A',
-                'product_sku' => $productSku,  // Using product SKU
-                'category_id' => $category ? $category->category_id : null,
-                'category_name' => $category ? $category->category_name : 'Unknown',
-                'model' => $category ? $category->model : '',
-                'sku_options' => $category ? $category->sku : [],
-                'selling_price' => floatval($product->selling_price),
-                'buying_price' => floatval($product->buying_price),
-                'quantity_sold' => 0,
-                'revenue' => 0,
-                'profit' => 0,
+            $totalTransactions = $sales->count();
+            
+            $paymentBreakdown = $sales->groupBy('payment_method')->map(function($group) use ($totalRevenue) {
+                $amount = $group->sum('total_amount');
+                return [
+                    'method' => $group->first()->payment_method,
+                    'count' => $group->count(),
+                    'amount' => round($amount, 2),
+                    'percentage' => $totalRevenue > 0 ? round(($amount / $totalRevenue) * 100, 2) : 0,
+                ];
+            })->values();
+            
+            $statusBreakdown = $sales->groupBy('status')->map(function($group) {
+                return [
+                    'status' => $group->first()->status,
+                    'count' => $group->count(),
+                    'amount' => round($group->sum('total_amount'), 2),
+                ];
+            })->values();
+            
+            $topProducts = $this->getTopProductsFromSalesWithProductSku($sales, 10);
+            
+            $agentPerformance = $sales->groupBy('agent_id')->map(function($group) use ($allCollectionCenters) {
+                $firstSale = $group->first();
+                $agent = $firstSale->agent;
+                $collectionCenter = $agent && $agent->cc_id ? $allCollectionCenters->get($agent->cc_id) : null;
+                $revenue = $group->sum('total_amount');
+                $profit = 0;
+                foreach ($group as $sale) {
+                    $product = $sale->product;
+                    if ($product) {
+                        $profit += floatval($sale->total_amount) - floatval($product->buying_price);
+                    }
+                }
+                return [
+                    'agent_id' => $group->first()->agent_id,
+                    'agent_name' => $agent ? $agent->name : 'Unknown',
+                    'agent_email' => $agent ? $agent->email : null,
+                    'collection_center_id' => $collectionCenter ? $collectionCenter->cc_id : null,
+                    'collection_center_name' => $collectionCenter ? $collectionCenter->cc_name : 'Unknown',
+                    'collection_center_location' => $collectionCenter ? $collectionCenter->location : 'N/A',
+                    'sales_count' => $group->count(),
+                    'revenue' => round($revenue, 2),
+                    'profit' => round($profit, 2),
+                    'average_ticket' => $group->count() > 0 ? round($revenue / $group->count(), 2) : 0,
+                ];
+            })->sortByDesc('revenue')->values();
+            
+            $ccPerformance = $sales->groupBy(function($sale) {
+                $agent = $sale->agent;
+                return $agent ? $agent->cc_id : 'unknown';
+            })->map(function($group) use ($allCollectionCenters) {
+                $firstSale = $group->first();
+                $agent = $firstSale->agent;
+                $collectionCenter = $agent && $agent->cc_id ? $allCollectionCenters->get($agent->cc_id) : null;
+                $revenue = $group->sum('total_amount');
+                $profit = 0;
+                foreach ($group as $sale) {
+                    $product = $sale->product;
+                    if ($product) {
+                        $profit += floatval($sale->total_amount) - floatval($product->buying_price);
+                    }
+                }
+                return [
+                    'collection_center_id' => $collectionCenter ? $collectionCenter->cc_id : null,
+                    'collection_center_name' => $collectionCenter ? $collectionCenter->cc_name : 'Unknown',
+                    'location' => $collectionCenter ? $collectionCenter->location : 'N/A',
+                    'total_transactions' => $group->count(),
+                    'total_revenue' => round($revenue, 2),
+                    'total_profit' => round($profit, 2),
+                    'profit_margin' => $revenue > 0 ? round(($profit / $revenue) * 100, 2) : 0,
+                    'average_transaction_value' => $group->count() > 0 ? round($revenue / $group->count(), 2) : 0,
+                ];
+            })->sortByDesc('total_revenue')->values();
+            
+            $categoryPerformance = $sales->groupBy(function($sale) {
+                $product = $sale->product;
+                return $product && $product->category ? $product->category->category_id : 'unknown';
+            })->map(function($group) {
+                $firstSale = $group->first();
+                $product = $firstSale->product;
+                $category = $product ? $product->category : null;
+                $revenue = $group->sum('total_amount');
+                $profit = 0;
+                foreach ($group as $sale) {
+                    $prod = $sale->product;
+                    if ($prod) {
+                        $profit += floatval($sale->total_amount) - floatval($prod->buying_price);
+                    }
+                }
+                return [
+                    'category_id' => $category ? $category->category_id : null,
+                    'category_name' => $category ? $category->category_name : 'Unknown',
+                    'model' => $category ? $category->model : '',
+                    'sku_options' => $category ? $category->sku : [],
+                    'quantity_sold' => $group->count(),
+                    'revenue' => round($revenue, 2),
+                    'profit' => round($profit, 2),
+                    'profit_margin' => $revenue > 0 ? round(($profit / $revenue) * 100, 2) : 0,
+                ];
+            })->sortByDesc('revenue')->values();
+            
+            $topCustomers = $sales->groupBy('customer_id')->map(function($group) {
+                $customer = $group->first()->customer;
+                $total = $group->sum('total_amount');
+                return [
+                    'customer_id' => $group->first()->customer_id,
+                    'customer_name' => $customer ? $customer->customer_name : 'Walk-in Customer',
+                    'customer_phone' => $customer ? ($customer->msisdn ?: $customer->customer_phone) : 'N/A',
+                    'purchase_count' => $group->count(),
+                    'total_spent' => round($total, 2),
+                    'average_spent' => round($total / $group->count(), 2),
+                ];
+            })->sortByDesc('total_spent')->values()->take(10);
+            
+            $dailyBreakdown = $sales->groupBy(function($sale) {
+                return $sale->created_at->format('Y-m-d');
+            })->map(function($group, $date) {
+                $dailyProfit = 0;
+                foreach ($group as $sale) {
+                    $product = $sale->product;
+                    if ($product) {
+                        $dailyProfit += floatval($sale->total_amount) - floatval($product->buying_price);
+                    }
+                }
+                return [
+                    'date' => $date,
+                    'day_name' => Carbon::parse($date)->format('l'),
+                    'transactions' => $group->count(),
+                    'revenue' => round($group->sum('total_amount'), 2),
+                    'profit' => round($dailyProfit, 2),
+                ];
+            })->sortBy('date')->values();
+            
+            $collectionCenters = CollectionCenter::where('status', 'active')->get();
+            $agents = User::where('status', 'active')->get();
+            $categories = ProductCategory::where('status', 'active')->get();
+            
+            $summary = [
+                'date_range' => [
+                    'from' => $startDate->format('Y-m-d'),
+                    'to' => $endDate->format('Y-m-d'),
+                ],
+                'total_transactions' => $totalTransactions,
+                'total_revenue' => round($totalRevenue, 2),
+                'total_profit' => round($totalProfit, 2),
+                'average_transaction_value' => $totalTransactions > 0 ? round($totalRevenue / $totalTransactions, 2) : 0,
+                'average_profit_per_transaction' => $totalTransactions > 0 ? round($totalProfit / $totalTransactions, 2) : 0,
+                'overall_profit_margin' => $totalRevenue > 0 ? round(($totalProfit / $totalRevenue) * 100, 2) : 0,
+                'payment_methods' => $paymentBreakdown,
+                'by_status' => $statusBreakdown,
+                'top_products' => $topProducts,
+                'agent_performance' => $agentPerformance,
+                'collection_center_performance' => $ccPerformance,
+                'category_performance' => $categoryPerformance,
+                'top_customers' => $topCustomers,
             ];
+            
+            $this->logAudit('view_clear_sales_report', 'report', null, 
+                "Clear sales report from {$startDate->toDateString()} to {$endDate->toDateString()}");
+            
+            return $this->successResponse([
+                'filter_applied' => [
+                    'date_range' => ['from' => $fromDate, 'to' => $toDate],
+                    'agent_id' => $agentId,
+                    'customer_id' => $customerId,
+                    'category_id' => $categoryId,
+                    'product_id' => $productId,
+                    'payment_method' => $paymentMethod,
+                    'status' => $status,
+                    'collection_center_id' => $ccId,
+                ],
+                'available_filters' => [
+                    'collection_centers' => $collectionCenters->map(function($cc) {
+                        return [
+                            'cc_id' => $cc->cc_id,
+                            'cc_name' => $cc->cc_name,
+                            'location' => $cc->location,
+                        ];
+                    }),
+                    'agents' => $agents->map(function($agent) {
+                        return [
+                            'id' => $agent->id,
+                            'name' => $agent->name,
+                            'email' => $agent->email,
+                        ];
+                    }),
+                    'categories' => $categories->map(function($cat) {
+                        return [
+                            'category_id' => $cat->category_id,
+                            'category_name' => $cat->category_name,
+                            'model' => $cat->model,
+                            'sku_options' => $cat->sku,
+                        ];
+                    }),
+                ],
+                'summary' => $summary,
+                'daily_breakdown' => $dailyBreakdown,
+                'sales' => $salesData,
+                'total_records' => count($salesData),
+            ], 'Sales report retrieved successfully');
+            
+        } catch (\Exception $e) {
+            \Log::error('Clear sales report error: ' . $e->getMessage());
+            \Log::error($e->getTraceAsString());
+            return $this->serverError('Failed to generate sales report: ' . $e->getMessage());
         }
-        $productSales[$productId]['quantity_sold']++;
-        $productSales[$productId]['revenue'] += floatval($sale->total_amount);
-        $productSales[$productId]['profit'] += floatval($sale->total_amount) - floatval($product->buying_price);
     }
-    
-    return collect(array_values($productSales))
-        ->sortByDesc('revenue')
-        ->take($limit)
-        ->values();
-}
+
     /**
-     * SALES REPORT - Legacy method (ORIGINAL - NOT ALTERED)
-     * GET /api/v14/reports/sales
+     * Get top products from sales collection using product SKU from products table
+     */
+    private function getTopProductsFromSalesWithProductSku($sales, $limit = 10)
+    {
+        $productSales = [];
+        
+        foreach ($sales as $sale) {
+            $product = $sale->product;
+            if (!$product) continue;
+            
+            $productId = $product->product_id;
+            if (!isset($productSales[$productId])) {
+                $category = $product->category;
+                $productSku = $product->sku ?? 'N/A';
+                
+                $productSales[$productId] = [
+                    'product_id' => $productId,
+                    'product_imei' => $product->imei ?? 'N/A',
+                    'product_color' => $product->color ?? 'N/A',
+                    'product_sku' => $productSku,
+                    'category_id' => $category ? $category->category_id : null,
+                    'category_name' => $category ? $category->category_name : 'Unknown',
+                    'model' => $category ? $category->model : '',
+                    'sku_options' => $category ? $category->sku : [],
+                    'selling_price' => floatval($product->selling_price),
+                    'buying_price' => floatval($product->buying_price),
+                    'cash_selling_price' => floatval($product->cash_selling_price ?? 0),
+                    'loan_selling_price' => floatval($product->loan_selling_price ?? 0),
+                    'quantity_sold' => 0,
+                    'revenue' => 0,
+                    'profit' => 0,
+                ];
+            }
+            $productSales[$productId]['quantity_sold']++;
+            $productSales[$productId]['revenue'] += floatval($sale->total_amount);
+            $productSales[$productId]['profit'] += floatval($sale->total_amount) - floatval($product->buying_price);
+        }
+        
+        return collect(array_values($productSales))
+            ->sortByDesc('revenue')
+            ->take($limit)
+            ->values();
+    }
+
+    /**
+     * SALES REPORT - Legacy method
      */
     public function salesReport(Request $request)
     {
@@ -1949,6 +1902,8 @@ private function getTopProductsFromSalesWithProductSku($sales, $limit = 10)
                     'sku' => $category ? $category->sku : '',
                     'selling_price' => floatval($product->selling_price),
                     'buying_price' => floatval($product->buying_price),
+                    'cash_selling_price' => floatval($product->cash_selling_price ?? 0),
+                    'loan_selling_price' => floatval($product->loan_selling_price ?? 0),
                     'quantity_sold' => 0,
                     'revenue' => 0,
                     'profit' => 0,
