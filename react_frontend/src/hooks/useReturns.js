@@ -10,7 +10,6 @@ export const useReturns = () => {
     const [error, setError] = useState(null);
     const [statistics, setStatistics] = useState(null);
 
-    // Fetch all returns
     const fetchReturns = useCallback(async (params = {}) => {
         setLoading(true);
         setError(null);
@@ -36,7 +35,6 @@ export const useReturns = () => {
         }
     }, []);
 
-    // Fetch single return
     const fetchReturn = useCallback(async (id) => {
         setLoading(true);
         setError(null);
@@ -56,7 +54,6 @@ export const useReturns = () => {
         }
     }, []);
 
-    // Create a new return
     const createReturn = useCallback(async (data) => {
         setLoading(true);
         setError(null);
@@ -80,22 +77,22 @@ export const useReturns = () => {
         }
     }, []);
 
-    // Submit/complete a return
-    const submitReturn = useCallback(async (id, data) => {
+    // Updated: Approve return instead of submit
+    const approveReturn = useCallback(async (id, data) => {
         setLoading(true);
         setError(null);
         try {
-            const response = await returnsService.submitReturn(id, data);
+            const response = await returnsService.approveReturn(id, data);
             if (response.data?.success) {
                 showSnackbar({
                     type: 'success',
-                    message: response.data.message || 'Return submitted successfully'
+                    message: response.data.message || 'Return approved successfully'
                 });
                 return response.data.data;
             }
-            throw new Error('Failed to submit return');
+            throw new Error('Failed to approve return');
         } catch (err) {
-            const errorMsg = err?.response?.data?.message || err.message || 'Failed to submit return';
+            const errorMsg = err?.response?.data?.message || err.message || 'Failed to approve return';
             setError(errorMsg);
             showSnackbar({ type: 'error', message: errorMsg });
             throw err;
@@ -104,7 +101,6 @@ export const useReturns = () => {
         }
     }, []);
 
-    // Cancel a return
     const cancelReturn = useCallback(async (id) => {
         setLoading(true);
         setError(null);
@@ -128,7 +124,6 @@ export const useReturns = () => {
         }
     }, []);
 
-    // Validate IMEI
     const validateImei = useCallback(async (imei) => {
         try {
             const response = await returnsService.validateImei(imei);
@@ -143,7 +138,6 @@ export const useReturns = () => {
         }
     }, []);
 
-    // Search returns
     const searchReturns = useCallback(async (query) => {
         setLoading(true);
         setError(null);
@@ -163,7 +157,6 @@ export const useReturns = () => {
         }
     }, []);
 
-    // Fetch statistics
     const fetchStatistics = useCallback(async () => {
         setLoading(true);
         setError(null);
@@ -193,7 +186,7 @@ export const useReturns = () => {
         fetchReturns,
         fetchReturn,
         createReturn,
-        submitReturn,
+        approveReturn, // Changed from submitReturn
         cancelReturn,
         validateImei,
         searchReturns,

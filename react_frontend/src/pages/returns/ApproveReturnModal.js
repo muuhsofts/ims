@@ -1,17 +1,17 @@
-// src/pages/returns/ReturnSubmitModal.js
+// src/pages/returns/ApproveReturnModal.js
 import React, { useState, useEffect } from 'react';
 import {
     Dialog, DialogTitle, DialogContent, DialogActions,
     TextField, Button, Box, CircularProgress,
     FormControl, InputLabel, Select, MenuItem,
-    Typography, Chip
+    Typography, Chip, Alert
 } from '@mui/material';
 import { showSnackbar } from 'utils/snackbar';
 import { useReturns } from '@/hooks/useReturns';
 import { warehouseService } from 'services/warehouse.service';
 
-export default function ReturnSubmitModal({ open, onClose, returnItem, onSuccess }) {
-    const { submitReturn } = useReturns();
+export default function ApproveReturnModal({ open, onClose, returnItem, onSuccess }) {
+    const { approveReturn } = useReturns();
     const [warehouses, setWarehouses] = useState([]);
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
@@ -55,7 +55,7 @@ export default function ReturnSubmitModal({ open, onClose, returnItem, onSuccess
 
         setSubmitting(true);
         try {
-            await submitReturn(returnItem.return_id, form);
+            await approveReturn(returnItem.return_id, form);
             onSuccess?.();
             onClose();
         } catch (err) {
@@ -75,12 +75,12 @@ export default function ReturnSubmitModal({ open, onClose, returnItem, onSuccess
         >
             <form onSubmit={handleSubmit}>
                 <DialogTitle sx={{ pb: 1, fontSize: '1.5rem' }}>
-                    Submit Return
+                    Approve Return
                 </DialogTitle>
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
                         {/* Return Info */}
-                        <Box sx={{ bgcolor: 'action.hover', p: 2, borderRadius: 1 }}>
+                        <Alert severity="info" sx={{ mb: 2 }}>
                             <Typography variant="body2">
                                 <strong>Customer:</strong> {returnItem?.customer_name}
                             </Typography>
@@ -90,13 +90,18 @@ export default function ReturnSubmitModal({ open, onClose, returnItem, onSuccess
                             <Typography variant="body2">
                                 <strong>Product:</strong> {returnItem?.product?.sku || 'N/A'}
                             </Typography>
+                            {returnItem?.sale && (
+                                <Typography variant="body2">
+                                    <strong>Sale Amount:</strong> {returnItem.sale.total_amount} TSh
+                                </Typography>
+                            )}
                             <Chip
-                                label="Pending"
+                                label="Pending Approval"
                                 color="warning"
                                 size="small"
                                 sx={{ mt: 1 }}
                             />
-                        </Box>
+                        </Alert>
 
                         {/* Warehouse Selection */}
                         <FormControl fullWidth required>
@@ -138,10 +143,10 @@ export default function ReturnSubmitModal({ open, onClose, returnItem, onSuccess
                     <Button
                         type="submit"
                         variant="contained"
-                        color="success"
+                        color="primary"
                         disabled={!form.warehouse_id || submitting}
                     >
-                        {submitting ? <CircularProgress size={24} /> : 'Submit Return'}
+                        {submitting ? <CircularProgress size={24} /> : 'Approve Return'}
                     </Button>
                 </DialogActions>
             </form>

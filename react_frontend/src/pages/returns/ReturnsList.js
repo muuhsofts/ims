@@ -18,19 +18,19 @@ import {
     CheckCircle as CheckCircleIcon,
     Cancel as CancelIcon,
     Pending as PendingIcon,
-    Warehouse as WarehouseIcon,
-    Receipt as ReceiptIcon
+    Approve as ApproveIcon
 } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { useReturns } from '@/hooks/useReturns';
 import ReturnsModal from './ReturnsModal';
-import ReturnSubmitModal from './ReturnSubmitModal';
+import ApproveReturnModal from './ApproveReturnModal';
 
 const headCells = [
     { id: 'customer_name', label: 'Customer' },
     { id: 'imei', label: 'IMEI' },
     { id: 'product', label: 'Product' },
+    { id: 'sale_info', label: 'Sale Info' },
     { id: 'status', label: 'Status' },
     { id: 'return_date', label: 'Return Date' },
     { id: 'actions', label: 'Actions', disableSort: true },
@@ -39,6 +39,7 @@ const headCells = [
 const getStatusColor = (status) => {
     switch (status) {
         case 'returned': return 'warning';
+        case 'approved': return 'info';
         case 'completed': return 'success';
         case 'cancelled': return 'error';
         default: return 'default';
@@ -48,6 +49,7 @@ const getStatusColor = (status) => {
 const getStatusIcon = (status) => {
     switch (status) {
         case 'returned': return <PendingIcon fontSize="small" />;
+        case 'approved': return <ApproveIcon fontSize="small" />;
         case 'completed': return <CheckCircleIcon fontSize="small" />;
         case 'cancelled': return <CancelIcon fontSize="small" />;
         default: return null;
@@ -57,6 +59,7 @@ const getStatusIcon = (status) => {
 const getStatusLabel = (status) => {
     switch (status) {
         case 'returned': return 'Pending';
+        case 'approved': return 'Approved';
         case 'completed': return 'Completed';
         case 'cancelled': return 'Cancelled';
         default: return status;
@@ -64,7 +67,9 @@ const getStatusLabel = (status) => {
 };
 
 // Card component for mobile view
-const ReturnCard = ({ returnItem, canSubmit, canCancel, onAction }) => {
+const ReturnCard = ({ returnItem, canApprove, canCancel, onAction }) => {
+    const isAgent = returnItem.performed_by === localStorage.getItem('userId');
+
     return (
         <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
             <CardContent sx={{ p: 2 }}>
@@ -91,9 +96,19 @@ const ReturnCard = ({ returnItem, canSubmit, canCancel, onAction }) => {
                         {returnItem.product?.sku || 'N/A'} - {returnItem.product?.category?.category_name || 'N/A'}
                     </Typography>
                 </Box>
+                {returnItem.sale && (
+                    <Typography variant="caption" color="text.secondary" display="block">
+                        Sale: {returnItem.sale.total_amount} TSh ({returnItem.sale.payment_method})
+                    </Typography>
+                )}
                 <Typography variant="caption" color="text.secondary" display="block">
                     Returned: {new Date(returnItem.return_date).toLocaleString()}
                 </Typography>
+                {returnItem.approved_at && (
+                    <Typography variant="caption" color="text.secondary" display="block">
+                        Approved: {new Date(returnItem.approved_at).toLocaleString()}
+                    </Typography>
+                )}
                 {returnItem.completed_date && (
                     <Typography variant="caption" color="text.secondary" display="block">
                         Completed: {new Date(returnItem.completed_date).toLocaleString()}
@@ -105,19 +120,19 @@ const ReturnCard = ({ returnItem, canSubmit, canCancel, onAction }) => {
                     </Typography>
                 )}
             </CardContent>
-            {(returnItem.status === 'returned' && (canSubmit || canCancel)) && (
+            {(returnItem.status === 'returned' && (canApprove || (canCancel && isAgent))) && (
                 <CardActions sx={{ p: 1, justifyContent: 'flex-end' }}>
-                    {canSubmit && (
+                    {canApprove && (
                         <Button
                             size="small"
                             variant="contained"
-                            color="success"
-                            onClick={() => onAction('submit', returnItem)}
+                            color="primary"
+                            onClick={() => onAction('approve', returnItem)}
                         >
-                            Submit
+                            Approve
                         </Button>
                     )}
-                    {canCancel && (
+                    {canCancel && isAgent && (
                         <Button
                             size="small"
                             variant="outlined"
@@ -141,7 +156,7 @@ export default function ReturnsList() {
     const { hasPermission } = usePermission();
     const canView = hasPermission('returns.view');
     const canCreate = hasPermission('returns.create');
-    const canSubmit = hasPermission('returns.submit');
+    const canApprove = hasPermission('returns.approve');
     const canCancel = hasPermission('returns.cancel');
 
     const {
@@ -158,7 +173,7 @@ export default function ReturnsList() {
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(10);
     const [modalOpen, setModalOpen] = useState(false);
-    const [submitModalOpen, setSubmitModalOpen] = useState(false);
+    const [approveModalOpen, setApproveModalOpen] = useState(false);
     const [selectedReturn, setSelectedReturn] = useState(null);
     const [actionMenu, setActionMenu] = useState(null);
     const [confirmDialog, setConfirmDialog] = useState({
@@ -194,8 +209,8 @@ export default function ReturnsList() {
         setSelectedReturn(null);
     };
 
-    const handleSubmit = () => {
-        setSubmitModalOpen(true);
+    const handleApprove = () => {
+        setApproveModalOpen(true);
         handleMenuClose();
     };
 
@@ -215,8 +230,8 @@ export default function ReturnsList() {
 
     const handleAction = (action, returnItem) => {
         setSelectedReturn(returnItem);
-        if (action === 'submit') {
-            setSubmitModalOpen(true);
+        if (action === 'approve') {
+            setApproveModalOpen(true);
         } else if (action === 'cancel') {
             setConfirmDialog({
                 open: true,
@@ -283,6 +298,7 @@ export default function ReturnsList() {
                         >
                             <MenuItem value="">All</MenuItem>
                             <MenuItem value="returned">Pending</MenuItem>
+                            <MenuItem value="approved">Approved</MenuItem>
                             <MenuItem value="completed">Completed</MenuItem>
                             <MenuItem value="cancelled">Cancelled</MenuItem>
                         </TextField>
@@ -337,6 +353,16 @@ export default function ReturnsList() {
                                                 ) : 'N/A'}
                                             </TableCell>
                                             <TableCell>
+                                                {ret.sale ? (
+                                                    <Box>
+                                                        <Typography variant="body2">{ret.sale.total_amount} TSh</Typography>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            {ret.sale.payment_method}
+                                                        </Typography>
+                                                    </Box>
+                                                ) : 'N/A'}
+                                            </TableCell>
+                                            <TableCell>
                                                 <Chip
                                                     label={getStatusLabel(ret.status)}
                                                     color={getStatusColor(ret.status)}
@@ -353,7 +379,7 @@ export default function ReturnsList() {
                                                 </Typography>
                                             </TableCell>
                                             <TableCell>
-                                                {(ret.status === 'returned' && (canSubmit || canCancel)) && (
+                                                {ret.status === 'returned' && (
                                                     <IconButton size="small" onClick={(e) => handleMenuOpen(e, ret)}>
                                                         <MoreVertIcon />
                                                     </IconButton>
@@ -376,7 +402,7 @@ export default function ReturnsList() {
                                 <ReturnCard
                                     key={ret.return_id}
                                     returnItem={ret}
-                                    canSubmit={canSubmit}
+                                    canApprove={canApprove}
                                     canCancel={canCancel}
                                     onAction={handleAction}
                                 />
@@ -405,9 +431,9 @@ export default function ReturnsList() {
 
             {/* Action Menu */}
             <Menu anchorEl={actionMenu} open={Boolean(actionMenu)} onClose={handleMenuClose}>
-                {canSubmit && (
-                    <MenuItem onClick={handleSubmit}>
-                        <CheckCircleIcon sx={{ mr: 1, color: 'success.main' }} /> Submit Return
+                {canApprove && (
+                    <MenuItem onClick={handleApprove}>
+                        <ApproveIcon sx={{ mr: 1, color: 'primary.main' }} /> Approve Return
                     </MenuItem>
                 )}
                 {canCancel && (
@@ -424,9 +450,9 @@ export default function ReturnsList() {
                 onSuccess={fetchData}
             />
 
-            <ReturnSubmitModal
-                open={submitModalOpen}
-                onClose={() => setSubmitModalOpen(false)}
+            <ApproveReturnModal
+                open={approveModalOpen}
+                onClose={() => setApproveModalOpen(false)}
                 returnItem={selectedReturn}
                 onSuccess={fetchData}
             />

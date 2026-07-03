@@ -11,8 +11,8 @@ export const returnsService = {
     // Create a new return
     createReturn: (data) => api.post('/v17/returns', data),
 
-    // Submit/complete a return
-    submitReturn: (id, data) => api.post(`/v17/returns/${id}/submit`, data),
+    // Approve a return (Stock Controller only)
+    approveReturn: (id, data) => api.post(`/v17/returns/${id}/approve`, data),
 
     // Cancel a return
     cancelReturn: (id) => api.post(`/v17/returns/${id}/cancel`),
@@ -29,4 +29,10 @@ export const returnsService = {
 
     // Get return statistics
     getStatistics: () => api.get('/v17/returns/statistics'),
+
+    // Get agent's own returns
+    myReturns: (params) => api.get('/v17/returns/my-returns', { params }),
+
+    // Get pending returns for approval
+    pendingForApproval: (params) => api.get('/v17/returns/pending-approval', { params }),
 };
