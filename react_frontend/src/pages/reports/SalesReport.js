@@ -50,23 +50,14 @@ import {
     TrendingUp as TrendingUpIcon,
     CalendarToday as CalendarIcon,
     DateRange as DateRangeIcon,
-    ExpandMore as ExpandMoreIcon,
-    ExpandLess as ExpandLessIcon,
     CheckCircle as CheckCircleIcon,
     Pending as PendingIcon,
     Cancel as CancelIcon,
     Inventory as InventoryIcon,
-    Phone as PhoneIcon,
-    Person as PersonIcon,
-    Payment as PaymentIcon,
-    Smartphone as SmartphoneIcon,
     FileDownload as FileDownloadIcon,
     TableChart as ExcelIcon,
     TextSnippet as CsvIcon,
-    Store as StoreIcon,
-    AccountBalanceWallet as ProfitIcon,
-    LocationOn as LocationIcon,
-    Business as AgentIcon
+    AccountBalanceWallet as ProfitIcon
 } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { reportService } from 'services/report.service';
@@ -119,6 +110,8 @@ const getProductSku = (sale) => sale.product?.sku || 'N/A';
 const getProductImei = (sale) => sale.product?.imei || 'N/A';
 const getProductColor = (sale) => sale.product?.color || 'N/A';
 const getProductBuyingPrice = (sale) => sale.product?.buying_price || 0;
+const getProductCashPrice = (sale) => sale.product?.cash_selling_price || 0;
+const getProductLoanPrice = (sale) => sale.product?.loan_selling_price || 0;
 const getCustomerName = (sale) => sale.customer?.customer_name || 'Walk-in Customer';
 const getCustomerPhone = (sale) => sale.customer?.msisdn || sale.customer?.customer_phone || 'N/A';
 const getAgentName = (sale) => sale.agent?.name || 'Unknown';
@@ -129,6 +122,12 @@ const getCollectionCenterInfo = (sale) => sale.collection_center ? {
     location: sale.collection_center.location,
     id: sale.collection_center.cc_id
 } : null;
+
+// Consistent price formatter
+const formatPrice = (value) => {
+    if (value === null || value === undefined || isNaN(value)) return '—';
+    return `TSh ${Number(value).toLocaleString()}`;
+};
 
 export default function SalesReport() {
     const theme = useTheme();
@@ -141,7 +140,6 @@ export default function SalesReport() {
 
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [expandedRows, setExpandedRows] = useState({});
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(10);
     const [exportAnchorEl, setExportAnchorEl] = useState(null);
@@ -170,7 +168,10 @@ export default function SalesReport() {
             'SKU': getProductSku(sale),
             'IMEI': getProductImei(sale),
             'Color': getProductColor(sale),
-            'Amount (TSh)': parseFloat(sale.total_amount).toLocaleString(),
+            'Buying Price (TSh)': parseFloat(getProductBuyingPrice(sale)).toLocaleString(),
+            'Cash Price (TSh)': parseFloat(getProductCashPrice(sale)).toLocaleString(),
+            'Loan Price (TSh)': parseFloat(getProductLoanPrice(sale)).toLocaleString(),
+            'Actual Sold Amount (TSh)': parseFloat(sale.total_amount).toLocaleString(),
             'Payment Method': sale.payment_method,
             'Agent': getAgentName(sale),
             'Collection Center': getCollectionCenterName(sale),
@@ -325,10 +326,6 @@ export default function SalesReport() {
         if (newType !== null) setReportType(newType);
     };
 
-    const toggleRowExpand = (saleId) => {
-        setExpandedRows(prev => ({ ...prev, [saleId]: !prev[saleId] }));
-    };
-
     const filterSales = () => {
         if (!data?.sales) return [];
         if (!searchTerm) return data.sales;
@@ -366,9 +363,8 @@ export default function SalesReport() {
     const currentYear = new Date().getFullYear();
     const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
-    // Card component for mobile/tablet
+    // Card component for mobile/tablet (simplified without expandable details)
     const SaleCard = ({ sale }) => {
-        const isExpanded = expandedRows[sale.sale_id];
         const productName = getProductName(sale);
         const productModel = getProductModel(sale);
         const productSku = getProductSku(sale);
@@ -414,7 +410,7 @@ export default function SalesReport() {
                             <Typography variant="body2">{productName}</Typography>
                         </Box>
                         <Typography variant="subtitle1" fontWeight="bold" color="success.main">
-                            TSh {parseFloat(sale.total_amount).toLocaleString()}
+                            {formatPrice(sale.total_amount)}
                         </Typography>
                     </Box>
 
@@ -423,63 +419,37 @@ export default function SalesReport() {
                         {productSku !== 'N/A' && <Chip label={productSku} size="small" variant="outlined" />}
                     </Stack>
 
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Grid container spacing={1} sx={{ mb: 1 }}>
+                        <Grid item xs={4}>
+                            <Typography variant="caption" color="text.secondary">Buying</Typography>
+                            <Typography variant="body2" color="error.main">{formatPrice(getProductBuyingPrice(sale))}</Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                            <Typography variant="caption" color="text.secondary">Cash</Typography>
+                            <Typography variant="body2" color="success.main">{formatPrice(getProductCashPrice(sale))}</Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                            <Typography variant="caption" color="text.secondary">Loan</Typography>
+                            <Typography variant="body2" color="info.main">{formatPrice(getProductLoanPrice(sale))}</Typography>
+                        </Grid>
+                    </Grid>
+
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
                         <Typography variant="caption" color="text.secondary">Agent</Typography>
                         <Typography variant="body2">{getAgentName(sale)}</Typography>
                     </Box>
 
                     {collectionCenter && (
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <Typography variant="caption" color="text.secondary">Center</Typography>
                             <Typography variant="body2">{collectionCenter.name}</Typography>
                         </Box>
                     )}
 
-                    <Button
-                        size="small"
-                        endIcon={isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                        onClick={() => toggleRowExpand(sale.sale_id)}
-                        sx={{ mt: 1 }}
-                    >
-                        {isExpanded ? 'Less Details' : 'More Details'}
-                    </Button>
-
-                    <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-                        <Divider sx={{ my: 1.5 }} />
-                        <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <InventoryIcon fontSize="small" /> Product Details
-                        </Typography>
-                        <Grid container spacing={1}>
-                            <Grid item xs={6}>
-                                <Typography variant="caption" color="text.secondary">IMEI</Typography>
-                                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{productImei}</Typography>
-                            </Grid>
-                            <Grid item xs={6}>
-                                <Typography variant="caption" color="text.secondary">Buying Price</Typography>
-                                <Typography variant="body2" color="error.main">
-                                    TSh {parseFloat(getProductBuyingPrice(sale)).toLocaleString()}
-                                </Typography>
-                            </Grid>
-                            <Grid item xs={12}>
-                                <Typography variant="caption" color="text.secondary">Profit</Typography>
-                                <Typography variant="body2" color="success.main">
-                                    TSh {(parseFloat(sale.total_amount) - parseFloat(getProductBuyingPrice(sale))).toLocaleString()}
-                                </Typography>
-                            </Grid>
-                            {collectionCenter && (
-                                <Grid item xs={12}>
-                                    <Typography variant="caption" color="text.secondary">Location</Typography>
-                                    <Typography variant="body2">{collectionCenter.location}</Typography>
-                                </Grid>
-                            )}
-                            {sale.notes && (
-                                <Grid item xs={12}>
-                                    <Typography variant="caption" color="text.secondary">Notes</Typography>
-                                    <Typography variant="body2">{sale.notes}</Typography>
-                                </Grid>
-                            )}
-                        </Grid>
-                    </Collapse>
+                    <Box sx={{ mt: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="caption" color="text.secondary">IMEI</Typography>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{productImei}</Typography>
+                    </Box>
                 </CardContent>
             </Card>
         );
@@ -489,7 +459,7 @@ export default function SalesReport() {
         <LocalizationProvider dateAdapter={AdapterDayjs}>
             <Box sx={{ p: { xs: 1, sm: 2 }, bgcolor: 'background.default', minHeight: '100vh' }}>
                 <Paper sx={{ borderRadius: { xs: 1, sm: 2 }, overflow: 'hidden' }}>
-                    {/* Header - unchanged except responsive padding */}
+                    {/* Header */}
                     <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }} className="no-print">
                         <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
                             <Typography variant="h5" fontWeight="bold" sx={{ fontSize: { xs: '1.5rem', sm: '1.75rem' } }}>
@@ -531,7 +501,7 @@ export default function SalesReport() {
                             </ToggleButtonGroup>
                         </Box>
 
-                        {/* Date Selection - responsive grid */}
+                        {/* Date Selection */}
                         <Grid container spacing={2} sx={{ mb: 2 }}>
                             {reportType === 'daily' && (
                                 <Grid item xs={12}>
@@ -610,7 +580,7 @@ export default function SalesReport() {
                             )}
                         </Grid>
 
-                        {/* Status Filter */}
+                        {/* Status Filter and Load Button */}
                         <Grid container spacing={2} sx={{ mb: 2 }}>
                             <Grid item xs={12} sm={6}>
                                 <FormControl fullWidth size="small">
@@ -649,7 +619,7 @@ export default function SalesReport() {
                                 📅 Period: {data.period}
                             </Typography>
 
-                            {/* Summary Cards - responsive grid */}
+                            {/* Summary Cards */}
                             <Grid container spacing={2} sx={{ mb: 3 }}>
                                 <Grid item xs={6} sm={6} md={3}>
                                     <Card sx={{ bgcolor: 'background.paper', borderRadius: 2 }}>
@@ -671,7 +641,7 @@ export default function SalesReport() {
                                                 <Box>
                                                     <Typography color="textSecondary" variant="caption">Total Revenue</Typography>
                                                     <Typography variant="h5" fontWeight="bold" color="success.main">
-                                                        TSh {(summary.total_revenue || 0).toLocaleString()}
+                                                        {formatPrice(summary.total_revenue)}
                                                     </Typography>
                                                 </Box>
                                                 <MoneyIcon sx={{ fontSize: 32, color: 'success.main', opacity: 0.7 }} />
@@ -686,7 +656,7 @@ export default function SalesReport() {
                                                 <Box>
                                                     <Typography color="textSecondary" variant="caption">Total Profit</Typography>
                                                     <Typography variant="h5" fontWeight="bold" color="info.main">
-                                                        TSh {(summary.total_profit || 0).toLocaleString()}
+                                                        {formatPrice(summary.total_profit)}
                                                     </Typography>
                                                 </Box>
                                                 <ProfitIcon sx={{ fontSize: 32, color: 'info.main', opacity: 0.7 }} />
@@ -701,7 +671,7 @@ export default function SalesReport() {
                                                 <Box>
                                                     <Typography color="textSecondary" variant="caption">Avg Transaction</Typography>
                                                     <Typography variant="h5" fontWeight="bold" color="warning.main">
-                                                        TSh {(summary.average_transaction_value || 0).toLocaleString()}
+                                                        {formatPrice(summary.average_transaction_value)}
                                                     </Typography>
                                                 </Box>
                                                 <TrendingUpIcon sx={{ fontSize: 32, color: 'warning.main', opacity: 0.7 }} />
@@ -711,7 +681,7 @@ export default function SalesReport() {
                                 </Grid>
                             </Grid>
 
-                            {/* Payment Methods & Agent Performance remain unchanged but with responsive overflow */}
+                            {/* Payment Methods */}
                             {summary.payment_methods && summary.payment_methods.length > 0 && (
                                 <Box sx={{ mb: 3 }}>
                                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>💳 Payment Methods</Typography>
@@ -719,7 +689,7 @@ export default function SalesReport() {
                                         {summary.payment_methods.map((method, idx) => (
                                             <Chip
                                                 key={idx}
-                                                label={`${method.method}: TSh ${method.amount?.toLocaleString()} (${method.count} transactions)`}
+                                                label={`${method.method}: ${formatPrice(method.amount)} (${method.count} transactions)`}
                                                 color={paymentMethodColors[method.method] || 'default'}
                                                 size="small"
                                             />
@@ -728,6 +698,7 @@ export default function SalesReport() {
                                 </Box>
                             )}
 
+                            {/* Agent Performance */}
                             {summary.agent_performance && summary.agent_performance.length > 0 && (
                                 <Box sx={{ mb: 3, overflowX: 'auto' }}>
                                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
@@ -741,8 +712,8 @@ export default function SalesReport() {
                                                     <TableCell><b>Collection Center</b></TableCell>
                                                     <TableCell><b>Location</b></TableCell>
                                                     <TableCell align="right"><b>Sales Count</b></TableCell>
-                                                    <TableCell align="right"><b>Revenue (TSh)</b></TableCell>
-                                                    <TableCell align="right"><b>Profit (TSh)</b></TableCell>
+                                                    <TableCell align="right"><b>Revenue</b></TableCell>
+                                                    <TableCell align="right"><b>Profit</b></TableCell>
                                                     <TableCell align="right"><b>Avg Ticket</b></TableCell>
                                                 </TableRow>
                                             </TableHead>
@@ -753,9 +724,9 @@ export default function SalesReport() {
                                                         <TableCell>{agent.collection_center_name}</TableCell>
                                                         <TableCell>{agent.collection_center_location || agent.location || 'N/A'}</TableCell>
                                                         <TableCell align="right">{agent.sales_count}</TableCell>
-                                                        <TableCell align="right">TSh {agent.revenue.toLocaleString()}</TableCell>
-                                                        <TableCell align="right">TSh {(agent.profit || 0).toLocaleString()}</TableCell>
-                                                        <TableCell align="right">TSh {(agent.average_ticket || 0).toLocaleString()}</TableCell>
+                                                        <TableCell align="right">{formatPrice(agent.revenue)}</TableCell>
+                                                        <TableCell align="right">{formatPrice(agent.profit || 0)}</TableCell>
+                                                        <TableCell align="right">{formatPrice(agent.average_ticket || 0)}</TableCell>
                                                     </TableRow>
                                                 ))}
                                             </TableBody>
@@ -802,102 +773,62 @@ export default function SalesReport() {
                                     </Box>
 
                                     {showTableView ? (
-                                        // Desktop Table View
-                                        <TableContainer component={Paper} variant="outlined">
-                                            <Table size="small">
+                                        // Desktop Table View - horizontally scrollable, no expandable rows
+                                        <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
+                                            <Table size="small" sx={{ minWidth: 2000 }}>
                                                 <TableHead>
                                                     <TableRow sx={{ bgcolor: 'action.hover' }}>
-                                                        <TableCell width={40}></TableCell>
-                                                        <TableCell><b>Customer</b></TableCell>
-                                                        <TableCell><b>Phone</b></TableCell>
-                                                        <TableCell><b>Product</b></TableCell>
-                                                        <TableCell><b>Model / SKU</b></TableCell>
-                                                        <TableCell><b>IMEI</b></TableCell>
-                                                        <TableCell align="right"><b>Amount</b></TableCell>
-                                                        <TableCell><b>Payment</b></TableCell>
-                                                        <TableCell><b>Agent</b></TableCell>
-                                                        <TableCell><b>Collection Center</b></TableCell>
-                                                        <TableCell><b>Date</b></TableCell>
-                                                        <TableCell><b>Status</b></TableCell>
+                                                        <TableCell width={180}><b>Customer</b></TableCell>
+                                                        <TableCell width={130}><b>Phone</b></TableCell>
+                                                        <TableCell width={160}><b>Product</b></TableCell>
+                                                        <TableCell width={160}><b>Model / SKU</b></TableCell>
+                                                        <TableCell width={150}><b>IMEI</b></TableCell>
+                                                        <TableCell width={120} align="right"><b>Buying Price</b></TableCell>
+                                                        <TableCell width={120} align="right"><b>Cash Price</b></TableCell>
+                                                        <TableCell width={120} align="right"><b>Loan Price</b></TableCell>
+                                                        <TableCell width={130} align="right"><b>Actual Sold Amount</b></TableCell>
+                                                        <TableCell width={110}><b>Payment</b></TableCell>
+                                                        <TableCell width={140}><b>Agent</b></TableCell>
+                                                        <TableCell width={160}><b>Collection Center</b></TableCell>
+                                                        <TableCell width={120}><b>Date</b></TableCell>
+                                                        <TableCell width={110}><b>Status</b></TableCell>
                                                     </TableRow>
                                                 </TableHead>
                                                 <TableBody>
                                                     {paginatedSales.map((sale) => {
-                                                        const isExpanded = expandedRows[sale.sale_id];
                                                         const productName = getProductName(sale);
                                                         const productModel = getProductModel(sale);
                                                         const productSku = getProductSku(sale);
                                                         const productImei = getProductImei(sale);
                                                         const collectionCenter = getCollectionCenterInfo(sale);
+                                                        const modelSku = `${productModel}${productSku !== 'N/A' ? ` (${productSku})` : ''}`;
                                                         return (
-                                                            <React.Fragment key={sale.sale_id}>
-                                                                <TableRow hover>
-                                                                    <TableCell>
-                                                                        <IconButton size="small" onClick={() => toggleRowExpand(sale.sale_id)}>
-                                                                            {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                                                                        </IconButton>
-                                                                    </TableCell>
-                                                                    <TableCell>{getCustomerName(sale)}</TableCell>
-                                                                    <TableCell>{getCustomerPhone(sale)}</TableCell>
-                                                                    <TableCell>{productName}</TableCell>
-                                                                    <TableCell>
-                                                                        <Stack direction="row" spacing={0.5}>
-                                                                            {productModel !== 'N/A' && <Chip label={productModel} size="small" variant="outlined" />}
-                                                                            {productSku !== 'N/A' && <Chip label={productSku} size="small" variant="outlined" />}
-                                                                        </Stack>
-                                                                    </TableCell>
-                                                                    <TableCell sx={{ fontFamily: 'monospace' }}>{productImei}</TableCell>
-                                                                    <TableCell align="right">
-                                                                        TSh {parseFloat(sale.total_amount).toLocaleString()}
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        <Chip label={sale.payment_method} size="small" color={paymentMethodColors[sale.payment_method] || 'default'} />
-                                                                    </TableCell>
-                                                                    <TableCell>{getAgentName(sale)}</TableCell>
-                                                                    <TableCell>{collectionCenter?.name || 'N/A'}</TableCell>
-                                                                    <TableCell>{formatDate(sale.created_at)}</TableCell>
-                                                                    <TableCell>
-                                                                        <Chip
-                                                                            label={sale.status}
-                                                                            size="small"
-                                                                            color={statusColors[sale.status] || 'default'}
-                                                                        />
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                                <TableRow>
-                                                                    <TableCell colSpan={13} sx={{ p: 0 }}>
-                                                                        <Collapse in={isExpanded}>
-                                                                            <Box sx={{ p: 2, bgcolor: '#f5f5f5' }}>
-                                                                                <Typography variant="subtitle2" gutterBottom>Transaction Details:</Typography>
-                                                                                <Grid container spacing={2}>
-                                                                                    <Grid item xs={12} sm={4}>
-                                                                                        <Typography variant="caption" color="textSecondary">Buying Price</Typography>
-                                                                                        <Typography variant="body2">TSh {parseFloat(getProductBuyingPrice(sale)).toLocaleString()}</Typography>
-                                                                                    </Grid>
-                                                                                    <Grid item xs={12} sm={4}>
-                                                                                        <Typography variant="caption" color="textSecondary">Profit</Typography>
-                                                                                        <Typography variant="body2" color="success.main">
-                                                                                            TSh {(parseFloat(sale.total_amount) - parseFloat(getProductBuyingPrice(sale))).toLocaleString()}
-                                                                                        </Typography>
-                                                                                    </Grid>
-                                                                                    {collectionCenter && (
-                                                                                        <Grid item xs={12} sm={4}>
-                                                                                            <Typography variant="caption" color="textSecondary">Location</Typography>
-                                                                                            <Typography variant="body2">{collectionCenter.location}</Typography>
-                                                                                        </Grid>
-                                                                                    )}
-                                                                                    {sale.notes && (
-                                                                                        <Grid item xs={12}>
-                                                                                            <Typography variant="caption" color="textSecondary">Notes</Typography>
-                                                                                            <Typography variant="body2">{sale.notes}</Typography>
-                                                                                        </Grid>
-                                                                                    )}
-                                                                                </Grid>
-                                                                            </Box>
-                                                                        </Collapse>
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            </React.Fragment>
+                                                            <TableRow key={sale.sale_id} hover>
+                                                                <TableCell sx={{ whiteSpace: 'nowrap' }}>{getCustomerName(sale)}</TableCell>
+                                                                <TableCell sx={{ whiteSpace: 'nowrap' }}>{getCustomerPhone(sale)}</TableCell>
+                                                                <TableCell sx={{ whiteSpace: 'nowrap' }}>{productName}</TableCell>
+                                                                <TableCell sx={{ whiteSpace: 'nowrap' }}>{modelSku}</TableCell>
+                                                                <TableCell sx={{ whiteSpace: 'nowrap', fontFamily: 'monospace' }}>{productImei}</TableCell>
+                                                                <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatPrice(getProductBuyingPrice(sale))}</TableCell>
+                                                                <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatPrice(getProductCashPrice(sale))}</TableCell>
+                                                                <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatPrice(getProductLoanPrice(sale))}</TableCell>
+                                                                <TableCell align="right" sx={{ whiteSpace: 'nowrap', fontWeight: 'bold', color: 'success.main' }}>
+                                                                    {formatPrice(sale.total_amount)}
+                                                                </TableCell>
+                                                                <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                                                    <Chip label={sale.payment_method} size="small" color={paymentMethodColors[sale.payment_method] || 'default'} />
+                                                                </TableCell>
+                                                                <TableCell sx={{ whiteSpace: 'nowrap' }}>{getAgentName(sale)}</TableCell>
+                                                                <TableCell sx={{ whiteSpace: 'nowrap' }}>{collectionCenter?.name || 'N/A'}</TableCell>
+                                                                <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(sale.created_at)}</TableCell>
+                                                                <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                                                    <Chip
+                                                                        label={sale.status}
+                                                                        size="small"
+                                                                        color={statusColors[sale.status] || 'default'}
+                                                                    />
+                                                                </TableCell>
+                                                            </TableRow>
                                                         );
                                                     })}
                                                 </TableBody>

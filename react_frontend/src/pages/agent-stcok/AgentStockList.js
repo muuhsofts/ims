@@ -6,7 +6,7 @@ import {
     TableHead, TableRow, Typography, CircularProgress, Stack, Tooltip,
     Card, CardContent, Divider, useMediaQuery, useTheme, Grid
 } from '@mui/material';
-import { Refresh as RefreshIcon, Visibility as ViewIcon, Person as PersonIcon, Sell as SellIcon, Inventory as InventoryIcon } from '@mui/icons-material';
+import { Refresh as RefreshIcon, Visibility as ViewIcon, Person as PersonIcon } from '@mui/icons-material';
 import { showSnackbar } from 'utils/snackbar';
 import { agentSalesService } from 'services/agent-sales.service';
 
@@ -16,14 +16,15 @@ const headCells = [
     { id: 'category', label: 'Category' },
     { id: 'model', label: 'Model' },
     { id: 'sku', label: 'SKU' },
-    { id: 'selling_price', label: 'Selling Price' },
+    { id: 'cash_selling_price', label: 'Cash Price' },
+    { id: 'loan_selling_price', label: 'Loan Price' },
     { id: 'available_qty', label: 'Available Qty', align: 'center' },
     { id: 'actions', label: 'Actions', align: 'center' },
 ];
 
 // Helper to format price
 const formatPrice = (price) => {
-    if (!price) return '—';
+    if (price === null || price === undefined || isNaN(price)) return '—';
     return new Intl.NumberFormat('en-TZ', { style: 'currency', currency: 'TZS' }).format(price);
 };
 
@@ -37,14 +38,14 @@ const DetailRow = ({ label, value, fontFamily }) => (
             {label}:
         </Typography>
         <Typography variant="body2" fontFamily={fontFamily || 'inherit'}>
-            {value || '—'}
+            {value !== null && value !== undefined ? value : '—'}
         </Typography>
     </Box>
 );
 
 // Stock Card Component (used on mobile/tablet)
 const StockCard = ({ item, showAgent, onViewDetails }) => {
-    const safeValue = (val) => val || 'N/A';
+    const safeValue = (val) => (val !== null && val !== undefined ? val : 'N/A');
     return (
         <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
             <CardContent sx={{ p: 2 }}>
@@ -79,8 +80,12 @@ const StockCard = ({ item, showAgent, onViewDetails }) => {
                         <Typography variant="body2">{safeValue(item.sku)}</Typography>
                     </Grid>
                     <Grid item xs={6}>
-                        <Typography variant="caption" color="text.secondary">Selling Price</Typography>
-                        <Typography variant="body2" fontWeight="bold">{formatPrice(item.selling_price)}</Typography>
+                        <Typography variant="caption" color="text.secondary">Cash Price</Typography>
+                        <Typography variant="body2" fontWeight="bold">{formatPrice(item.cash_selling_price)}</Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                        <Typography variant="caption" color="text.secondary">Loan Price</Typography>
+                        <Typography variant="body2" fontWeight="bold">{formatPrice(item.loan_selling_price)}</Typography>
                     </Grid>
                     <Grid item xs={6}>
                         <Typography variant="caption" color="text.secondary">Available Qty</Typography>
@@ -138,7 +143,7 @@ export default function AgentStockList() {
     };
 
     const showAgentColumn = stock.length > 0 && isAdminView(stock);
-    const safeValue = (val) => val || 'N/A';
+    const safeValue = (val) => (val !== null && val !== undefined ? val : 'N/A');
 
     return (
         <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
@@ -162,7 +167,7 @@ export default function AgentStockList() {
                 {/* Table View (Desktop) */}
                 {showTableView ? (
                     <TableContainer sx={{ overflowX: 'auto' }}>
-                        <Table sx={{ minWidth: 950 }}>
+                        <Table sx={{ minWidth: 1050 }}>
                             <TableHead>
                                 <TableRow>
                                     {showAgentColumn && <TableCell>Agent</TableCell>}
@@ -204,7 +209,10 @@ export default function AgentStockList() {
                                             <TableCell>{safeValue(item.model)}</TableCell>
                                             <TableCell>{safeValue(item.sku)}</TableCell>
                                             <TableCell>
-                                                <Typography variant="body2" fontWeight={500}>{formatPrice(item.selling_price)}</Typography>
+                                                <Typography variant="body2" fontWeight={500}>{formatPrice(item.cash_selling_price)}</Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Typography variant="body2" fontWeight={500}>{formatPrice(item.loan_selling_price)}</Typography>
                                             </TableCell>
                                             <TableCell align="center">
                                                 <Chip label={item.available_quantity} color={item.available_quantity > 0 ? 'success' : 'error'} size="small" />
@@ -247,7 +255,7 @@ export default function AgentStockList() {
                 )}
             </Paper>
 
-            {/* Details Modal – already responsive, but we can optionally make fullscreen on mobile */}
+            {/* Details Modal */}
             <Dialog
                 open={modalOpen}
                 onClose={handleCloseModal}
@@ -266,7 +274,8 @@ export default function AgentStockList() {
                             <DetailRow label="Model" value={selectedProduct.model} />
                             <DetailRow label="SKU" value={selectedProduct.sku} />
                             <DetailRow label="Stock Status" value={selectedProduct.stock_status} />
-                            <DetailRow label="Selling Price" value={formatPrice(selectedProduct.selling_price)} />
+                            <DetailRow label="Cash Price" value={formatPrice(selectedProduct.cash_selling_price)} />
+                            <DetailRow label="Loan Price" value={formatPrice(selectedProduct.loan_selling_price)} />
                             <DetailRow label="Available Quantity" value={selectedProduct.available_quantity} />
                             {selectedProduct.agent_name && <DetailRow label="Agent" value={selectedProduct.agent_name} />}
                         </Stack>

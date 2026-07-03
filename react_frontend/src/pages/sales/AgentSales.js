@@ -1,13 +1,13 @@
-// src/pages/agent-sales/AgentSales.js
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
     Paper, Table, TableBody, TableCell, TableContainer, TableHead,
     TableRow, TextField, Typography, CircularProgress, MenuItem,
     Autocomplete, Stack, IconButton, Tooltip, InputAdornment, Tabs, Tab,
-    TablePagination, Grid, Card, CardContent, Divider, useMediaQuery, useTheme
+    TablePagination, Grid, Card, CardContent, Divider, useMediaQuery, useTheme,
+    Switch, FormControlLabel
 } from '@mui/material';
-import { Refresh as RefreshIcon, Sell as SellIcon, Search as SearchIcon, Print as PrintIcon, Phone as PhoneIcon, Person as PersonIcon, AttachMoney as MoneyIcon, Receipt as ReceiptIcon } from '@mui/icons-material';
+import { Refresh as RefreshIcon, Sell as SellIcon, Search as SearchIcon, Print as PrintIcon, Phone as PhoneIcon, Person as PersonIcon, Receipt as ReceiptIcon, Discount as DiscountIcon } from '@mui/icons-material';
 import { useAgentSales } from 'hooks/useAgentSales';
 import { useCustomers } from 'hooks/useCustomers';
 import { usePermission } from '@/hooks/usePermission';
@@ -71,11 +71,11 @@ const headCellsSales = [
     { id: 'total_amount', label: 'Amount' },
     { id: 'payment_method', label: 'Payment' },
     { id: 'status', label: 'Status' },
-    { id: 'receipt', label: 'Receipt' },
+    { id: 'receipt', label: 'Invoice' },
 ];
 
 const formatPrice = (price) => {
-    if (!price) return '—';
+    if (price === null || price === undefined || isNaN(price)) return '—';
     return new Intl.NumberFormat('en-TZ', { style: 'currency', currency: 'TZS' }).format(price);
 };
 
@@ -92,7 +92,7 @@ const printReceipt = (receipt, sale) => {
     printWindow.document.write(`
         <html>
         <head>
-            <title>Receipt ${receipt.receipt_number}</title>
+            <title>Invoice ${receipt.receipt_number}</title>
             <style>
                 body { font-family: monospace; margin: 20px; }
                 .receipt { max-width: 300px; margin: auto; border: 1px solid #ccc; padding: 16px; border-radius: 8px; }
@@ -155,6 +155,7 @@ export default function AgentSales() {
         total_amount: 0,
         notes: '',
     });
+    const [applyDiscount, setApplyDiscount] = useState(false); // toggle for manual discount
     const [customerSearch, setCustomerSearch] = useState('');
     const [productFilter, setProductFilter] = useState('');
     const [tabValue, setTabValue] = useState(0);
@@ -171,6 +172,31 @@ export default function AgentSales() {
         }
     }, [openDialog, customerSearch, fetchMyCustomers]);
 
+    // Update total_amount when payment method changes or selected product changes
+    useEffect(() => {
+        if (selectedProduct) {
+            const price = saleForm.payment_method === 'cash'
+                ? selectedProduct.cash_selling_price
+                : selectedProduct.loan_selling_price;
+            // Only update if discount is not applied (i.e., auto mode) or if discount toggle is off
+            if (!applyDiscount) {
+                setSaleForm(prev => ({
+                    ...prev,
+                    total_amount: price !== null && price !== undefined ? price : 0
+                }));
+            } else {
+                // If discount is on, we keep the user's entered amount, but we might want to set a default
+                // Only set if total_amount is 0 or null (initial state)
+                if (!saleForm.total_amount || saleForm.total_amount === 0) {
+                    setSaleForm(prev => ({
+                        ...prev,
+                        total_amount: price !== null && price !== undefined ? price : 0
+                    }));
+                }
+            }
+        }
+    }, [saleForm.payment_method, selectedProduct, applyDiscount]);
+
     const filteredStock = stock.filter(item => {
         if (!productFilter) return true;
         const searchLower = productFilter.toLowerCase();
@@ -186,12 +212,15 @@ export default function AgentSales() {
 
     const handleOpenDialog = (product) => {
         setSelectedProduct(product);
+        // Default to cash price if available, else loan, else 0
+        const defaultPrice = product.cash_selling_price ?? product.loan_selling_price ?? 0;
         setSaleForm({
             customer_id: '',
             payment_method: 'cash',
-            total_amount: product.selling_price || 0,
+            total_amount: defaultPrice,
             notes: '',
         });
+        setApplyDiscount(false); // reset discount toggle
         setOpenDialog(true);
     };
 
@@ -204,6 +233,7 @@ export default function AgentSales() {
             total_amount: 0,
             notes: '',
         });
+        setApplyDiscount(false);
         setCustomerSearch('');
     };
 
@@ -215,6 +245,34 @@ export default function AgentSales() {
         setSaleForm({ ...saleForm, customer_id: value?.customer_id || '' });
     };
 
+    const handleToggleDiscount = (event) => {
+        const checked = event.target.checked;
+        setApplyDiscount(checked);
+        if (checked) {
+            // Force payment method to cash
+            setSaleForm(prev => ({ ...prev, payment_method: 'cash' }));
+            // Optionally set total amount to current cash price as starting point
+            if (selectedProduct) {
+                const cashPrice = selectedProduct.cash_selling_price;
+                setSaleForm(prev => ({
+                    ...prev,
+                    total_amount: cashPrice !== null && cashPrice !== undefined ? cashPrice : 0
+                }));
+            }
+        } else {
+            // Revert to standard price based on payment method
+            if (selectedProduct) {
+                const price = saleForm.payment_method === 'cash'
+                    ? selectedProduct.cash_selling_price
+                    : selectedProduct.loan_selling_price;
+                setSaleForm(prev => ({
+                    ...prev,
+                    total_amount: price !== null && price !== undefined ? price : 0
+                }));
+            }
+        }
+    };
+
     const handleSubmitSale = async () => {
         if (!saleForm.customer_id) {
             showSnackbar({ type: 'error', message: 'Please select a customer' });
@@ -222,25 +280,46 @@ export default function AgentSales() {
         }
         if (!selectedProduct) return;
 
+        // Prepare payload
+        const payload = {
+            product_id: selectedProduct.product_id,
+            customer_id: saleForm.customer_id,
+            payment_method: saleForm.payment_method,
+            notes: saleForm.notes,
+        };
+
+        // If discount is applied, send the total_amount (which may be different from standard)
+        if (applyDiscount) {
+            const cashPrice = selectedProduct.cash_selling_price;
+            // Validate that discount price is not higher than cash price
+            if (cashPrice !== null && cashPrice !== undefined && parseFloat(saleForm.total_amount) > cashPrice) {
+                showSnackbar({ type: 'error', message: 'Discount price cannot exceed the standard cash selling price.' });
+                return;
+            }
+            payload.total_amount = parseFloat(saleForm.total_amount);
+        }
+
         try {
-            await createSale({
-                product_id: selectedProduct.product_id,
-                total_amount: saleForm.total_amount,
-                customer_id: saleForm.customer_id,
-                payment_method: saleForm.payment_method,
-                notes: saleForm.notes,
-            });
+            await createSale(payload);
             handleCloseDialog();
             if (tabValue === 1) fetchSales();
             showSnackbar({ type: 'success', message: 'Sale completed and receipt generated!' });
         } catch (err) {
-            // error already handled
+            // error already handled by hook
         }
     };
 
     const handleTabChange = (event, newValue) => {
         setTabValue(newValue);
         if (newValue === 1) fetchSales();
+    };
+
+    // Check if the selected payment method is available for this product
+    const isPaymentMethodAvailable = (method) => {
+        if (!selectedProduct) return false;
+        if (method === 'cash') return selectedProduct.cash_selling_price !== null && selectedProduct.cash_selling_price !== undefined;
+        if (method === 'loan') return selectedProduct.loan_selling_price !== null && selectedProduct.loan_selling_price !== undefined;
+        return false;
     };
 
     if (!canSell) {
@@ -261,7 +340,8 @@ export default function AgentSales() {
                     <Grid item xs={6}><Typography variant="caption" color="text.secondary">Category</Typography><Typography variant="body2">{safeValue(item.category_name)}</Typography></Grid>
                     <Grid item xs={6}><Typography variant="caption" color="text.secondary">Model</Typography><Typography variant="body2">{safeValue(item.model)}</Typography></Grid>
                     <Grid item xs={6}><Typography variant="caption" color="text.secondary">SKU</Typography><Typography variant="body2">{safeValue(item.sku)}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Price</Typography><Typography variant="body2" fontWeight="bold">{formatPrice(item.selling_price)}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Cash Price</Typography><Typography variant="body2" fontWeight="bold">{formatPrice(item.cash_selling_price)}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Loan Price</Typography><Typography variant="body2" fontWeight="bold">{formatPrice(item.loan_selling_price)}</Typography></Grid>
                 </Grid>
                 <Box mt={1}>
                     <Button fullWidth variant="contained" startIcon={<SellIcon />} onClick={() => handleOpenDialog(item)} size="small">
@@ -363,16 +443,17 @@ export default function AgentSales() {
                                             <TableCell>Category</TableCell>
                                             <TableCell>Model</TableCell>
                                             <TableCell>SKU</TableCell>
-                                            <TableCell>Selling Price</TableCell>
+                                            <TableCell>Cash Price</TableCell>
+                                            <TableCell>Loan Price</TableCell>
                                             <TableCell align="center">Qty</TableCell>
                                             <TableCell align="center">Actions</TableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
                                         {loadingStock ? (
-                                            <TableRow><TableCell colSpan={8} align="center"><CircularProgress size={28} /></TableCell></TableRow>
+                                            <TableRow><TableCell colSpan={9} align="center"><CircularProgress size={28} /></TableCell></TableRow>
                                         ) : filteredStock.length === 0 ? (
-                                            <TableRow><TableCell colSpan={8} align="center">
+                                            <TableRow><TableCell colSpan={9} align="center">
                                                 {productFilter ? 'No products match your filter.' : 'No available stock. Please ask admin to assign products.'}
                                             </TableCell></TableRow>
                                         ) : (
@@ -383,7 +464,8 @@ export default function AgentSales() {
                                                     <TableCell>{safeValue(item.category_name)}</TableCell>
                                                     <TableCell>{safeValue(item.model)}</TableCell>
                                                     <TableCell>{safeValue(item.sku)}</TableCell>
-                                                    <TableCell>{formatPrice(item.selling_price)}</TableCell>
+                                                    <TableCell>{formatPrice(item.cash_selling_price)}</TableCell>
+                                                    <TableCell>{formatPrice(item.loan_selling_price)}</TableCell>
                                                     <TableCell align="center"><Chip label={item.available_quantity} color="success" size="small" /></TableCell>
                                                     <TableCell align="center">
                                                         <Tooltip title="Sell this product">
@@ -523,7 +605,7 @@ export default function AgentSales() {
                 )}
             </Paper>
 
-            {/* Sale Dialog – unchanged (already responsive) */}
+            {/* Sale Dialog – updated with discount toggle that forces cash payment */}
             <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
                 <DialogTitle>Complete Sale</DialogTitle>
                 <DialogContent>
@@ -537,6 +619,8 @@ export default function AgentSales() {
                                     <Typography variant="body2"><strong>IMEI:</strong> {selectedProduct.imei || '—'}</Typography>
                                     <Typography variant="body2"><strong>Category:</strong> {safeValue(selectedProduct.category_name)}</Typography>
                                     <Typography variant="body2"><strong>Model:</strong> {safeValue(selectedProduct.model)}</Typography>
+                                    <Typography variant="body2"><strong>Cash Price:</strong> {formatPrice(selectedProduct.cash_selling_price)}</Typography>
+                                    <Typography variant="body2"><strong>Loan Price:</strong> {formatPrice(selectedProduct.loan_selling_price)}</Typography>
                                 </Box>
                             </>
                         )}
@@ -550,19 +634,68 @@ export default function AgentSales() {
                             renderInput={(params) => <TextField {...params} label="Customer" placeholder="Search by name, phone or email" fullWidth required />}
                         />
 
-                        <TextField select label="Payment Method" name="payment_method" value={saleForm.payment_method} onChange={handleSaleFormChange} fullWidth>
-                            <MenuItem value="cash">Cash</MenuItem>
-                            <MenuItem value="loan">Loan</MenuItem>
+                        <FormControlLabel
+                            control={
+                                <Switch
+                                    checked={applyDiscount}
+                                    onChange={handleToggleDiscount}
+                                    color="primary"
+                                />
+                            }
+                            label={<Box display="flex" alignItems="center"><DiscountIcon sx={{ mr: 1 }} /> Apply Discount</Box>}
+                        />
 
+                        <TextField
+                            select
+                            label="Payment Method"
+                            name="payment_method"
+                            value={saleForm.payment_method}
+                            onChange={handleSaleFormChange}
+                            fullWidth
+                            disabled={applyDiscount} // disabled when discount is on
+                            helperText={applyDiscount ? 'Discount sales must be cash payments' : ''}
+                        >
+                            <MenuItem value="cash" disabled={!isPaymentMethodAvailable('cash')}>
+                                Cash {!isPaymentMethodAvailable('cash') && '(price not set)'}
+                            </MenuItem>
+                            <MenuItem value="loan" disabled={!isPaymentMethodAvailable('loan') || applyDiscount}>
+                                Loan {(!isPaymentMethodAvailable('loan') || applyDiscount) && (applyDiscount ? '(not allowed with discount)' : '(price not set)')}
+                            </MenuItem>
                         </TextField>
 
-                        <TextField label="Total Amount (TZS)" name="total_amount" type="number" value={saleForm.total_amount} onChange={handleSaleFormChange} fullWidth required />
-                        <TextField label="Notes (optional)" name="notes" multiline rows={2} value={saleForm.notes} onChange={handleSaleFormChange} fullWidth />
+                        <TextField
+                            label="Total Amount (TZS)"
+                            name="total_amount"
+                            type="number"
+                            value={saleForm.total_amount}
+                            onChange={handleSaleFormChange}
+                            fullWidth
+                            required
+                            disabled={!applyDiscount} // editable only when discount is enabled
+                            InputProps={{
+                                readOnly: !applyDiscount,
+                            }}
+                            helperText={applyDiscount ? 'Enter discounted price (must be ≤ cash price)' : 'Amount is auto-calculated based on payment method.'}
+                        />
+
+                        <TextField
+                            label="Notes (optional)"
+                            name="notes"
+                            multiline
+                            rows={2}
+                            value={saleForm.notes}
+                            onChange={handleSaleFormChange}
+                            fullWidth
+                        />
                     </Stack>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={handleCloseDialog}>Cancel</Button>
-                    <Button onClick={handleSubmitSale} variant="contained" disabled={saleLoading}>
+                    <Button
+                        onClick={handleSubmitSale}
+                        variant="contained"
+                        disabled={saleLoading || !isPaymentMethodAvailable(saleForm.payment_method)}
+                    >
                         {saleLoading ? <CircularProgress size={24} /> : 'Confirm Sale'}
                     </Button>
                 </DialogActions>
@@ -570,3 +703,4 @@ export default function AgentSales() {
         </Box>
     );
 }
+

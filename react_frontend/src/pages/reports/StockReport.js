@@ -114,7 +114,7 @@ const getStockStatusLabel = (status) => {
 export default function StockReport() {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-    const showTableView = useMediaQuery(theme.breakpoints.up('md')); // table only on desktop for list view
+    const showTableView = useMediaQuery(theme.breakpoints.up('md'));
 
     const { hasPermission } = usePermission();
     const canView = hasPermission('reports.stock.view');
@@ -164,9 +164,11 @@ export default function StockReport() {
         return warehouses.map(wh => {
             const whProducts = (data?.all_products || []).filter(p => p.warehouse_id === wh.id);
             const totalBuying = whProducts.reduce((sum, p) => sum + (p.buying_price * 1), 0);
-            const totalSelling = whProducts.reduce((sum, p) => sum + (p.selling_price * 1), 0);
-            const totalProfit = totalSelling - totalBuying;
-            return { ...wh, productCount: whProducts.length, totalUnits: whProducts.length, totalBuying, totalSelling, totalProfit };
+            const totalCash = whProducts.reduce((sum, p) => sum + (p.cash_selling_price * 1 || 0), 0);
+            const totalLoan = whProducts.reduce((sum, p) => sum + (p.loan_selling_price * 1 || 0), 0);
+            const totalProfitCash = totalCash - totalBuying;
+            const totalProfitLoan = totalLoan - totalBuying;
+            return { ...wh, productCount: whProducts.length, totalUnits: whProducts.length, totalBuying, totalCash, totalLoan, totalProfitCash, totalProfitLoan };
         });
     };
 
@@ -182,8 +184,10 @@ export default function StockReport() {
             'IMEI': product.imei || 'N/A',
             'Stock Status': getStockStatusLabel(product.stock_status),
             'Buying Price': formatCurrency(product.buying_price),
-            'Selling Price': formatCurrency(product.selling_price),
-            'Expected Profit': formatCurrency(product.selling_price - product.buying_price)
+            'Cash Selling Price': formatCurrency(product.cash_selling_price),
+            'Loan Selling Price': formatCurrency(product.loan_selling_price),
+            'Cash Profit': formatCurrency((product.cash_selling_price || 0) - product.buying_price),
+            'Loan Profit': formatCurrency((product.loan_selling_price || 0) - product.buying_price)
         }));
     };
 
@@ -257,15 +261,26 @@ export default function StockReport() {
                 const comp = (a.category_name || '').localeCompare(b.category_name || '');
                 return sortOrder === 'asc' ? comp : -comp;
             });
-        } else if (sortBy === 'price') {
+        } else if (sortBy === 'cash_price') {
             return [...products].sort((a, b) => {
-                const comp = (a.selling_price || 0) - (b.selling_price || 0);
+                const comp = (a.cash_selling_price || 0) - (b.cash_selling_price || 0);
                 return sortOrder === 'asc' ? comp : -comp;
             });
-        } else if (sortBy === 'profit') {
+        } else if (sortBy === 'loan_price') {
             return [...products].sort((a, b) => {
-                const profitA = (a.selling_price || 0) - (a.buying_price || 0);
-                const profitB = (b.selling_price || 0) - (b.buying_price || 0);
+                const comp = (a.loan_selling_price || 0) - (b.loan_selling_price || 0);
+                return sortOrder === 'asc' ? comp : -comp;
+            });
+        } else if (sortBy === 'cash_profit') {
+            return [...products].sort((a, b) => {
+                const profitA = (a.cash_selling_price || 0) - a.buying_price;
+                const profitB = (b.cash_selling_price || 0) - b.buying_price;
+                return sortOrder === 'asc' ? profitA - profitB : profitB - profitA;
+            });
+        } else if (sortBy === 'loan_profit') {
+            return [...products].sort((a, b) => {
+                const profitA = (a.loan_selling_price || 0) - a.buying_price;
+                const profitB = (b.loan_selling_price || 0) - b.buying_price;
                 return sortOrder === 'asc' ? profitA - profitB : profitB - profitA;
             });
         }
@@ -285,14 +300,18 @@ export default function StockReport() {
     const filteredProducts = filterProductsByWarehouseAndStatusAndSearch(allProducts);
     const sortedFilteredProducts = sortProducts(filteredProducts);
     const totalBuying = filteredProducts.reduce((sum, p) => sum + (p.buying_price * 1), 0);
-    const totalSelling = filteredProducts.reduce((sum, p) => sum + (p.selling_price * 1), 0);
-    const totalProfit = totalSelling - totalBuying;
-    const profitPercentage = totalBuying > 0 ? (totalProfit / totalBuying) * 100 : 0;
+    const totalCash = filteredProducts.reduce((sum, p) => sum + (p.cash_selling_price * 1 || 0), 0);
+    const totalLoan = filteredProducts.reduce((sum, p) => sum + (p.loan_selling_price * 1 || 0), 0);
+    const totalProfitCash = totalCash - totalBuying;
+    const totalProfitLoan = totalLoan - totalBuying;
+    const profitCashPercentage = totalBuying > 0 ? (totalProfitCash / totalBuying) * 100 : 0;
+    const profitLoanPercentage = totalBuying > 0 ? (totalProfitLoan / totalBuying) * 100 : 0;
     const paginatedProducts = sortedFilteredProducts.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 
     // Card component for mobile List View
     const ProductCard = ({ product }) => {
-        const profit = product.selling_price - product.buying_price;
+        const cashProfit = (product.cash_selling_price || 0) - product.buying_price;
+        const loanProfit = (product.loan_selling_price || 0) - product.buying_price;
         return (
             <Card sx={{ mb: 2, borderRadius: 2 }}>
                 <CardContent sx={{ p: 2 }}>
@@ -322,17 +341,19 @@ export default function StockReport() {
                             <Typography variant="caption" color="text.secondary">IMEI</Typography>
                             <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{product.imei}</Typography>
                         </Grid>
-                        <Grid item xs={6}>
+                        <Grid item xs={12}>
                             <Typography variant="caption" color="text.secondary">Buying Price</Typography>
                             <Typography variant="body2" color="error.main">{formatCurrency(product.buying_price)}</Typography>
                         </Grid>
                         <Grid item xs={6}>
-                            <Typography variant="caption" color="text.secondary">Selling Price</Typography>
-                            <Typography variant="body2" color="success.main">{formatCurrency(product.selling_price)}</Typography>
+                            <Typography variant="caption" color="text.secondary">Cash Price</Typography>
+                            <Typography variant="body2" color="success.main">{formatCurrency(product.cash_selling_price || 0)}</Typography>
+                            <Typography variant="caption" color="text.secondary">Profit: {formatCurrency(cashProfit)}</Typography>
                         </Grid>
-                        <Grid item xs={12}>
-                            <Typography variant="caption" color="text.secondary">Expected Profit</Typography>
-                            <Typography variant="body2" color={profit >= 0 ? 'success.main' : 'error.main'}>{formatCurrency(profit)}</Typography>
+                        <Grid item xs={6}>
+                            <Typography variant="caption" color="text.secondary">Loan Price</Typography>
+                            <Typography variant="body2" color="info.main">{formatCurrency(product.loan_selling_price || 0)}</Typography>
+                            <Typography variant="caption" color="text.secondary">Profit: {formatCurrency(loanProfit)}</Typography>
                         </Grid>
                     </Grid>
                 </CardContent>
@@ -394,7 +415,7 @@ export default function StockReport() {
                             </Grid>
                         </Grid>
 
-                        {/* Financial Summary */}
+                        {/* Financial Summary with Cash & Loan */}
                         <Grid container spacing={2} sx={{ mb: 3 }}>
                             <Grid item xs={12} md={4}>
                                 <Card sx={{ bgcolor: alpha(theme.palette.error.main, 0.1), borderLeft: 4, borderColor: 'error.main', borderRadius: 2 }}>
@@ -403,12 +424,12 @@ export default function StockReport() {
                             </Grid>
                             <Grid item xs={12} md={4}>
                                 <Card sx={{ bgcolor: alpha(theme.palette.success.main, 0.1), borderLeft: 4, borderColor: 'success.main', borderRadius: 2 }}>
-                                    <CardContent><Box display="flex" justifyContent="space-between"><Box><Typography variant="caption" color="success.main">Total Selling Price</Typography><Typography variant="h5" fontWeight="bold">{formatCurrency(totalSelling)}</Typography></Box><PaidIcon sx={{ fontSize: 32, color: 'success.main', opacity: 0.7 }} /></Box></CardContent>
+                                    <CardContent><Box display="flex" justifyContent="space-between"><Box><Typography variant="caption" color="success.main">Total Cash Selling Price</Typography><Typography variant="h5" fontWeight="bold">{formatCurrency(totalCash)}</Typography><Typography variant="caption">Profit: {formatCurrency(totalProfitCash)} ({profitCashPercentage.toFixed(2)}% margin)</Typography></Box><PaidIcon sx={{ fontSize: 32, color: 'success.main', opacity: 0.7 }} /></Box></CardContent>
                                 </Card>
                             </Grid>
                             <Grid item xs={12} md={4}>
-                                <Card sx={{ bgcolor: alpha(totalProfit >= 0 ? theme.palette.success.main : theme.palette.error.main, 0.1), borderLeft: 4, borderColor: totalProfit >= 0 ? 'success.main' : 'error.main', borderRadius: 2 }}>
-                                    <CardContent><Box display="flex" justifyContent="space-between"><Box><Typography variant="caption" color={totalProfit >= 0 ? 'success.main' : 'error.main'}>Expected Profit</Typography><Typography variant="h5" fontWeight="bold">{formatCurrency(totalProfit)}</Typography><Typography variant="caption">({profitPercentage.toFixed(2)}% margin)</Typography></Box><TrendingUpIcon sx={{ fontSize: 32, color: totalProfit >= 0 ? 'success.main' : 'error.main', opacity: 0.7 }} /></Box></CardContent>
+                                <Card sx={{ bgcolor: alpha(theme.palette.info.main, 0.1), borderLeft: 4, borderColor: 'info.main', borderRadius: 2 }}>
+                                    <CardContent><Box display="flex" justifyContent="space-between"><Box><Typography variant="caption" color="info.main">Total Loan Selling Price</Typography><Typography variant="h5" fontWeight="bold">{formatCurrency(totalLoan)}</Typography><Typography variant="caption">Profit: {formatCurrency(totalProfitLoan)} ({profitLoanPercentage.toFixed(2)}% margin)</Typography></Box><PaidIcon sx={{ fontSize: 32, color: 'info.main', opacity: 0.7 }} /></Box></CardContent>
                                 </Card>
                             </Grid>
                         </Grid>
@@ -441,7 +462,7 @@ export default function StockReport() {
                                     </Grid>
                                     {viewMode === 'list' && (
                                         <Box display="flex" justifyContent="flex-end" alignItems="center" gap={2} mt={2}>
-                                            <FormControl size="small" sx={{ minWidth: 120 }}><InputLabel>Sort By</InputLabel><Select value={sortBy} onChange={(e) => setSortBy(e.target.value)}><MenuItem value="product">📦 Product</MenuItem><MenuItem value="price">💰 Price</MenuItem><MenuItem value="profit">📈 Profit</MenuItem></Select></FormControl>
+                                            <FormControl size="small" sx={{ minWidth: 120 }}><InputLabel>Sort By</InputLabel><Select value={sortBy} onChange={(e) => setSortBy(e.target.value)}><MenuItem value="product">📦 Product</MenuItem><MenuItem value="cash_price">💰 Cash Price</MenuItem><MenuItem value="loan_price">💰 Loan Price</MenuItem><MenuItem value="cash_profit">📈 Cash Profit</MenuItem><MenuItem value="loan_profit">📈 Loan Profit</MenuItem></Select></FormControl>
                                             <Tooltip title={sortOrder === 'asc' ? 'Sort Ascending' : 'Sort Descending'}><IconButton size="small" onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}>{sortOrder === 'asc' ? <TrendingUpIcon /> : <TrendingDownIcon />}</IconButton></Tooltip>
                                         </Box>
                                     )}
@@ -451,7 +472,7 @@ export default function StockReport() {
 
                         {searchTerm && <Alert severity="info" icon={<SearchIcon />} sx={{ mb: 2 }}>Found {filteredProducts.length} product(s) matching "{searchTerm}"</Alert>}
 
-                        {/* Product View (already collapsible cards, just make tables scrollable) */}
+                        {/* Product View (already collapsible cards, now show cash & loan) */}
                         {viewMode === 'product' && stockByCategory.map((category, idx) => {
                             let products = filterProductsByWarehouseAndStatusAndSearch(category.products || []);
                             if (products.length === 0) return null;
@@ -460,14 +481,14 @@ export default function StockReport() {
                                 <Card key={idx} sx={{ mb: 2, overflow: 'hidden' }}>
                                     <Box sx={{ p: 2, bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#f5f5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} onClick={() => toggleCategoryExpand(category.category_name)}>
                                         <Box display="flex" alignItems="center" gap={2}><ProductIcon sx={{ color: 'primary.main' }} /><Box><Typography variant="h6" fontWeight="bold">{category.category_name}</Typography><Stack direction="row" spacing={1}>{category.model && <Chip icon={<ModelIcon />} label={category.model} size="small" variant="outlined" />}{category.sku && <Chip icon={<SkuIcon />} label={category.sku} size="small" variant="outlined" />}</Stack></Box></Box>
-                                        <Box textAlign="right"><Typography variant="body2" fontWeight="bold">{products.length} Products</Typography><Typography variant="caption">{formatCurrency(products.reduce((sum, p) => sum + p.selling_price, 0))}</Typography></Box>
+                                        <Box textAlign="right"><Typography variant="body2" fontWeight="bold">{products.length} Products</Typography><Typography variant="caption">Cash: {formatCurrency(products.reduce((sum, p) => sum + (p.cash_selling_price || 0), 0))}</Typography></Box>
                                         <IconButton size="small">{isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}</IconButton>
                                     </Box>
                                     <Collapse in={isExpanded}>
                                         <Box sx={{ overflowX: 'auto' }}>
                                             <Table size="small">
-                                                <TableHead><TableRow sx={{ bgcolor: '#e3f2fd' }}><TableCell><b>Warehouse</b></TableCell><TableCell><b>Location</b></TableCell><TableCell><b>IMEI</b></TableCell><TableCell><b>Status</b></TableCell><TableCell align="right"><b>Buying</b></TableCell><TableCell align="right"><b>Selling</b></TableCell><TableCell align="right"><b>Profit</b></TableCell></TableRow></TableHead>
-                                                <TableBody>{products.map((p, i) => (<TableRow key={i} hover><TableCell><Chip icon={<WarehouseIcon />} label={p.warehouse_name} size="small" variant="outlined" /></TableCell><TableCell><LocationIcon sx={{ fontSize: 14 }} /> {p.warehouse_location || 'N/A'}</TableCell><TableCell sx={{ fontFamily: 'monospace' }}>{p.imei}</TableCell><TableCell><Chip icon={getStockStatusIcon(p.stock_status)} label={getStockStatusLabel(p.stock_status)} size="small" color={getStockStatusColor(p.stock_status)} /></TableCell><TableCell align="right">{formatCurrency(p.buying_price)}</TableCell><TableCell align="right">{formatCurrency(p.selling_price)}</TableCell><TableCell align="right" sx={{ color: p.selling_price - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency(p.selling_price - p.buying_price)}</TableCell></TableRow>))}</TableBody>
+                                                <TableHead><TableRow sx={{ bgcolor: '#e3f2fd' }}><TableCell><b>Warehouse</b></TableCell><TableCell><b>Location</b></TableCell><TableCell><b>IMEI</b></TableCell><TableCell><b>Status</b></TableCell><TableCell align="right"><b>Buying</b></TableCell><TableCell align="right"><b>Cash Price</b></TableCell><TableCell align="right"><b>Loan Price</b></TableCell><TableCell align="right"><b>Cash Profit</b></TableCell><TableCell align="right"><b>Loan Profit</b></TableCell></TableRow></TableHead>
+                                                <TableBody>{products.map((p, i) => (<TableRow key={i} hover><TableCell><Chip icon={<WarehouseIcon />} label={p.warehouse_name} size="small" variant="outlined" /></TableCell><TableCell><LocationIcon sx={{ fontSize: 14 }} /> {p.warehouse_location || 'N/A'}</TableCell><TableCell sx={{ fontFamily: 'monospace' }}>{p.imei}</TableCell><TableCell><Chip icon={getStockStatusIcon(p.stock_status)} label={getStockStatusLabel(p.stock_status)} size="small" color={getStockStatusColor(p.stock_status)} /></TableCell><TableCell align="right">{formatCurrency(p.buying_price)}</TableCell><TableCell align="right">{formatCurrency(p.cash_selling_price || 0)}</TableCell><TableCell align="right">{formatCurrency(p.loan_selling_price || 0)}</TableCell><TableCell align="right" sx={{ color: (p.cash_selling_price || 0) - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency((p.cash_selling_price || 0) - p.buying_price)}</TableCell><TableCell align="right" sx={{ color: (p.loan_selling_price || 0) - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency((p.loan_selling_price || 0) - p.buying_price)}</TableCell></TableRow>))}</TableBody>
                                             </Table>
                                         </Box>
                                     </Collapse>
@@ -484,14 +505,14 @@ export default function StockReport() {
                                 <Card key={idx} sx={{ mb: 2, overflow: 'hidden' }}>
                                     <Box sx={{ p: 2, bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#f5f5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} onClick={() => toggleWarehouseExpand(wh.name)}>
                                         <Box display="flex" alignItems="center" gap={2}><WarehouseIcon sx={{ color: 'primary.main' }} /><Box><Typography variant="h6" fontWeight="bold">{wh.name}</Typography><Typography variant="caption"><LocationIcon sx={{ fontSize: 12 }} /> {wh.location || 'N/A'}</Typography></Box></Box>
-                                        <Box textAlign="right"><Typography variant="body2" fontWeight="bold">{products.length} Products</Typography><Typography variant="caption">{formatCurrency(products.reduce((sum, p) => sum + p.selling_price, 0))}</Typography></Box>
+                                        <Box textAlign="right"><Typography variant="body2" fontWeight="bold">{products.length} Products</Typography><Typography variant="caption">Cash: {formatCurrency(products.reduce((sum, p) => sum + (p.cash_selling_price || 0), 0))}</Typography></Box>
                                         <IconButton size="small">{isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}</IconButton>
                                     </Box>
                                     <Collapse in={isExpanded}>
                                         <Box sx={{ overflowX: 'auto' }}>
                                             <Table size="small">
-                                                <TableHead><TableRow sx={{ bgcolor: '#e3f2fd' }}><TableCell><b>Product</b></TableCell><TableCell><b>Model</b></TableCell><TableCell><b>SKU</b></TableCell><TableCell><b>IMEI</b></TableCell><TableCell><b>Status</b></TableCell><TableCell align="right"><b>Buying</b></TableCell><TableCell align="right"><b>Selling</b></TableCell><TableCell align="right"><b>Profit</b></TableCell></TableRow></TableHead>
-                                                <TableBody>{products.map((p, i) => (<TableRow key={i} hover><TableCell>{p.category_name}</TableCell><TableCell>{p.model}</TableCell><TableCell><Chip label={p.sku} size="small" variant="outlined" /></TableCell><TableCell sx={{ fontFamily: 'monospace' }}>{p.imei}</TableCell><TableCell><Chip icon={getStockStatusIcon(p.stock_status)} label={getStockStatusLabel(p.stock_status)} size="small" color={getStockStatusColor(p.stock_status)} /></TableCell><TableCell align="right">{formatCurrency(p.buying_price)}</TableCell><TableCell align="right">{formatCurrency(p.selling_price)}</TableCell><TableCell align="right" sx={{ color: p.selling_price - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency(p.selling_price - p.buying_price)}</TableCell></TableRow>))}</TableBody>
+                                                <TableHead><TableRow sx={{ bgcolor: '#e3f2fd' }}><TableCell><b>Product</b></TableCell><TableCell><b>Model</b></TableCell><TableCell><b>SKU</b></TableCell><TableCell><b>IMEI</b></TableCell><TableCell><b>Status</b></TableCell><TableCell align="right"><b>Buying</b></TableCell><TableCell align="right"><b>Cash</b></TableCell><TableCell align="right"><b>Loan</b></TableCell><TableCell align="right"><b>Cash Profit</b></TableCell><TableCell align="right"><b>Loan Profit</b></TableCell></TableRow></TableHead>
+                                                <TableBody>{products.map((p, i) => (<TableRow key={i} hover><TableCell>{p.category_name}</TableCell><TableCell>{p.model}</TableCell><TableCell><Chip label={p.sku} size="small" variant="outlined" /></TableCell><TableCell sx={{ fontFamily: 'monospace' }}>{p.imei}</TableCell><TableCell><Chip icon={getStockStatusIcon(p.stock_status)} label={getStockStatusLabel(p.stock_status)} size="small" color={getStockStatusColor(p.stock_status)} /></TableCell><TableCell align="right">{formatCurrency(p.buying_price)}</TableCell><TableCell align="right">{formatCurrency(p.cash_selling_price || 0)}</TableCell><TableCell align="right">{formatCurrency(p.loan_selling_price || 0)}</TableCell><TableCell align="right" sx={{ color: (p.cash_selling_price || 0) - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency((p.cash_selling_price || 0) - p.buying_price)}</TableCell><TableCell align="right" sx={{ color: (p.loan_selling_price || 0) - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency((p.loan_selling_price || 0) - p.buying_price)}</TableCell></TableRow>))}</TableBody>
                                             </Table>
                                         </Box>
                                     </Collapse>
@@ -505,9 +526,9 @@ export default function StockReport() {
                                 {paginatedProducts.length === 0 ? <Alert severity="warning">No products found matching your criteria.</Alert> : (
                                     showTableView ? (
                                         <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
-                                            <Table size="small">
-                                                <TableHead><TableRow sx={{ bgcolor: '#e3f2fd' }}><TableCell><b>Warehouse</b></TableCell><TableCell><b>Location</b></TableCell><TableCell><b>Product</b></TableCell><TableCell><b>Model</b></TableCell><TableCell><b>SKU</b></TableCell><TableCell><b>IMEI</b></TableCell><TableCell><b>Status</b></TableCell><TableCell align="right"><b>Buying</b></TableCell><TableCell align="right"><b>Selling</b></TableCell><TableCell align="right"><b>Profit</b></TableCell></TableRow></TableHead>
-                                                <TableBody>{paginatedProducts.map((p, i) => (<TableRow key={i} hover><TableCell>{p.warehouse_name}</TableCell><TableCell>{p.warehouse_location || 'N/A'}</TableCell><TableCell>{p.category_name}</TableCell><TableCell>{p.model}</TableCell><TableCell>{p.sku}</TableCell><TableCell sx={{ fontFamily: 'monospace' }}>{p.imei}</TableCell><TableCell><Chip icon={getStockStatusIcon(p.stock_status)} label={getStockStatusLabel(p.stock_status)} size="small" color={getStockStatusColor(p.stock_status)} /></TableCell><TableCell align="right">{formatCurrency(p.buying_price)}</TableCell><TableCell align="right">{formatCurrency(p.selling_price)}</TableCell><TableCell align="right" sx={{ color: p.selling_price - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency(p.selling_price - p.buying_price)}</TableCell></TableRow>))}</TableBody>
+                                            <Table size="small" sx={{ minWidth: 1600 }}>
+                                                <TableHead><TableRow sx={{ bgcolor: '#e3f2fd' }}><TableCell><b>Warehouse</b></TableCell><TableCell><b>Location</b></TableCell><TableCell><b>Product</b></TableCell><TableCell><b>Model</b></TableCell><TableCell><b>SKU</b></TableCell><TableCell><b>IMEI</b></TableCell><TableCell><b>Status</b></TableCell><TableCell align="right"><b>Buying</b></TableCell><TableCell align="right"><b>Cash Price</b></TableCell><TableCell align="right"><b>Loan Price</b></TableCell><TableCell align="right"><b>Cash Profit</b></TableCell><TableCell align="right"><b>Loan Profit</b></TableCell></TableRow></TableHead>
+                                                <TableBody>{paginatedProducts.map((p, i) => (<TableRow key={i} hover><TableCell sx={{ whiteSpace: 'nowrap' }}>{p.warehouse_name}</TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{p.warehouse_location || 'N/A'}</TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{p.category_name}</TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{p.model}</TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{p.sku}</TableCell><TableCell sx={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{p.imei}</TableCell><TableCell><Chip icon={getStockStatusIcon(p.stock_status)} label={getStockStatusLabel(p.stock_status)} size="small" color={getStockStatusColor(p.stock_status)} /></TableCell><TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatCurrency(p.buying_price)}</TableCell><TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatCurrency(p.cash_selling_price || 0)}</TableCell><TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatCurrency(p.loan_selling_price || 0)}</TableCell><TableCell align="right" sx={{ whiteSpace: 'nowrap', color: (p.cash_selling_price || 0) - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency((p.cash_selling_price || 0) - p.buying_price)}</TableCell><TableCell align="right" sx={{ whiteSpace: 'nowrap', color: (p.loan_selling_price || 0) - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency((p.loan_selling_price || 0) - p.buying_price)}</TableCell></TableRow>))}</TableBody>
                                             </Table>
                                         </TableContainer>
                                     ) : (
