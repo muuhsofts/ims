@@ -228,7 +228,7 @@ export function getSidebarStructure(hasPermission) {
       label: 'Agent Inventory',
       link: '/app/agent-inventory',
       icon: <AgentIcon />,
-      children: [{ label: 'Me Stock', link: '/app/agent-inventory' }],
+      children: [{ label: 'View Stock', link: '/app/agent-inventory' }],
     });
   }
 
@@ -380,7 +380,7 @@ const staticStructure = [
   { id: 5, label: 'Products', link: '/app/products', icon: <ProductsIcon />, children: [{ label: 'Manage Products', link: '/app/products' }] },
   { id: 6, label: 'Inventory', link: '/app/inventory', icon: <InventoryIcon />, children: [{ label: 'Manage Inventory', link: '/app/inventory' }] },
   { id: 7, label: 'CC Inventory', link: '/app/cc-inventory', icon: <CcInventoryIcon />, children: [{ label: 'Manage CC Inventory', link: '/app/cc-inventory' }] },
-  { id: 8, label: 'Agent Inventory', link: '/app/agent-inventory', icon: <AgentIcon />, children: [{ label: 'My Stock', link: '/app/agent-inventory' }] },
+  { id: 8, label: 'Agent Inventory', link: '/app/agent-inventory', icon: <AgentIcon />, children: [{ label: 'View Stock', link: '/app/agent-inventory' }] },
   {
     id: 9,
     label: 'Sales',
