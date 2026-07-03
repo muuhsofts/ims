@@ -85,8 +85,12 @@ import AgentAnalyticsDashboard from "pages/dashboard/components/AgentAnalyticsDa
 import BranchOwnerStockReport from "pages/reports/BranchOwnerStockReport";
 import BranchOwnerAnalyticsDashboard from "pages/dashboard/components/BranchOwnerAnalyticsDashboard";
 
-// 👇 Import the AgentsList
+// Agents List
 import AgentsList from "pages/agents/AgentsList";
+
+// 👇 Import Returns pages
+import ReturnsList from "pages/returns/ReturnsList";
+import { ReturnsProvider } from "context/ReturnsContext";
 
 import { usePermission } from 'hooks/usePermission';
 
@@ -164,7 +168,7 @@ function Layout() {
 
             {/* User management */}
             <Route path="settings/users" element={<UsersList />} />
-            <Route path="settings/agents" element={<AgentsList />} />  {/* 👈 new route */}
+            <Route path="settings/agents" element={<AgentsList />} />
             <Route path="settings/permissions" element={<PermissionsList />} />
             <Route path="settings/roles" element={<RoleList />} />
             <Route path="settings/audit" element={<AuditList />} />
@@ -209,6 +213,16 @@ function Layout() {
             <Route path="reports/stock/daily" element={<StockReport />} />
 
             <Route path="dashboard" element={<AnalyticsDashboard />} />
+
+            {/* 👇 Returns Routes - Wrapped with ReturnsProvider */}
+            <Route
+                path="returns/*"
+                element={
+                  <ReturnsProvider>
+                    <ReturnsList />
+                  </ReturnsProvider>
+                }
+            />
           </Routes>
           <Fab
               color="primary"
@@ -229,7 +243,6 @@ function Layout() {
                 About Us
               </Link>
               <Link color="primary" href="https://flatlogic.com/blog" target="_blank" className={classes.link}>
-
               </Link>
             </div>
             <div>

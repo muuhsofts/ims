@@ -26,6 +26,7 @@ import {
   Receipt as InvoiceIcon,
   Analytics as AnalyticsIcon,
   Storefront as StorefrontIcon,
+  ReceiptLong as ReturnsIcon, // 👈 Add returns icon
 } from '@mui/icons-material';
 
 const addIf = (condition, item) => (condition ? [item] : []);
@@ -258,6 +259,22 @@ export function getSidebarStructure(hasPermission) {
     });
   }
 
+  // 👇 ----- Returns -----
+  const hasReturnsPerm = hasPermission('returns.view') || hasPermission('returns.create') ||
+      hasPermission('returns.submit') || hasPermission('returns.cancel');
+  if (hasReturnsPerm) {
+    structure.push({
+      id: 18,
+      label: 'Returns',
+      link: '/app/returns',
+      icon: <ReturnsIcon />,
+      children: [
+        { label: 'All Returns', link: '/app/returns' },
+        ...addIf(hasPermission('returns.create'), { label: 'New Return', link: '/app/returns' }),
+      ],
+    });
+  }
+
   // ----- Invoices -----
   const hasInvoicePerm = hasPermission('invoices.view') || hasPermission('invoices.download');
   if (hasInvoicePerm) {
@@ -326,7 +343,6 @@ export function getSidebarStructure(hasPermission) {
 
   // ----- Settings -----
   const settingsChildren = [
-    // 👇 AGENTS added below Users
     ...addIf(hasPermission('users.view') || hasPermission('users.create') || hasPermission('users.edit') || hasPermission('users.delete'),
         { label: 'Users', link: '/app/settings/users' }),
     ...addIf(hasPermission('sales_agent.view') || hasPermission('sales_agent.create') || hasPermission('sales_agent.edit') || hasPermission('sales_agent.delete'),
@@ -372,6 +388,17 @@ const staticStructure = [
     icon: <SalesIcon />,
     children: [{ label: 'Sales Dashboard', link: '/app/sales' }],
   },
+  // 👇 Returns static structure
+  {
+    id: 18,
+    label: 'Returns',
+    link: '/app/returns',
+    icon: <ReturnsIcon />,
+    children: [
+      { label: 'All Returns', link: '/app/returns' },
+      { label: 'New Return', link: '/app/returns' },
+    ],
+  },
   { id: 17, label: 'Invoices', link: '/app/invoices', icon: <InvoiceIcon />, children: [{ label: 'Manage Invoices', link: '/app/invoices' }] },
   { id: 10, label: 'Distributions', link: '/app/distributions', icon: <DistributionIcon />, children: [{ label: 'Manage Distributions', link: '/app/distributions' }] },
   { id: 11, label: 'Transfer Requests', link: '/app/transfer-requests', icon: <TransferIcon />, children: [{ label: 'Manage Requests', link: '/app/transfer-requests' }] },
@@ -405,7 +432,7 @@ const staticStructure = [
     icon: <SettingsIcon />,
     children: [
       { label: 'Users', link: '/app/settings/users', icon: <UsersIcon /> },
-      { label: 'Agents', link: '/app/settings/agents', icon: <AgentIcon /> },  // 👈 added
+      { label: 'Agents', link: '/app/settings/agents', icon: <AgentIcon /> },
       { label: 'Roles', link: '/app/settings/roles', icon: <RolesIcon /> },
       { label: 'Permissions', link: '/app/settings/permissions', icon: <PermissionsIcon /> },
       { label: 'Audit Trails', link: '/app/settings/audit', icon: <AuditIcon /> },

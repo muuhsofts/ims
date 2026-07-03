@@ -1,0 +1,445 @@
+// src/pages/returns/ReturnsList.js
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+    Box, Button, Chip, Dialog, DialogActions, DialogContent,
+    DialogTitle, IconButton, InputAdornment, Menu, MenuItem,
+    Paper, Table, TableBody, TableCell, TableContainer,
+    TableHead, TablePagination, TableRow, TextField, Typography,
+    CircularProgress, Card, CardContent, Divider, useMediaQuery,
+    useTheme, Tooltip, Avatar, CardActions
+} from '@mui/material';
+import {
+    Add as AddIcon,
+    MoreVert as MoreVertIcon,
+    Refresh as RefreshIcon,
+    Search as SearchIcon,
+    Person as PersonIcon,
+    PhoneIphone as PhoneIcon,
+    CheckCircle as CheckCircleIcon,
+    Cancel as CancelIcon,
+    Pending as PendingIcon,
+    Warehouse as WarehouseIcon,
+    Receipt as ReceiptIcon
+} from '@mui/icons-material';
+import { usePermission } from '@/hooks/usePermission';
+import { showSnackbar } from 'utils/snackbar';
+import { useReturns } from '@/hooks/useReturns';
+import ReturnsModal from './ReturnsModal';
+import ReturnSubmitModal from './ReturnSubmitModal';
+
+const headCells = [
+    { id: 'customer_name', label: 'Customer' },
+    { id: 'imei', label: 'IMEI' },
+    { id: 'product', label: 'Product' },
+    { id: 'status', label: 'Status' },
+    { id: 'return_date', label: 'Return Date' },
+    { id: 'actions', label: 'Actions', disableSort: true },
+];
+
+const getStatusColor = (status) => {
+    switch (status) {
+        case 'returned': return 'warning';
+        case 'completed': return 'success';
+        case 'cancelled': return 'error';
+        default: return 'default';
+    }
+};
+
+const getStatusIcon = (status) => {
+    switch (status) {
+        case 'returned': return <PendingIcon fontSize="small" />;
+        case 'completed': return <CheckCircleIcon fontSize="small" />;
+        case 'cancelled': return <CancelIcon fontSize="small" />;
+        default: return null;
+    }
+};
+
+const getStatusLabel = (status) => {
+    switch (status) {
+        case 'returned': return 'Pending';
+        case 'completed': return 'Completed';
+        case 'cancelled': return 'Cancelled';
+        default: return status;
+    }
+};
+
+// Card component for mobile view
+const ReturnCard = ({ returnItem, canSubmit, canCancel, onAction }) => {
+    return (
+        <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
+            <CardContent sx={{ p: 2 }}>
+                <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
+                    <Box>
+                        <Typography variant="subtitle1" fontWeight="bold">
+                            {returnItem.customer_name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                            IMEI: {returnItem.imei}
+                        </Typography>
+                    </Box>
+                    <Chip
+                        label={getStatusLabel(returnItem.status)}
+                        color={getStatusColor(returnItem.status)}
+                        size="small"
+                        icon={getStatusIcon(returnItem.status)}
+                    />
+                </Box>
+                <Divider sx={{ my: 1 }} />
+                <Box display="flex" alignItems="center" gap={1} mb={1}>
+                    <PhoneIcon fontSize="small" color="action" />
+                    <Typography variant="body2">
+                        {returnItem.product?.sku || 'N/A'} - {returnItem.product?.category?.category_name || 'N/A'}
+                    </Typography>
+                </Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                    Returned: {new Date(returnItem.return_date).toLocaleString()}
+                </Typography>
+                {returnItem.completed_date && (
+                    <Typography variant="caption" color="text.secondary" display="block">
+                        Completed: {new Date(returnItem.completed_date).toLocaleString()}
+                    </Typography>
+                )}
+                {returnItem.notes && (
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                        Notes: {returnItem.notes}
+                    </Typography>
+                )}
+            </CardContent>
+            {(returnItem.status === 'returned' && (canSubmit || canCancel)) && (
+                <CardActions sx={{ p: 1, justifyContent: 'flex-end' }}>
+                    {canSubmit && (
+                        <Button
+                            size="small"
+                            variant="contained"
+                            color="success"
+                            onClick={() => onAction('submit', returnItem)}
+                        >
+                            Submit
+                        </Button>
+                    )}
+                    {canCancel && (
+                        <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            onClick={() => onAction('cancel', returnItem)}
+                        >
+                            Cancel
+                        </Button>
+                    )}
+                </CardActions>
+            )}
+        </Card>
+    );
+};
+
+export default function ReturnsList() {
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+    const showTableView = useMediaQuery(theme.breakpoints.up('md'));
+
+    const { hasPermission } = usePermission();
+    const canView = hasPermission('returns.view');
+    const canCreate = hasPermission('returns.create');
+    const canSubmit = hasPermission('returns.submit');
+    const canCancel = hasPermission('returns.cancel');
+
+    const {
+        data,
+        total,
+        loading,
+        fetchReturns,
+        cancelReturn,
+        fetchStatistics
+    } = useReturns();
+
+    const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState('');
+    const [page, setPage] = useState(0);
+    const [rowsPerPage, setRowsPerPage] = useState(10);
+    const [modalOpen, setModalOpen] = useState(false);
+    const [submitModalOpen, setSubmitModalOpen] = useState(false);
+    const [selectedReturn, setSelectedReturn] = useState(null);
+    const [actionMenu, setActionMenu] = useState(null);
+    const [confirmDialog, setConfirmDialog] = useState({
+        open: false,
+        title: '',
+        message: '',
+        action: null,
+    });
+
+    const fetchData = useCallback(() => {
+        if (!canView) return;
+        const params = {
+            page: page + 1,
+            per_page: rowsPerPage,
+            search: search || undefined,
+            status: statusFilter || undefined,
+        };
+        fetchReturns(params);
+    }, [page, rowsPerPage, search, statusFilter, canView, fetchReturns]);
+
+    useEffect(() => {
+        fetchData();
+        fetchStatistics();
+    }, [fetchData, fetchStatistics]);
+
+    const handleMenuOpen = (event, returnItem) => {
+        setSelectedReturn(returnItem);
+        setActionMenu(event.currentTarget);
+    };
+
+    const handleMenuClose = () => {
+        setActionMenu(null);
+        setSelectedReturn(null);
+    };
+
+    const handleSubmit = () => {
+        setSubmitModalOpen(true);
+        handleMenuClose();
+    };
+
+    const handleCancel = async () => {
+        if (!selectedReturn) return;
+        setConfirmDialog({
+            open: true,
+            title: 'Cancel Return',
+            message: `Are you sure you want to cancel the return for ${selectedReturn.customer_name} (IMEI: ${selectedReturn.imei})?`,
+            action: async () => {
+                await cancelReturn(selectedReturn.return_id);
+                fetchData();
+            }
+        });
+        handleMenuClose();
+    };
+
+    const handleAction = (action, returnItem) => {
+        setSelectedReturn(returnItem);
+        if (action === 'submit') {
+            setSubmitModalOpen(true);
+        } else if (action === 'cancel') {
+            setConfirmDialog({
+                open: true,
+                title: 'Cancel Return',
+                message: `Are you sure you want to cancel the return for ${returnItem.customer_name} (IMEI: ${returnItem.imei})?`,
+                action: async () => {
+                    await cancelReturn(returnItem.return_id);
+                    fetchData();
+                }
+            });
+        }
+    };
+
+    const handleConfirm = async () => {
+        if (!confirmDialog.action) return;
+        setConfirmDialog(prev => ({ ...prev, open: false }));
+        try {
+            await confirmDialog.action();
+            showSnackbar({ type: 'success', message: 'Operation completed successfully' });
+        } catch (err) {
+            // Error handled in hook
+        }
+    };
+
+    if (!canView) {
+        return <Typography sx={{ p: 2 }}>You do not have permission to view returns.</Typography>;
+    }
+
+    const returns = Array.isArray(data) ? data : [];
+
+    return (
+        <Box sx={{ width: '100%', p: { xs: 1, sm: 2, md: 3 }, m: 0 }}>
+            <Paper sx={{ width: '100%', borderRadius: { xs: 1, sm: 2 }, overflow: 'hidden', boxShadow: 1 }}>
+                {/* Header & Filters */}
+                <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: 1, borderColor: 'divider' }}>
+                    <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} gap={2} mb={2}>
+                        <Typography variant="h5" sx={{ fontSize: { xs: '1.5rem', sm: '1.75rem' } }}>
+                            Returns Management
+                        </Typography>
+                        {canCreate && (
+                            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setModalOpen(true)} fullWidth={isMobile}>
+                                New Return
+                            </Button>
+                        )}
+                    </Box>
+                    <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} gap={2}>
+                        <TextField
+                            label="Search by IMEI or Customer"
+                            size="small"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>
+                            }}
+                            sx={{ flex: 1, minWidth: { xs: '100%', sm: 250 } }}
+                        />
+                        <TextField
+                            select
+                            label="Status"
+                            size="small"
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            sx={{ minWidth: { xs: '100%', sm: 150 } }}
+                        >
+                            <MenuItem value="">All</MenuItem>
+                            <MenuItem value="returned">Pending</MenuItem>
+                            <MenuItem value="completed">Completed</MenuItem>
+                            <MenuItem value="cancelled">Cancelled</MenuItem>
+                        </TextField>
+                        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchData} fullWidth={isMobile}>
+                            Refresh
+                        </Button>
+                    </Box>
+                </Box>
+
+                {/* Table or Card View */}
+                {showTableView ? (
+                    <TableContainer sx={{ overflowX: 'auto' }}>
+                        <Table sx={{ minWidth: 800 }}>
+                            <TableHead>
+                                <TableRow>
+                                    {headCells.map((cell) => (
+                                        <TableCell key={cell.id}>{cell.label}</TableCell>
+                                    ))}
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {loading ? (
+                                    <TableRow><TableCell colSpan={headCells.length} align="center"><CircularProgress size={32} sx={{ my: 3 }} /></TableCell></TableRow>
+                                ) : returns.length === 0 ? (
+                                    <TableRow><TableCell colSpan={headCells.length} align="center">No returns found</TableCell></TableRow>
+                                ) : (
+                                    returns.map((ret) => (
+                                        <TableRow key={ret.return_id} hover>
+                                            <TableCell>
+                                                <Box display="flex" alignItems="center" gap={1}>
+                                                    <Avatar sx={{ width: 24, height: 24, bgcolor: 'primary.main' }}>
+                                                        <PersonIcon sx={{ fontSize: 14 }} />
+                                                    </Avatar>
+                                                    {ret.customer_name}
+                                                </Box>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Tooltip title={ret.imei}>
+                                                    <Typography sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                                                        {ret.imei}
+                                                    </Typography>
+                                                </Tooltip>
+                                            </TableCell>
+                                            <TableCell>
+                                                {ret.product ? (
+                                                    <Box>
+                                                        <Typography variant="body2">{ret.product.sku || 'N/A'}</Typography>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            {ret.product.category?.category_name || 'N/A'}
+                                                        </Typography>
+                                                    </Box>
+                                                ) : 'N/A'}
+                                            </TableCell>
+                                            <TableCell>
+                                                <Chip
+                                                    label={getStatusLabel(ret.status)}
+                                                    color={getStatusColor(ret.status)}
+                                                    size="small"
+                                                    icon={getStatusIcon(ret.status)}
+                                                />
+                                            </TableCell>
+                                            <TableCell>
+                                                <Typography variant="body2">
+                                                    {new Date(ret.return_date).toLocaleDateString()}
+                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    {new Date(ret.return_date).toLocaleTimeString()}
+                                                </Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                                {(ret.status === 'returned' && (canSubmit || canCancel)) && (
+                                                    <IconButton size="small" onClick={(e) => handleMenuOpen(e, ret)}>
+                                                        <MoreVertIcon />
+                                                    </IconButton>
+                                                )}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
+                ) : (
+                    <Box sx={{ p: { xs: 2, sm: 3 } }}>
+                        {loading ? (
+                            <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+                        ) : returns.length === 0 ? (
+                            <Paper sx={{ p: 3, textAlign: 'center' }}>No returns found</Paper>
+                        ) : (
+                            returns.map((ret) => (
+                                <ReturnCard
+                                    key={ret.return_id}
+                                    returnItem={ret}
+                                    canSubmit={canSubmit}
+                                    canCancel={canCancel}
+                                    onAction={handleAction}
+                                />
+                            ))
+                        )}
+                    </Box>
+                )}
+
+                {/* Pagination */}
+                <Box sx={{ borderTop: 1, borderColor: 'divider', py: { xs: 1, sm: 0 } }}>
+                    <TablePagination
+                        rowsPerPageOptions={[5, 10, 25, 50]}
+                        component="div"
+                        count={total}
+                        rowsPerPage={rowsPerPage}
+                        page={page}
+                        onPageChange={(e, newPage) => setPage(newPage)}
+                        onRowsPerPageChange={(e) => {
+                            setRowsPerPage(parseInt(e.target.value, 10));
+                            setPage(0);
+                        }}
+                        sx={{ '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': { fontSize: { xs: '0.75rem', sm: '0.875rem' } } }}
+                    />
+                </Box>
+            </Paper>
+
+            {/* Action Menu */}
+            <Menu anchorEl={actionMenu} open={Boolean(actionMenu)} onClose={handleMenuClose}>
+                {canSubmit && (
+                    <MenuItem onClick={handleSubmit}>
+                        <CheckCircleIcon sx={{ mr: 1, color: 'success.main' }} /> Submit Return
+                    </MenuItem>
+                )}
+                {canCancel && (
+                    <MenuItem onClick={handleCancel}>
+                        <CancelIcon sx={{ mr: 1, color: 'error.main' }} /> Cancel Return
+                    </MenuItem>
+                )}
+            </Menu>
+
+            {/* Modals */}
+            <ReturnsModal
+                open={modalOpen}
+                onClose={() => setModalOpen(false)}
+                onSuccess={fetchData}
+            />
+
+            <ReturnSubmitModal
+                open={submitModalOpen}
+                onClose={() => setSubmitModalOpen(false)}
+                returnItem={selectedReturn}
+                onSuccess={fetchData}
+            />
+
+            {/* Confirm Dialog */}
+            <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog(prev => ({ ...prev, open: false }))} fullWidth maxWidth="xs">
+                <DialogTitle sx={{ pb: 1 }}>{confirmDialog.title}</DialogTitle>
+                <DialogContent><Typography>{confirmDialog.message}</Typography></DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
+                    <Button onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}>Cancel</Button>
+                    <Button onClick={handleConfirm} color="error" variant="contained">Confirm</Button>
+                </DialogActions>
+            </Dialog>
+        </Box>
+    );
+}

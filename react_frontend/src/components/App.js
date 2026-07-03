@@ -12,7 +12,6 @@ import VerifyOTP from "pages/verify_otp/VerifyOTP";
 import ResetPassword from "pages/reset_password/ResetPassword";
 import ForgotPassword from "pages/forgot_password/ForgotPassword";
 
-
 // Data contexts
 import { ProductCategoryProvider } from "context/ProductCategoryContext";
 import { ProductProvider } from "context/ProductContext";
@@ -37,7 +36,8 @@ import { DashboardProvider } from "context/DashboardContext";
 import { CcInventoryProvider } from "context/CollectionCenterContext";
 import { CollectionCenterProvider } from "context/CCInventoryContext";
 import { InvoiceProvider } from "context/InvoiceContext";
-import { AgentProvider } from "context/AgentContext";  // 👈 import AgentProvider
+import { AgentProvider } from "context/AgentContext";
+import { ReturnsProvider } from "context/ReturnsContext"; // 👈 Import ReturnsProvider
 
 function RouterNavigatorSync() {
     const navigate = useNavigate();
@@ -112,9 +112,12 @@ export default function App() {
                                                                                             <ReportProvider>
                                                                                                 <DashboardProvider>
                                                                                                     <InvoiceProvider>
-                                                                                                        <AgentProvider>   {/* 👈 wrap with AgentProvider */}
-                                                                                                            <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} />
-                                                                                                            <AppContent />
+                                                                                                        <AgentProvider>
+                                                                                                            {/* 👇 Add ReturnsProvider */}
+                                                                                                            <ReturnsProvider>
+                                                                                                                <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} />
+                                                                                                                <AppContent />
+                                                                                                            </ReturnsProvider>
                                                                                                         </AgentProvider>
                                                                                                     </InvoiceProvider>
                                                                                                 </DashboardProvider>
