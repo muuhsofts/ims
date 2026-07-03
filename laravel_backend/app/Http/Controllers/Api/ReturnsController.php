@@ -133,6 +133,7 @@ class ReturnsController extends BaseApiController
             $request->validate([
                 'imei' => 'required|string',
                 'customer_name' => 'required|string|max:255',
+                'return_reason' => 'nullable|string|max:500',
                 'notes' => 'nullable|string',
             ]);
 
@@ -159,7 +160,7 @@ class ReturnsController extends BaseApiController
 
             // Check if product is already returned
             $existingReturn = Returns::where('product_id', $product->product_id)
-                ->whereIn('status', ['returned', 'approved'])
+                ->whereIn('status', ['pending', 'approved'])
                 ->first();
 
             if ($existingReturn) {
@@ -184,7 +185,7 @@ class ReturnsController extends BaseApiController
 
             DB::beginTransaction();
 
-            // Create return record with status 'returned'
+            // Create return record with status 'pending'
             $return = Returns::create([
                 'return_id' => (string) Str::uuid(),
                 'customer_name' => $request->customer_name,
@@ -194,18 +195,24 @@ class ReturnsController extends BaseApiController
                 'agent_id' => $user->id,
                 'customer_id' => $sale->customer_id,
                 'request_id' => null,
-                'status' => 'returned',
+                'status' => 'pending',
+                'return_reason' => $request->return_reason,
+                'return_date' => now(),
                 'notes' => $request->notes,
                 'performed_by' => auth()->id(),
             ]);
 
             // Update product status to indicate it's being returned
-            $product->status = 'inactive';
-            $product->stock_status = 'transferred';
+            $product->status = 'return_pending';
+            $product->stock_status = 'pending_return';
             $product->save();
 
             // Remove product from agent inventory (product_ids array)
             $this->removeProductFromAgentInventory($user->id, $product->product_id);
+
+            // Update sale status to returned
+            $sale->status = 'returned';
+            $sale->save();
 
             DB::commit();
 
@@ -264,7 +271,7 @@ class ReturnsController extends BaseApiController
             $return = Returns::with(['product', 'sale'])->findOrFail($id);
 
             // Check if return can be approved
-            if ($return->status !== 'returned') {
+            if ($return->status !== 'pending') {
                 return $this->validationError([
                     'status' => ['Only pending returns can be approved. Current status: ' . $return->status]
                 ]);
@@ -273,6 +280,7 @@ class ReturnsController extends BaseApiController
             // Validate warehouse
             $request->validate([
                 'warehouse_id' => 'required|string|exists:warehouses,warehouse_id',
+                'condition' => 'nullable|in:good,damaged,defective',
                 'notes' => 'nullable|string',
             ]);
 
@@ -302,6 +310,7 @@ class ReturnsController extends BaseApiController
             if ($product) {
                 $product->stock_status = 'in_stock';
                 $product->status = 'active';
+                $product->condition = $request->condition ?? 'good';
                 $product->save();
             }
 
@@ -310,6 +319,7 @@ class ReturnsController extends BaseApiController
             $return->approved_by = auth()->id();
             $return->approved_at = now();
             $return->completed_date = now();
+            $return->condition = $request->condition ?? 'good';
             $return->notes = ($return->notes ? $return->notes . "\n" : '') .
                            "Approved by " . auth()->user()->name . " on " . now() .
                            " - Moved to warehouse: {$request->warehouse_id}";
@@ -370,7 +380,7 @@ class ReturnsController extends BaseApiController
 
         try {
             $user = auth()->user();
-            $return = Returns::with('product')->findOrFail($id);
+            $return = Returns::with(['product', 'sale'])->findOrFail($id);
 
             // Check if user can cancel this return
             $isStockController = $user->role?->name === 'STOCK_CONTROLLER';
@@ -379,7 +389,7 @@ class ReturnsController extends BaseApiController
             }
 
             // Only pending returns can be cancelled
-            if ($return->status !== 'returned') {
+            if ($return->status !== 'pending') {
                 return $this->validationError([
                     'status' => ['Only pending returns can be cancelled. Current status: ' . $return->status]
                 ]);
@@ -388,6 +398,7 @@ class ReturnsController extends BaseApiController
             DB::beginTransaction();
 
             $return->status = 'cancelled';
+            $return->cancelled_at = now();
             $return->notes = ($return->notes ? $return->notes . "\n" : '') .
                            "Cancelled on " . now() . " by " . auth()->user()->name;
             $return->save();
@@ -403,13 +414,19 @@ class ReturnsController extends BaseApiController
                 $product->save();
             }
 
+            // Restore sale status to completed
+            if ($return->sale) {
+                $return->sale->status = 'completed';
+                $return->sale->save();
+            }
+
             DB::commit();
 
             $this->logAudit('cancel_return', 'return', $return->return_id,
                 "Cancelled return for IMEI: {$return->imei}");
 
             return $this->successResponse($return->load('product'),
-                'Return cancelled successfully. Product restored to inventory.');
+                'Return cancelled successfully. Product restored to inventory and sale restored.');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -429,9 +446,11 @@ class ReturnsController extends BaseApiController
             if (!is_array($productIds)) {
                 $productIds = [];
             }
-            $productIds[] = $productId;
-            $inventory->product_ids = $productIds;
-            $inventory->save();
+            if (!in_array($productId, $productIds)) {
+                $productIds[] = $productId;
+                $inventory->product_ids = $productIds;
+                $inventory->save();
+            }
         } else {
             AgentInventory::create([
                 'agent_inv_id' => (string) Str::uuid(),
@@ -440,6 +459,62 @@ class ReturnsController extends BaseApiController
                 'quantity_received' => 0,
                 'quantity_sold' => 0,
             ]);
+        }
+    }
+
+    /**
+     * Complete a return (finalize the return process)
+     * Permission: returns.complete
+     */
+    public function completeReturn($id)
+    {
+        $perm = $this->checkPermission('returns.complete');
+        if ($perm) return $perm;
+
+        try {
+            $user = auth()->user();
+            
+            // Verify user is a stock controller
+            if ($user->role?->name !== 'STOCK_CONTROLLER') {
+                return $this->forbidden('Only stock controllers can complete returns');
+            }
+
+            $return = Returns::with(['product', 'sale'])->findOrFail($id);
+
+            // Check if return can be completed
+            if ($return->status !== 'approved') {
+                return $this->validationError([
+                    'status' => ['Only approved returns can be completed. Current status: ' . $return->status]
+                ]);
+            }
+
+            DB::beginTransaction();
+
+            // Update return status to completed
+            $return->status = 'completed';
+            $return->completed_at = now();
+            $return->completed_by = auth()->id();
+            $return->notes = ($return->notes ? $return->notes . "\n" : '') .
+                           "Completed on " . now() . " by " . auth()->user()->name;
+            $return->save();
+
+            // Update sale status to returned (if not already)
+            if ($return->sale && $return->sale->status !== 'returned') {
+                $return->sale->status = 'returned';
+                $return->sale->save();
+            }
+
+            DB::commit();
+
+            $this->logAudit('complete_return', 'return', $return->return_id,
+                "Completed return for IMEI: {$return->imei}");
+
+            return $this->successResponse($return->load(['product', 'sale']),
+                'Return completed successfully.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return $this->serverError('Failed to complete return: ' . $e->getMessage());
         }
     }
 
@@ -499,11 +574,11 @@ class ReturnsController extends BaseApiController
 
             $stats = [
                 'total' => $query->count(),
-                'pending' => (clone $query)->where('status', 'returned')->count(),
+                'pending' => (clone $query)->where('status', 'pending')->count(),
                 'approved' => (clone $query)->where('status', 'approved')->count(),
                 'completed' => (clone $query)->where('status', 'completed')->count(),
                 'cancelled' => (clone $query)->where('status', 'cancelled')->count(),
-                'recent_pending' => (clone $query)->where('status', 'returned')
+                'recent_pending' => (clone $query)->where('status', 'pending')
                     ->whereDate('created_at', '>=', now()->subDays(7))
                     ->count(),
                 'completion_rate' => 0,
@@ -574,7 +649,7 @@ class ReturnsController extends BaseApiController
 
             // Check for pending or approved return
             $pendingReturn = Returns::where('product_id', $product->product_id)
-                ->whereIn('status', ['returned', 'approved'])
+                ->whereIn('status', ['pending', 'approved'])
                 ->first();
 
             if ($pendingReturn) {
@@ -619,6 +694,7 @@ class ReturnsController extends BaseApiController
                     'sale_date' => $sale->created_at,
                     'total_amount' => $sale->total_amount,
                     'payment_method' => $sale->payment_method,
+                    'status' => $sale->status,
                 ],
                 'customer' => $customer ? [
                     'customer_id' => $customer->customer_id,
@@ -682,7 +758,7 @@ class ReturnsController extends BaseApiController
             }
 
             $query = Returns::with(['product', 'product.category', 'performedBy', 'agent', 'customer', 'sale'])
-                ->where('status', 'returned');
+                ->where('status', 'pending');
 
             if ($request->filled('imei')) {
                 $query->where('imei', 'LIKE', "%{$request->imei}%");
