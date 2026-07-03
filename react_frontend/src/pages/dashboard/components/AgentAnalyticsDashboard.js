@@ -104,11 +104,11 @@ export default function AgentAnalyticsDashboard() {
                 <DashboardFilters period={period} setPeriod={setPeriod} date={date} setDate={setDate} refetch={refetch} />
             )}
 
-            {/* Count Cards - Three distinct metrics */}
+            {/* Count Cards */}
             <Grid container spacing={3} sx={{ mb: 5 }}>
                 <Grid item xs={12} sm={4}>
                     <MetricCard
-                        title="Total Stock"
+                        title="Total Received Stock"
                         value={cards.total_stock || 0}
                         icon={Inventory}
                         color="#ff9800"
@@ -116,15 +116,15 @@ export default function AgentAnalyticsDashboard() {
                 </Grid>
                 <Grid item xs={12} sm={4}>
                     <MetricCard
-                        title="Remaining Stock"
-                        value={cards.remaining_stock || cards.total_stock || 0}
+                        title="Total Remaining Device"
+                        value={cards.remaining_stock || 0}
                         icon={ShoppingCart}
                         color="#4caf50"
                     />
                 </Grid>
                 <Grid item xs={12} sm={4}>
                     <MetricCard
-                        title="Total Transactions"
+                        title="Total Sold Device"
                         value={cards.total_sales_count || 0}
                         icon={TrendingUp}
                         color="#2196f3"
@@ -132,7 +132,7 @@ export default function AgentAnalyticsDashboard() {
                 </Grid>
             </Grid>
 
-            {/* Top 5 Sales Table - Amount column hidden */}
+            {/* Top 5 Sales Table */}
             <Paper sx={{ p: 2, borderRadius: 4, backdropFilter: 'blur(8px)', bgcolor: alpha(theme.palette.background.paper, 0.6) }}>
                 <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>🏆 Top 5 Sales Transactions</Typography>
                 <TableContainer component={Paper} elevation={0}>
