@@ -1,7 +1,23 @@
 // src/pages/stock/StockMovementList.js
 import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Tooltip, FormControl, InputLabel, Select, Card, CardContent, Divider, useMediaQuery, useTheme, Grid } from '@mui/material';
-import { MoreVert as MoreVertIcon, Refresh as RefreshIcon, Search as SearchIcon, SwapHoriz as TransferIcon, ShoppingCart as PurchaseIcon, Sell as SaleIcon, AssignmentReturn as ReturnIcon, Adjust as AdjustmentIcon, Warning as LossIcon, LocationOn as LocationIcon, Person as PersonIcon, CalendarToday as CalendarIcon, Category as CategoryIcon, FiberManualRecord as StatusIcon } from '@mui/icons-material';
+import {
+    Box, Button, Chip, Dialog, DialogActions, DialogContent,
+    DialogTitle, IconButton, InputAdornment, Menu, MenuItem,
+    Paper, Table, TableBody, TableCell, TableContainer,
+    TableHead, TablePagination, TableRow, TextField, Typography,
+    CircularProgress, Tooltip, FormControl, InputLabel, Select,
+    Card, CardContent, Divider, useMediaQuery, useTheme, Grid
+} from '@mui/material';
+import {
+    MoreVert as MoreVertIcon,
+    Refresh as RefreshIcon,
+    Search as SearchIcon,
+    SwapHoriz as TransferIcon,
+    AssignmentReturn as ReturnIcon,
+    Adjust as AdjustmentIcon,
+    Warning as LossIcon,
+    FiberManualRecord as StatusIcon
+} from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { useStockMovements } from '@/hooks/useStockMovements';
@@ -19,32 +35,24 @@ const headCells = [
     { id: 'actions', label: 'Actions', disableSort: true },
 ];
 
+// Movement types that appear in your data
 const movementTypeConfig = {
     transfer: { label: 'Transfer', color: 'primary', icon: TransferIcon },
-    purchase: { label: 'Purchase', color: 'success', icon: PurchaseIcon },
-    sale: { label: 'Sale', color: 'error', icon: SaleIcon },
-    return: { label: 'Return', color: 'warning', icon: ReturnIcon },
-    adjustment: { label: 'Adjustment', color: 'info', icon: AdjustmentIcon },
-    loss: { label: 'Loss', color: 'default', icon: LossIcon },
+    return_approved: { label: 'Return Approved', color: 'info', icon: ReturnIcon },
 };
 
-// Product status configuration
+// Product statuses that appear in your data
 const productStatusConfig = {
+    sold: { label: 'Sold', color: 'error' },
     in_stock: { label: 'In Stock', color: 'success' },
     transferred: { label: 'Transferred', color: 'warning' },
-    sold: { label: 'Sold', color: 'error' },
     returned: { label: 'Returned', color: 'secondary' },
-    damaged: { label: 'Damaged', color: 'default' },
-    reserved: { label: 'Reserved', color: 'info' },
-    pending: { label: 'Pending', color: 'warning' },
-    unknown: { label: 'Unknown', color: 'default' },
 };
 
-// Card component for mobile/tablet view
 const MovementCard = ({ movement, onViewDetails }) => {
-    const config = movementTypeConfig[movement.movement_type] || movementTypeConfig.transfer;
+    const config = movementTypeConfig[movement.movement_type] || { label: movement.movement_type, color: 'default', icon: StatusIcon };
     const IconComponent = config.icon;
-    const statusConfig = productStatusConfig[movement.product_status] || productStatusConfig.unknown;
+    const statusConfig = productStatusConfig[movement.product_status] || { label: movement.product_status || 'Unknown', color: 'default' };
 
     return (
         <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
@@ -84,16 +92,16 @@ const MovementCard = ({ movement, onViewDetails }) => {
                         />
                     </Grid>
                     <Grid item xs={12}>
-                        <Typography variant="caption" color="text.secondary">Type Description</Typography>
+                        <Typography variant="caption" color="text.secondary">Type</Typography>
                         <Typography variant="body2">{movement.movement_type_description || config.label}</Typography>
                     </Grid>
                     <Grid item xs={6}>
                         <Typography variant="caption" color="text.secondary">From</Typography>
-                        <Typography variant="body2">{movement.from_name} ({movement.from_type})</Typography>
+                        <Typography variant="body2">{movement.from_name}</Typography>
                     </Grid>
                     <Grid item xs={6}>
                         <Typography variant="caption" color="text.secondary">To</Typography>
-                        <Typography variant="body2">{movement.to_name} ({movement.to_type})</Typography>
+                        <Typography variant="body2">{movement.to_name}</Typography>
                     </Grid>
                     <Grid item xs={6}>
                         <Typography variant="caption" color="text.secondary">Performed By</Typography>
@@ -191,7 +199,6 @@ export default function StockMovementList() {
 
     const movements = Array.isArray(data) ? data : [];
 
-    // Card-specific handlers
     const handleCardViewDetails = (movement) => {
         setSelectedMovement(movement);
         setModalOpen(true);
@@ -204,7 +211,7 @@ export default function StockMovementList() {
                 <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: 1, borderColor: 'divider' }}>
                     <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} gap={2} alignItems="center">
                         <TextField
-                            label="Search by product, IMEI, SKU, brand, status or notes"
+                            label="Search by product, IMEI, SKU, brand or notes"
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
@@ -250,7 +257,6 @@ export default function StockMovementList() {
 
                 {/* Table or Card View */}
                 {showTableView ? (
-                    // Desktop Table View
                     <TableContainer sx={{ overflowX: 'auto' }}>
                         <Table sx={{ minWidth: 1400 }}>
                             <TableHead>
@@ -275,9 +281,9 @@ export default function StockMovementList() {
                                     </TableRow>
                                 ) : (
                                     movements.map((movement) => {
-                                        const config = movementTypeConfig[movement.movement_type] || movementTypeConfig.transfer;
+                                        const config = movementTypeConfig[movement.movement_type] || { label: movement.movement_type, color: 'default', icon: StatusIcon };
                                         const IconComponent = config.icon;
-                                        const statusConfig = productStatusConfig[movement.product_status] || productStatusConfig.unknown;
+                                        const statusConfig = productStatusConfig[movement.product_status] || { label: movement.product_status || 'Unknown', color: 'default' };
 
                                         return (
                                             <TableRow key={movement.movement_id} hover>
@@ -301,8 +307,8 @@ export default function StockMovementList() {
                                                     <Typography variant="caption" display="block">{movement.movement_type_description}</Typography>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Typography variant="body2">From: {movement.from_name} ({movement.from_type})</Typography>
-                                                    <Typography variant="body2" color="primary">To: {movement.to_name} ({movement.to_type})</Typography>
+                                                    <Typography variant="body2">From: {movement.from_name}</Typography>
+                                                    <Typography variant="body2" color="primary">To: {movement.to_name}</Typography>
                                                 </TableCell>
                                                 <TableCell>{movement.performed_by}</TableCell>
                                                 <TableCell>{movement.requester_name || movement.request_name || 'N/A'}</TableCell>
@@ -323,7 +329,6 @@ export default function StockMovementList() {
                         </Table>
                     </TableContainer>
                 ) : (
-                    // Mobile/Tablet Card View
                     <Box sx={{ p: { xs: 2, sm: 3 } }}>
                         {loading ? (
                             <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
@@ -359,7 +364,7 @@ export default function StockMovementList() {
                 </Box>
             </Paper>
 
-            {/* Action Menu (only for table view) */}
+            {/* Action Menu */}
             <Menu anchorEl={actionMenu} open={Boolean(actionMenu)} onClose={handleMenuClose}>
                 <MenuItem onClick={handleViewDetails}>View Details</MenuItem>
             </Menu>
