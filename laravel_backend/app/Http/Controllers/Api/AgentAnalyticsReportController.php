@@ -26,7 +26,7 @@ class AgentAnalyticsReportController extends BaseApiController
         }
 
         try {
-            // ----- PERIOD FILTERING (unchanged) -----
+            // ----- PERIOD FILTERING -----
             $period = $request->query('period');
             $dateInput = $request->query('date');
             $startDate = null;
@@ -78,38 +78,46 @@ class AgentAnalyticsReportController extends BaseApiController
             $remainingStock = 0;
 
             foreach ($inventoryRecords as $record) {
-                // --- Total Stock: use quantity_received (or 1 as fallback) ---
+                // Total Stock: sum of quantity_received (or 1 fallback)
                 $totalStock += $record->quantity_received ?? 1;
 
-                // --- Remaining Stock: count items in product_ids array ---
+                // Remaining Stock: count items in product_ids JSON array
                 if (!empty($record->product_ids) && is_array($record->product_ids)) {
                     $remainingStock += count($record->product_ids);
                 }
-                // if product_ids is empty, this record contributes 0 to remaining stock
+                // if product_ids is empty, contribution is 0
             }
 
-            // ========== TOTAL SALES COUNT (for the "Total Transactions" card) ==========
-            $salesQuery = Sale::where('agent_id', $agentId)
-                ->where('status', 'completed');
-
+            // ========== SALES COUNTS ==========
+            // Total sales (all statuses)
+            $salesQuery = Sale::where('agent_id', $agentId);
+            // No status filter – count ALL sales
             if ($startDate && $endDate) {
                 $salesQuery->whereBetween('created_at', [$startDate, $endDate]);
             }
             $totalSalesCount = $salesQuery->count();
 
-            // ========== LOG FOR DEBUGGING ==========
+            // Returned sales (status = 'returned')
+            $returnsQuery = Sale::where('agent_id', $agentId)
+                ->where('status', 'returned');   // adjust if status is 'refunded' or 'returned'
+            if ($startDate && $endDate) {
+                $returnsQuery->whereBetween('created_at', [$startDate, $endDate]);
+            }
+            $totalReturns = $returnsQuery->count();
+
+            // ========== LOGGING ==========
             Log::info('Agent Analytics Results:', [
                 'agent_id'          => $agentId,
                 'total_stock'       => $totalStock,
                 'remaining_stock'   => $remainingStock,
                 'total_sales_count' => $totalSalesCount,
+                'total_returns'     => $totalReturns,
                 'period'            => $periodLabel,
             ]);
 
-            // ========== TOP 5 SALES ==========
+            // ========== TOP 5 SALES (all statuses) ==========
             $topSalesQuery = Sale::where('agent_id', $agentId)
-                ->where('status', 'completed')
-                ->with(['customer', 'product.category']);
+                ->with(['customer', 'product.category']); // No status filter
 
             if ($startDate && $endDate) {
                 $topSalesQuery->whereBetween('created_at', [$startDate, $endDate]);
@@ -145,6 +153,7 @@ class AgentAnalyticsReportController extends BaseApiController
                     'total_stock'        => $totalStock,
                     'remaining_stock'    => $remainingStock,
                     'total_sales_count'  => $totalSalesCount,
+                    'total_returns'      => $totalReturns,
                     'period'             => $periodLabel,
                 ],
                 'top_5_sales' => $topSales,
