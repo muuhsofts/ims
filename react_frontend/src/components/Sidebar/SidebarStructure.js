@@ -269,7 +269,7 @@ export function getSidebarStructure(hasPermission) {
       link: '/app/returns',
       icon: <ReturnsIcon />,
       children: [
-
+        { label: 'All Returns', link: '/app/returns' },
       ],
     });
   }
