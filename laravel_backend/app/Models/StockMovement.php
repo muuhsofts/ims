@@ -57,7 +57,7 @@ class StockMovement extends Model
     public function product()
     {
         return $this->belongsTo(Product::class, 'product_id', 'product_id')
-                    ->with('category');  // ✅ eager loads category
+                    ->with('category');
     }
 
     public function performer()
@@ -70,7 +70,7 @@ class StockMovement extends Model
         return $this->belongsTo(CollectionCenter::class, 'to_id', 'cc_id');
     }
 
-    // ==================== ACCESSORS (all required fields) ====================
+    // ==================== ACCESSORS ====================
 
     public function getProductDisplayNameAttribute()
     {
@@ -82,7 +82,6 @@ class StockMovement extends Model
                 ?? 'Unknown Product';
 
         if ($p->color) $name .= " - {$p->color}";
-        // IMEI is separate field, not appended here
         return $name;
     }
 
@@ -128,23 +127,62 @@ class StockMovement extends Model
 
     public function getMovementTypeDescriptionAttribute()
     {
-        $type = ucfirst($this->movement_type);
+        // Get human-readable labels for movement types
+        $typeLabels = [
+            'purchase' => 'Purchase',
+            'transfer' => 'Transfer',
+            'sale' => 'Sale',
+            'return' => 'Return',
+            'adjustment' => 'Adjustment',
+            'loss' => 'Loss',
+            'return_request' => 'Return Request',
+            'return_approved' => 'Returned',
+            'return_completed' => 'Return Completed',
+            'return_cancelled' => 'Return Cancelled',
+        ];
+
+        $typeLabel = $typeLabels[$this->movement_type] ?? ucfirst(str_replace('_', ' ', $this->movement_type));
+        
         $fromLabel = match ($this->from_type) {
             'warehouse'         => 'Warehouse',
             'collection_center' => 'Collection Center',
             'sales_agent'       => 'Sales Agent',
             default             => 'Unknown Source',
         };
+        
         $toLabel = match ($this->to_type) {
             'warehouse'         => 'Warehouse',
             'collection_center' => 'Collection Center',
             'sales_agent'       => 'Sales Agent',
             default             => 'Unknown Destination',
         };
-        if ($this->movement_type === 'purchase') return "Purchase → {$toLabel}";
-        if ($this->movement_type === 'sale') return "Sale from {$fromLabel}";
-        if ($this->movement_type === 'adjustment') return "Stock Adjustment ({$fromLabel})";
-        if ($this->movement_type === 'loss') return "Stock Loss from {$fromLabel}";
-        return "{$type} from {$fromLabel} to {$toLabel}";
+
+        // Custom descriptions for return types
+        if ($this->movement_type === 'return_request') {
+            return "Return Requested from {$fromLabel} to {$toLabel}";
+        }
+        if ($this->movement_type === 'return_approved') {
+            return "Returned from {$fromLabel} to {$toLabel}";
+        }
+        if ($this->movement_type === 'return_completed') {
+            return "Return Completed from {$fromLabel} to {$toLabel}";
+        }
+        if ($this->movement_type === 'return_cancelled') {
+            return "Return Cancelled";
+        }
+        if ($this->movement_type === 'purchase') {
+            return "Purchase → {$toLabel}";
+        }
+        if ($this->movement_type === 'sale') {
+            return "Sale from {$fromLabel}";
+        }
+        if ($this->movement_type === 'adjustment') {
+            return "Stock Adjustment ({$fromLabel})";
+        }
+        if ($this->movement_type === 'loss') {
+            return "Stock Loss from {$fromLabel}";
+        }
+        
+        return "{$typeLabel} from {$fromLabel} to {$toLabel}";
     }
 }
