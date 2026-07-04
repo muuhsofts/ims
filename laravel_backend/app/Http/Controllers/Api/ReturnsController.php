@@ -202,17 +202,21 @@ class ReturnsController extends BaseApiController
                 'performed_by' => auth()->id(),
             ]);
 
-            // Update product status to indicate it's being returned
-            $product->status = 'return_pending';
-            $product->stock_status = 'pending_return';
-            $product->save();
-
-            // Remove product from agent inventory (product_ids array)
-            $this->removeProductFromAgentInventory($user->id, $product->product_id);
-
-            // Update sale status to returned
-            $sale->status = 'returned';
-            $sale->save();
+            // ✅ ONLY create stock movement record - NO other changes
+            StockMovement::create([
+                'movement_id' => (string) Str::uuid(),
+                'request_id' => null,
+                'product_id' => $product->product_id,
+                'from_type' => 'sales_agent',
+                'from_id' => $user->id,
+                'to_type' => 'warehouse',
+                'to_id' => null, // Will be set when approved
+                'quantity' => 1,
+                'movement_type' => 'return_request',
+                'reference_id' => $return->return_id,
+                'notes' => "Return requested for IMEI: {$request->imei} by agent: {$user->name}",
+                'performed_by' => auth()->id(),
+            ]);
 
             DB::commit();
 
@@ -223,6 +227,7 @@ class ReturnsController extends BaseApiController
                 'Return created successfully. Waiting for stock controller approval.');
 
         } catch (ValidationException $e) {
+            DB::rollBack();
             return $this->validationError($e->errors());
         } catch (\Exception $e) {
             DB::rollBack();
@@ -231,154 +236,100 @@ class ReturnsController extends BaseApiController
     }
 
     /**
-     * Remove product from agent inventory
+     * Approve a return - Only Stock Controllers can approve
+     * Creates stock movement and updates inventory
+     * Permission: returns.approve
      */
-    private function removeProductFromAgentInventory($agentId, $productId)
+    public function approveReturn(Request $request, $id)
     {
-        $inventory = AgentInventory::where('user_id', $agentId)
-            ->whereJsonContains('product_ids', $productId)
-            ->first();
+        $perm = $this->checkPermission('returns.approve');
+        if ($perm) return $perm;
 
-        if ($inventory && !empty($inventory->product_ids) && is_array($inventory->product_ids)) {
-            $productIds = $inventory->product_ids;
-            $index = array_search($productId, $productIds);
-            if ($index !== false) {
-                array_splice($productIds, $index, 1);
-                $inventory->product_ids = $productIds;
-                $inventory->save();
+        try {
+            $user = auth()->user();
+            
+            // Verify user is a stock controller
+            if ($user->role?->name !== 'STOCK_CONTROLLER') {
+                return $this->forbidden('Only stock controllers can approve returns');
             }
-        }
-    }
 
-    /**
- * Approve a return - Only Stock Controllers can approve
- * Creates stock movement and updates inventory
- * Permission: returns.approve
- */
-public function approveReturn(Request $request, $id)
-{
-    $perm = $this->checkPermission('returns.approve');
-    if ($perm) return $perm;
+            $return = Returns::with(['product', 'sale'])->findOrFail($id);
 
-    try {
-        $user = auth()->user();
-        
-        // Verify user is a stock controller
-        if ($user->role?->name !== 'STOCK_CONTROLLER') {
-            return $this->forbidden('Only stock controllers can approve returns');
-        }
+            // Check if return can be approved
+            if ($return->status !== 'returned') {
+                return $this->validationError([
+                    'status' => ['Only returned returns can be approved. Current status: ' . $return->status]
+                ]);
+            }
 
-        $return = Returns::with(['product', 'sale'])->findOrFail($id);
-
-        // Check if return can be approved
-        if ($return->status !== 'returned') {
-            return $this->validationError([
-                'status' => ['Only returned returns can be approved. Current status: ' . $return->status]
+            // Validate warehouse and condition
+            $request->validate([
+                'warehouse_id' => 'required|string|exists:warehouses,warehouse_id',
+                'condition' => 'nullable|in:good,damaged,defective',
+                'notes' => 'nullable|string',
             ]);
-        }
 
-        // Validate warehouse and condition
-        $request->validate([
-            'warehouse_id' => 'required|string|exists:warehouses,warehouse_id',
-            'condition' => 'nullable|in:good,damaged,defective',
-            'notes' => 'nullable|string',
-        ]);
+            DB::beginTransaction();
 
-        DB::beginTransaction();
+            // ✅ UPDATE stock movement with warehouse details
+            $stockMovement = StockMovement::where('reference_id', $return->return_id)
+                ->where('movement_type', 'return_request')
+                ->first();
 
-        // Create stock movement for return
-        $movement = StockMovement::create([
-            'movement_id' => (string) Str::uuid(),
-            'request_id' => null,
-            'product_id' => $return->product_id,
-            'from_type' => 'sales_agent',
-            'from_id' => $return->agent_id,
-            'to_type' => 'warehouse',
-            'to_id' => $request->warehouse_id,
-            'quantity' => 1,
-            'movement_type' => 'return',
-            'reference_id' => $return->return_id,
-            'notes' => $request->notes ?? "Return approved for IMEI: {$return->imei}",
-            'performed_by' => auth()->id(),
-        ]);
-
-        // Add product to warehouse inventory
-        $this->addProductToWarehouseInventory($request->warehouse_id, $return->product_id);
-
-        // Update product status - Set to active and stock_status to returned
-        $product = Product::find($return->product_id);
-        if ($product) {
-            $product->status = Product::STATUS_ACTIVE;  // 'active'
-            $product->stock_status = Product::STOCK_RETURNED;  // 'returned' ✅
-            $product->condition = $request->condition ?? Product::CONDITION_GOOD;
-            $product->save();
-        }
-
-        // Update return status to approved
-        $return->status = 'approved';
-        $return->approved_by = auth()->id();
-        $return->approved_at = now();
-        $return->condition = $request->condition ?? 'good';
-        $return->notes = ($return->notes ? $return->notes . "\n" : '') .
-                       "✅ Approved by " . auth()->user()->name . " on " . now() .
-                       " - Moved to warehouse: {$request->warehouse_id}" .
-                       " - Condition: " . ($request->condition ?? 'good') .
-                       " - Stock Status: returned";
-        $return->save();
-
-        DB::commit();
-
-        $this->logAudit('approve_return', 'return', $return->return_id,
-            "Approved return for IMEI: {$return->imei} to warehouse {$request->warehouse_id}. Product restored with stock_status: returned");
-
-        return $this->successResponse([
-            'return' => $return->load(['product', 'stockMovement', 'approvedBy']),
-            'movement' => $movement,
-            'product' => [
-                'product_id' => $product->product_id,
-                'status' => $product->status,
-                'stock_status' => $product->stock_status,  // This will show 'returned'
-                'condition' => $product->condition,
-                'message' => 'Product has been restored with stock_status: returned'
-            ]
-        ], 'Return approved and product restored with returned status');
-
-    } catch (\Exception $e) {
-        DB::rollBack();
-        \Log::error('Approve return failed', [
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
-        ]);
-        return $this->serverError('Failed to approve return: ' . $e->getMessage());
-    }
-}
-
-
-    /**
-     * Helper: Add product to warehouse inventory
-     */
-    private function addProductToWarehouseInventory($warehouseId, $productId)
-    {
-        $inventory = Inventory::where('warehouse_id', $warehouseId)->first();
-
-        if ($inventory) {
-            $productIds = $inventory->product_ids ?? [];
-            if (is_string($productIds)) {
-                $productIds = json_decode($productIds, true) ?? [];
+            if ($stockMovement) {
+                $stockMovement->to_id = $request->warehouse_id;
+                $stockMovement->movement_type = 'return_approved';
+                $stockMovement->notes = ($stockMovement->notes ?? '') . 
+                    " | Approved by " . $user->name . " on " . now() .
+                    " - Moved to warehouse: {$request->warehouse_id}";
+                $stockMovement->save();
+            } else {
+                // Create new stock movement if not found
+                StockMovement::create([
+                    'movement_id' => (string) Str::uuid(),
+                    'request_id' => null,
+                    'product_id' => $return->product_id,
+                    'from_type' => 'sales_agent',
+                    'from_id' => $return->agent_id,
+                    'to_type' => 'warehouse',
+                    'to_id' => $request->warehouse_id,
+                    'quantity' => 1,
+                    'movement_type' => 'return_approved',
+                    'reference_id' => $return->return_id,
+                    'notes' => "Return approved for IMEI: {$return->imei} by " . $user->name,
+                    'performed_by' => auth()->id(),
+                ]);
             }
 
-            if (!in_array($productId, $productIds)) {
-                $productIds[] = $productId;
-                $inventory->product_ids = json_encode($productIds);
-                $inventory->save();
-            }
-        } else {
-            Inventory::create([
-                'inventory_id' => (string) Str::uuid(),
-                'warehouse_id' => $warehouseId,
-                'product_ids' => json_encode([$productId]),
-                'created_by' => auth()->id(),
+            // ✅ Update return status to approved
+            $return->status = 'approved';
+            $return->approved_by = auth()->id();
+            $return->approved_at = now();
+            $return->condition = $request->condition ?? 'good';
+            $return->notes = ($return->notes ? $return->notes . "\n" : '') .
+                           "✅ Approved by " . $user->name . " on " . now() .
+                           " - Moved to warehouse: {$request->warehouse_id}" .
+                           " - Condition: " . ($request->condition ?? 'good');
+            $return->save();
+
+            DB::commit();
+
+            $this->logAudit('approve_return', 'return', $return->return_id,
+                "Approved return for IMEI: {$return->imei} to warehouse {$request->warehouse_id}");
+
+            return $this->successResponse([
+                'return' => $return->load(['product', 'stockMovement', 'approvedBy']),
+                'movement' => $stockMovement,
+                'message' => 'Return approved successfully. Stock movement recorded.'
+            ], 'Return approved successfully');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Approve return failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
+            return $this->serverError('Failed to approve return: ' . $e->getMessage());
         }
     }
 
@@ -410,28 +361,24 @@ public function approveReturn(Request $request, $id)
 
             DB::beginTransaction();
 
+            // ✅ Update stock movement to cancelled
+            $stockMovement = StockMovement::where('reference_id', $return->return_id)
+                ->whereIn('movement_type', ['return_request', 'return_approved'])
+                ->first();
+
+            if ($stockMovement) {
+                $stockMovement->movement_type = 'return_cancelled';
+                $stockMovement->notes = ($stockMovement->notes ?? '') . 
+                    " | ❌ Cancelled by " . $user->name . " on " . now();
+                $stockMovement->save();
+            }
+
+            // ✅ Update return status to cancelled
             $return->status = 'cancelled';
             $return->cancelled_at = now();
             $return->notes = ($return->notes ? $return->notes . "\n" : '') .
-                           "❌ Cancelled on " . now() . " by " . auth()->user()->name;
+                           "❌ Cancelled on " . now() . " by " . $user->name;
             $return->save();
-
-            // Restore product to agent inventory
-            $this->addProductToAgentInventory($return->agent_id, $return->product_id);
-
-            // Restore product status
-            $product = Product::find($return->product_id);
-            if ($product) {
-                $product->status = 'active';
-                $product->stock_status = 'in_stock';
-                $product->save();
-            }
-
-            // Restore sale status to completed
-            if ($return->sale) {
-                $return->sale->status = 'completed';
-                $return->sale->save();
-            }
 
             DB::commit();
 
@@ -439,39 +386,11 @@ public function approveReturn(Request $request, $id)
                 "Cancelled return for IMEI: {$return->imei}");
 
             return $this->successResponse($return->load('product'),
-                'Return cancelled successfully. Product restored to inventory and sale restored.');
+                'Return cancelled successfully.');
 
         } catch (\Exception $e) {
             DB::rollBack();
             return $this->serverError('Failed to cancel return: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Add product back to agent inventory (when return is cancelled)
-     */
-    private function addProductToAgentInventory($agentId, $productId)
-    {
-        $inventory = AgentInventory::where('user_id', $agentId)->first();
-
-        if ($inventory) {
-            $productIds = $inventory->product_ids ?? [];
-            if (!is_array($productIds)) {
-                $productIds = [];
-            }
-            if (!in_array($productId, $productIds)) {
-                $productIds[] = $productId;
-                $inventory->product_ids = $productIds;
-                $inventory->save();
-            }
-        } else {
-            AgentInventory::create([
-                'agent_inv_id' => (string) Str::uuid(),
-                'user_id' => $agentId,
-                'product_ids' => [$productId],
-                'quantity_received' => 0,
-                'quantity_sold' => 0,
-            ]);
         }
     }
 
@@ -503,20 +422,26 @@ public function approveReturn(Request $request, $id)
 
             DB::beginTransaction();
 
-            // Update return status to completed
+            // ✅ Update stock movement to completed
+            $stockMovement = StockMovement::where('reference_id', $return->return_id)
+                ->where('movement_type', 'return_approved')
+                ->first();
+
+            if ($stockMovement) {
+                $stockMovement->movement_type = 'return_completed';
+                $stockMovement->notes = ($stockMovement->notes ?? '') . 
+                    " | ✅ Completed by " . $user->name . " on " . now();
+                $stockMovement->save();
+            }
+
+            // ✅ Update return status to completed
             $return->status = 'completed';
             $return->completed_at = now();
             $return->completed_date = now();
             $return->completed_by = auth()->id();
             $return->notes = ($return->notes ? $return->notes . "\n" : '') .
-                           "✅ Completed on " . now() . " by " . auth()->user()->name;
+                           "✅ Completed on " . now() . " by " . $user->name;
             $return->save();
-
-            // Update sale status to returned (if not already)
-            if ($return->sale && $return->sale->status !== 'returned') {
-                $return->sale->status = 'returned';
-                $return->sale->save();
-            }
 
             DB::commit();
 
