@@ -2,12 +2,11 @@ import React, { useState } from 'react';
 import {
     Box, Typography, Grid, Card, CardContent, Paper, Table, TableBody,
     TableCell, TableContainer, TableHead, TableRow, Chip, Avatar, Stack,
-    useTheme, alpha, IconButton, Tooltip as MuiTooltip, CircularProgress,
+    useTheme, alpha, Tooltip as MuiTooltip, CircularProgress,
 } from '@mui/material';
-import { Inventory, TrendingUp, FilterAlt, ShoppingCart, Undo as ReturnIcon } from '@mui/icons-material';
+import { Inventory, TrendingUp, ShoppingCart, Undo as ReturnIcon } from '@mui/icons-material';
 import { useAgentAnalytics } from 'hooks/useAgentAnalytics';
 import { usePermission } from 'hooks/usePermission';
-import DashboardFilters from './DashboardFilters';
 
 const formatNumber = (num) => {
     if (num === undefined || num === null) return '0';
@@ -47,10 +46,7 @@ const MetricCard = ({ title, value, icon: Icon, color }) => {
 export default function AgentAnalyticsDashboard() {
     const theme = useTheme();
     const { hasPermission } = usePermission();
-    const [period, setPeriod] = useState('');
-    const [date, setDate] = useState(null);
-    const [showFilters, setShowFilters] = useState(false);
-    const { data, loading, error, refetch } = useAgentAnalytics(300000, period || null, date || null);
+    const { data, loading, error } = useAgentAnalytics(); // No period or date – all‑time
 
     if (!hasPermission('agent-dashboard.view')) {
         return (
@@ -89,20 +85,9 @@ export default function AgentAnalyticsDashboard() {
                     </Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: theme.palette.text.secondary }}>
                         <span>Sales Performance</span>
-                        {cards.period !== 'all-time' && <Chip size="small" label={`Period: ${cards.period}`} />}
                     </Box>
                 </Box>
-                <MuiTooltip title="Filter data by period">
-                    <IconButton onClick={() => setShowFilters(!showFilters)} color={showFilters ? 'primary' : 'default'}>
-                        <FilterAlt />
-                    </IconButton>
-                </MuiTooltip>
             </Box>
-
-            {/* Filters */}
-            {showFilters && (
-                <DashboardFilters period={period} setPeriod={setPeriod} date={date} setDate={setDate} refetch={refetch} />
-            )}
 
             {/* Count Cards – 4 cards, responsive: 2 per row on mobile, 4 per row on tablet/desktop */}
             <Grid container spacing={3} sx={{ mb: 5 }}>
@@ -140,7 +125,7 @@ export default function AgentAnalyticsDashboard() {
                 </Grid>
             </Grid>
 
-            {/* Top 5 Sales Table */}
+            {/* Top 5 Sales Table – shows all statuses */}
             <Paper sx={{ p: 2, borderRadius: 4, backdropFilter: 'blur(8px)', bgcolor: alpha(theme.palette.background.paper, 0.6) }}>
                 <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>🏆 Top 5 Sales Transactions</Typography>
                 <TableContainer component={Paper} elevation={0}>
@@ -169,7 +154,15 @@ export default function AgentAnalyticsDashboard() {
                                     <TableCell>{sale.category_name} / {sale.model}</TableCell>
                                     <TableCell>{sale.payment_method}</TableCell>
                                     <TableCell align="center">
-                                        <Chip label={sale.status} size="small" color={sale.status === 'completed' ? 'success' : 'warning'} />
+                                        <Chip
+                                            label={sale.status}
+                                            size="small"
+                                            color={
+                                                sale.status === 'completed' ? 'success' :
+                                                    sale.status === 'returned' ? 'error' :
+                                                        'warning'
+                                            }
+                                        />
                                     </TableCell>
                                     <TableCell>{new Date(sale.created_at).toLocaleDateString()}</TableCell>
                                 </TableRow>
