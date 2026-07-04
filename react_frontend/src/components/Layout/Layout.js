@@ -49,7 +49,7 @@ import Search from '../../pages/search';
 import Gallery from '../../pages/gallery';
 import Invoice from '../../pages/invoice';
 import Calendar from '../../pages/calendar';
-import BreadCrumbs from '../../components/BreadCrumbs';
+// BreadCrumbs import removed
 
 import { useLayoutState } from "context/LayoutContext";
 import { getSidebarStructure } from '../Sidebar/SidebarStructure';
@@ -80,17 +80,14 @@ import PurchaseReport from "pages/reports/PurchaseReport";
 import StockReport from "pages/reports/StockReport";
 import Invoices from "pages/invoices/Invoices";
 import InvoiceDetail from "pages/invoices/InvoiceDetail";
+// ✅ Correct import (default)
 import AnalyticsDashboard from "pages/dashboard/AnalyticsDashboard";
 import AgentAnalyticsDashboard from "pages/dashboard/components/AgentAnalyticsDashboard";
 import BranchOwnerStockReport from "pages/reports/BranchOwnerStockReport";
 import BranchOwnerAnalyticsDashboard from "pages/dashboard/components/BranchOwnerAnalyticsDashboard";
 
-// Agents List
+// AgentsList
 import AgentsList from "pages/agents/AgentsList";
-
-// 👇 Import Returns pages
-import ReturnsList from "pages/returns/ReturnsList";
-import { ReturnsProvider } from "context/ReturnsContext";
 
 import { usePermission } from 'hooks/usePermission';
 
@@ -117,7 +114,7 @@ function Layout() {
             })}
         >
           <div className={classes.fakeToolbar} />
-          <BreadCrumbs />
+          {/* BreadCrumbs removed */}
           <Routes>
             <Route path="profile" element={<Profile />} />
 
@@ -213,16 +210,6 @@ function Layout() {
             <Route path="reports/stock/daily" element={<StockReport />} />
 
             <Route path="dashboard" element={<AnalyticsDashboard />} />
-
-            {/* 👇 Returns Routes - Wrapped with ReturnsProvider */}
-            <Route
-                path="returns/*"
-                element={
-                  <ReturnsProvider>
-                    <ReturnsList />
-                  </ReturnsProvider>
-                }
-            />
           </Routes>
           <Fab
               color="primary"
@@ -243,6 +230,7 @@ function Layout() {
                 About Us
               </Link>
               <Link color="primary" href="https://flatlogic.com/blog" target="_blank" className={classes.link}>
+
               </Link>
             </div>
             <div>

@@ -36,50 +36,50 @@ function ColorChangeThemePopper({ open, id, anchorEl }) {
   };
 
   return (
-    <Popper
-      id={id}
-      open={open}
-      anchorEl={anchorEl}
-      placement={'left-start'}
-      style={{ zIndex: 100 }}
-      elevation={4}
-    >
-      <Widget disableWidgetMenu>
-        <Box
-          display='flex'
-          flexDirection='column'
-          justifyContent='space-between'
-          alignItems='center'
-        >
-          <>
-            <Typography variant='body2' weight={'bold'} uppercase>
-              color theme
-            </Typography>
-            <RadioGroup
-              aria-label='theme'
-              value={localStorage.getItem('theme')}
-              onChange={(e) => handleChangeTheme(e)}
-            >
-              <Box display='flex' justifyContent='space-between'>
-                <Radio value='default' className={classes.defaultRadio} />
-                <Radio value='secondary' className={classes.secondaryRadio} />
-                <Radio value='success' className={classes.successRadio} />
-              </Box>
-            </RadioGroup>
-          </>
-          <Divider style={{ width: '100%', margin: '8px 0 16px 0' }} />
-          <>
-            <Typography variant='body2' weight={'bold'} uppercase>
-              dark mode
-            </Typography>
-            <SwitchMode
-              checked={localStorage.getItem('theme') === 'dark'}
-              onChange={() => toggleDarkTheme()}
-            />
-          </>
-        </Box>
-      </Widget>
-    </Popper>
+      <Popper
+          id={id}
+          open={open}
+          anchorEl={anchorEl}
+          placement={'left-start'}
+          style={{ zIndex: 100 }}
+          elevation={4}
+      >
+        <Widget disableWidgetMenu>
+          <Box
+              display='flex'
+              flexDirection='column'
+              justifyContent='space-between'
+              alignItems='center'
+          >
+            <>
+              <Typography variant='body2' weight={'bold'} uppercase>
+                color theme
+              </Typography>
+              <RadioGroup
+                  aria-label='theme'
+                  value={localStorage.getItem('theme')}
+                  onChange={(e) => handleChangeTheme(e)}
+              >
+                <Box display='flex' justifyContent='space-between'>
+                  <Radio value='default' className={classes.defaultRadio} />
+                  <Radio value='secondary' className={classes.secondaryRadio} />
+                  <Radio value='success' className={classes.successRadio} />
+                </Box>
+              </RadioGroup>
+            </>
+            <Divider style={{ width: '100%', margin: '8px 0 16px 0' }} />
+            <>
+              <Typography variant='body2' weight={'bold'} uppercase>
+                dark mode
+              </Typography>
+              <SwitchMode
+                  checked={localStorage.getItem('theme') === 'dark'}
+                  onChange={() => toggleDarkTheme()}
+              />
+            </>
+          </Box>
+        </Widget>
+      </Popper>
   );
 }
 
