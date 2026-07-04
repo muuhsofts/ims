@@ -14,8 +14,6 @@ import {
     Search as SearchIcon,
     SwapHoriz as TransferIcon,
     AssignmentReturn as ReturnIcon,
-    Adjust as AdjustmentIcon,
-    Warning as LossIcon,
     FiberManualRecord as StatusIcon
 } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
@@ -26,7 +24,6 @@ import StockMovementModal from './StockMovementModal';
 const headCells = [
     { id: 'brand', label: 'Brand' },
     { id: 'product', label: 'Product / IMEI / SKU / Model' },
-    { id: 'status', label: 'Status' },
     { id: 'movement_type', label: 'Type' },
     { id: 'from_to', label: 'From → To' },
     { id: 'performed_by', label: 'Performed By' },
@@ -38,21 +35,12 @@ const headCells = [
 // Movement types that appear in your data
 const movementTypeConfig = {
     transfer: { label: 'Transfer', color: 'primary', icon: TransferIcon },
-    return_approved: { label: 'Return Approved', color: 'info', icon: ReturnIcon },
-};
-
-// Product statuses that appear in your data
-const productStatusConfig = {
-    sold: { label: 'Sold', color: 'error' },
-    in_stock: { label: 'In Stock', color: 'success' },
-    transferred: { label: 'Transferred', color: 'warning' },
-    returned: { label: 'Returned', color: 'secondary' },
+    return_approved: { label: 'Returned', color: 'secondary', icon: ReturnIcon },
 };
 
 const MovementCard = ({ movement, onViewDetails }) => {
     const config = movementTypeConfig[movement.movement_type] || { label: movement.movement_type, color: 'default', icon: StatusIcon };
     const IconComponent = config.icon;
-    const statusConfig = productStatusConfig[movement.product_status] || { label: movement.product_status || 'Unknown', color: 'default' };
 
     return (
         <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
@@ -81,15 +69,6 @@ const MovementCard = ({ movement, onViewDetails }) => {
                     <Grid item xs={6}>
                         <Typography variant="caption" color="text.secondary">Model</Typography>
                         <Typography variant="body2">{movement.model || 'N/A'}</Typography>
-                    </Grid>
-                    <Grid item xs={6}>
-                        <Typography variant="caption" color="text.secondary">Status</Typography>
-                        <Chip
-                            label={statusConfig.label}
-                            color={statusConfig.color}
-                            size="small"
-                            icon={<StatusIcon sx={{ fontSize: 12 }} />}
-                        />
                     </Grid>
                     <Grid item xs={12}>
                         <Typography variant="caption" color="text.secondary">Type</Typography>
@@ -141,7 +120,6 @@ export default function StockMovementList() {
 
     const [search, setSearch] = useState('');
     const [movementTypeFilter, setMovementTypeFilter] = useState('');
-    const [statusFilter, setStatusFilter] = useState('');
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(20);
     const [modalOpen, setModalOpen] = useState(false);
@@ -155,10 +133,9 @@ export default function StockMovementList() {
             per_page: rowsPerPage,
             search: search || undefined,
             movement_type: movementTypeFilter || undefined,
-            product_status: statusFilter || undefined,
         };
         fetchData(params);
-    }, [page, rowsPerPage, search, movementTypeFilter, statusFilter, canView, fetchData]);
+    }, [page, rowsPerPage, search, movementTypeFilter, canView, fetchData]);
 
     useEffect(() => {
         fetchMovements();
@@ -185,7 +162,6 @@ export default function StockMovementList() {
     const handleClearFilters = () => {
         setSearch('');
         setMovementTypeFilter('');
-        setStatusFilter('');
         setPage(0);
     };
 
@@ -233,23 +209,10 @@ export default function StockMovementList() {
                                 ))}
                             </Select>
                         </FormControl>
-                        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 } }}>
-                            <InputLabel>Product Status</InputLabel>
-                            <Select
-                                value={statusFilter}
-                                label="Product Status"
-                                onChange={(e) => setStatusFilter(e.target.value)}
-                            >
-                                <MenuItem value="">All</MenuItem>
-                                {Object.entries(productStatusConfig).map(([key, config]) => (
-                                    <MenuItem key={key} value={key}>{config.label}</MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
                         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchMovements}>
                             Refresh
                         </Button>
-                        {(search || movementTypeFilter || statusFilter) && (
+                        {(search || movementTypeFilter) && (
                             <Button variant="text" onClick={handleClearFilters}>Clear Filters</Button>
                         )}
                     </Box>
@@ -258,7 +221,7 @@ export default function StockMovementList() {
                 {/* Table or Card View */}
                 {showTableView ? (
                     <TableContainer sx={{ overflowX: 'auto' }}>
-                        <Table sx={{ minWidth: 1400 }}>
+                        <Table sx={{ minWidth: 1200 }}>
                             <TableHead>
                                 <TableRow sx={{ backgroundColor: 'action.hover' }}>
                                     {headCells.map((cell) => (
@@ -283,7 +246,6 @@ export default function StockMovementList() {
                                     movements.map((movement) => {
                                         const config = movementTypeConfig[movement.movement_type] || { label: movement.movement_type, color: 'default', icon: StatusIcon };
                                         const IconComponent = config.icon;
-                                        const statusConfig = productStatusConfig[movement.product_status] || { label: movement.product_status || 'Unknown', color: 'default' };
 
                                         return (
                                             <TableRow key={movement.movement_id} hover>
@@ -293,14 +255,6 @@ export default function StockMovementList() {
                                                     <Typography variant="caption" display="block">IMEI: {movement.imei}</Typography>
                                                     <Typography variant="caption" display="block">SKU: {movement.sku}</Typography>
                                                     <Typography variant="caption" display="block">Model: {movement.model || 'N/A'}</Typography>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Chip
-                                                        label={statusConfig.label}
-                                                        color={statusConfig.color}
-                                                        size="small"
-                                                        icon={<StatusIcon sx={{ fontSize: 14 }} />}
-                                                    />
                                                 </TableCell>
                                                 <TableCell>
                                                     <Chip icon={<IconComponent />} label={config.label} color={config.color} size="small" />
