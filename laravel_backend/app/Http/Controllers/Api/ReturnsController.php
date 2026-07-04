@@ -251,102 +251,108 @@ class ReturnsController extends BaseApiController
     }
 
     /**
-     * Approve a return - Only Stock Controllers can approve
-     * Creates stock movement and updates inventory
-     * Permission: returns.approve
-     */
-    public function approveReturn(Request $request, $id)
-    {
-        $perm = $this->checkPermission('returns.approve');
-        if ($perm) return $perm;
+ * Approve a return - Only Stock Controllers can approve
+ * Creates stock movement and updates inventory
+ * Permission: returns.approve
+ */
+public function approveReturn(Request $request, $id)
+{
+    $perm = $this->checkPermission('returns.approve');
+    if ($perm) return $perm;
 
-        try {
-            $user = auth()->user();
-            
-            // Verify user is a stock controller
-            if ($user->role?->name !== 'STOCK_CONTROLLER') {
-                return $this->forbidden('Only stock controllers can approve returns');
-            }
-
-            $return = Returns::with(['product', 'sale'])->findOrFail($id);
-
-            // Check if return can be approved
-            if ($return->status !== 'returned') {
-                return $this->validationError([
-                    'status' => ['Only returned returns can be approved. Current status: ' . $return->status]
-                ]);
-            }
-
-            // Validate warehouse and condition
-            $request->validate([
-                'warehouse_id' => 'required|string|exists:warehouses,warehouse_id',
-                'condition' => 'nullable|in:good,damaged,defective',
-                'notes' => 'nullable|string',
-            ]);
-
-            DB::beginTransaction();
-
-            // Create stock movement for return
-            $movement = StockMovement::create([
-                'movement_id' => (string) Str::uuid(),
-                'request_id' => null,
-                'product_id' => $return->product_id,
-                'from_type' => 'sales_agent',
-                'from_id' => $return->agent_id,
-                'to_type' => 'warehouse',
-                'to_id' => $request->warehouse_id,
-                'quantity' => 1,
-                'movement_type' => 'return',
-                'reference_id' => $return->return_id,
-                'notes' => $request->notes ?? "Return approved for IMEI: {$return->imei}",
-                'performed_by' => auth()->id(),
-            ]);
-
-            // Add product to warehouse inventory
-            $this->addProductToWarehouseInventory($request->warehouse_id, $return->product_id);
-
-            // Update product status - Set to active and stock_status to returned
-            $product = Product::find($return->product_id);
-            if ($product) {
-                $product->status = 'active';           // Product is active
-                $product->stock_status = 'returned';   // ✅ Stock status set to returned
-                $product->condition = $request->condition ?? 'good';
-                $product->save();
-            }
-
-            // Update return status to approved
-            $return->status = 'approved';
-            $return->approved_by = auth()->id();
-            $return->approved_at = now();
-            $return->condition = $request->condition ?? 'good';
-            $return->notes = ($return->notes ? $return->notes . "\n" : '') .
-                           "✅ Approved by " . auth()->user()->name . " on " . now() .
-                           " - Moved to warehouse: {$request->warehouse_id}" .
-                           " - Condition: " . ($request->condition ?? 'good') .
-                           " - Stock Status: returned";
-            $return->save();
-
-            DB::commit();
-
-            $this->logAudit('approve_return', 'return', $return->return_id,
-                "Approved return for IMEI: {$return->imei} to warehouse {$request->warehouse_id}. Product restored to active status with stock_status: returned");
-
-            return $this->successResponse([
-                'return' => $return->load(['product', 'stockMovement', 'approvedBy']),
-                'movement' => $movement,
-                'product' => [
-                    'status' => 'active',
-                    'stock_status' => 'returned',
-                    'condition' => $request->condition ?? 'good',
-                    'message' => 'Product has been restored to active status with stock_status: returned.'
-                ]
-            ], 'Return approved and product restored to inventory with returned status');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return $this->serverError('Failed to approve return: ' . $e->getMessage());
+    try {
+        $user = auth()->user();
+        
+        // Verify user is a stock controller
+        if ($user->role?->name !== 'STOCK_CONTROLLER') {
+            return $this->forbidden('Only stock controllers can approve returns');
         }
+
+        $return = Returns::with(['product', 'sale'])->findOrFail($id);
+
+        // Check if return can be approved
+        if ($return->status !== 'returned') {
+            return $this->validationError([
+                'status' => ['Only returned returns can be approved. Current status: ' . $return->status]
+            ]);
+        }
+
+        // Validate warehouse and condition
+        $request->validate([
+            'warehouse_id' => 'required|string|exists:warehouses,warehouse_id',
+            'condition' => 'nullable|in:good,damaged,defective',
+            'notes' => 'nullable|string',
+        ]);
+
+        DB::beginTransaction();
+
+        // Create stock movement for return
+        $movement = StockMovement::create([
+            'movement_id' => (string) Str::uuid(),
+            'request_id' => null,
+            'product_id' => $return->product_id,
+            'from_type' => 'sales_agent',
+            'from_id' => $return->agent_id,
+            'to_type' => 'warehouse',
+            'to_id' => $request->warehouse_id,
+            'quantity' => 1,
+            'movement_type' => 'return',
+            'reference_id' => $return->return_id,
+            'notes' => $request->notes ?? "Return approved for IMEI: {$return->imei}",
+            'performed_by' => auth()->id(),
+        ]);
+
+        // Add product to warehouse inventory
+        $this->addProductToWarehouseInventory($request->warehouse_id, $return->product_id);
+
+        // Update product status - Set to active and stock_status to returned
+        $product = Product::find($return->product_id);
+        if ($product) {
+            $product->status = Product::STATUS_ACTIVE;  // 'active'
+            $product->stock_status = Product::STOCK_RETURNED;  // 'returned' ✅
+            $product->condition = $request->condition ?? Product::CONDITION_GOOD;
+            $product->save();
+        }
+
+        // Update return status to approved
+        $return->status = 'approved';
+        $return->approved_by = auth()->id();
+        $return->approved_at = now();
+        $return->condition = $request->condition ?? 'good';
+        $return->notes = ($return->notes ? $return->notes . "\n" : '') .
+                       "✅ Approved by " . auth()->user()->name . " on " . now() .
+                       " - Moved to warehouse: {$request->warehouse_id}" .
+                       " - Condition: " . ($request->condition ?? 'good') .
+                       " - Stock Status: returned";
+        $return->save();
+
+        DB::commit();
+
+        $this->logAudit('approve_return', 'return', $return->return_id,
+            "Approved return for IMEI: {$return->imei} to warehouse {$request->warehouse_id}. Product restored with stock_status: returned");
+
+        return $this->successResponse([
+            'return' => $return->load(['product', 'stockMovement', 'approvedBy']),
+            'movement' => $movement,
+            'product' => [
+                'product_id' => $product->product_id,
+                'status' => $product->status,
+                'stock_status' => $product->stock_status,  // This will show 'returned'
+                'condition' => $product->condition,
+                'message' => 'Product has been restored with stock_status: returned'
+            ]
+        ], 'Return approved and product restored with returned status');
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        \Log::error('Approve return failed', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        return $this->serverError('Failed to approve return: ' . $e->getMessage());
     }
+}
+
 
     /**
      * Helper: Add product to warehouse inventory

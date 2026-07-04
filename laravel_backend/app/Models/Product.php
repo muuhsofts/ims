@@ -1,5 +1,6 @@
 <?php
 // app/Models/Product.php
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -24,23 +25,46 @@ class Product extends Model
         'buying_price',
         'cash_selling_price',
         'loan_selling_price',
+        'discounted_price',
         'status',
         'stock_status',
-        'pending_return', 
-        'returned'
+        'condition',
+        'deleted_at',
     ];
 
     protected $casts = [
         'buying_price' => 'decimal:2',
         'cash_selling_price' => 'decimal:2',
         'loan_selling_price' => 'decimal:2',
+        'discounted_price' => 'decimal:2',
         'deleted_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
-        'stock_status' => 'string',
     ];
 
     protected $appends = ['product_name', 'category_name'];
+
+    // Status constants
+    const STATUS_ACTIVE = 'active';
+    const STATUS_INACTIVE = 'inactive';
+    const STATUS_SOLD = 'sold';
+    const STATUS_DAMAGED = 'damaged';
+    const STATUS_RETURN_PENDING = 'return_pending';
+    const STATUS_RETURNED = 'returned';
+
+    // Stock status constants
+    const STOCK_IN_STOCK = 'in_stock';
+    const STOCK_TRANSFERRED = 'transferred';
+    const STOCK_RECEIVED = 'received';
+    const STOCK_SOLD = 'sold';
+    const STOCK_DAMAGED = 'damaged';
+    const STOCK_PENDING_RETURN = 'pending_return';
+    const STOCK_RETURNED = 'returned';
+
+    // Condition constants
+    const CONDITION_GOOD = 'good';
+    const CONDITION_DAMAGED = 'damaged';
+    const CONDITION_DEFECTIVE = 'defective';
 
     protected static function boot()
     {
@@ -71,14 +95,39 @@ class Product extends Model
         return $query;
     }
 
+    public function scopeInStock($query)
+    {
+        return $query->where('stock_status', 'in_stock');
+    }
+
+    public function scopeReturned($query)
+    {
+        return $query->where('stock_status', 'returned');
+    }
+
     public function isActive()
     {
         return $this->status === 'active';
     }
 
+    public function isInStock()
+    {
+        return $this->stock_status === 'in_stock';
+    }
+
+    public function isReturned()
+    {
+        return $this->stock_status === 'returned';
+    }
+
     public function setStatus($status)
     {
         $this->update(['status' => $status]);
+    }
+
+    public function setStockStatus($status)
+    {
+        $this->update(['stock_status' => $status]);
     }
 
     public function getProductNameAttribute()
@@ -98,5 +147,34 @@ class Product extends Model
     public function getSellingPrice($type = 'cash')
     {
         return $type === 'cash' ? $this->cash_selling_price : $this->loan_selling_price;
+    }
+
+    // Get status badge color
+    public function getStatusBadgeColor()
+    {
+        return match($this->status) {
+            'active' => 'success',
+            'inactive' => 'secondary',
+            'sold' => 'info',
+            'damaged' => 'error',
+            'return_pending' => 'warning',
+            'returned' => 'warning',
+            default => 'default'
+        };
+    }
+
+    // Get stock status badge color
+    public function getStockStatusBadgeColor()
+    {
+        return match($this->stock_status) {
+            'in_stock' => 'success',
+            'transferred' => 'info',
+            'received' => 'primary',
+            'sold' => 'error',
+            'damaged' => 'error',
+            'pending_return' => 'warning',
+            'returned' => 'warning',
+            default => 'default'
+        };
     }
 }
