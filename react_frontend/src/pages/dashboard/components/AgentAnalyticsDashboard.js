@@ -4,7 +4,7 @@ import {
     TableCell, TableContainer, TableHead, TableRow, Chip, Avatar, Stack,
     useTheme, alpha, IconButton, Tooltip as MuiTooltip, CircularProgress,
 } from '@mui/material';
-import { Inventory, TrendingUp, FilterAlt, ShoppingCart } from '@mui/icons-material';
+import { Inventory, TrendingUp, FilterAlt, ShoppingCart, Undo as ReturnIcon } from '@mui/icons-material';
 import { useAgentAnalytics } from 'hooks/useAgentAnalytics';
 import { usePermission } from 'hooks/usePermission';
 import DashboardFilters from './DashboardFilters';
@@ -104,9 +104,9 @@ export default function AgentAnalyticsDashboard() {
                 <DashboardFilters period={period} setPeriod={setPeriod} date={date} setDate={setDate} refetch={refetch} />
             )}
 
-            {/* Count Cards */}
+            {/* Count Cards – 4 cards, responsive: 2 per row on mobile, 4 per row on tablet/desktop */}
             <Grid container spacing={3} sx={{ mb: 5 }}>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={6} sm={3}>
                     <MetricCard
                         title="Total Received Stock"
                         value={cards.total_stock || 0}
@@ -114,7 +114,7 @@ export default function AgentAnalyticsDashboard() {
                         color="#ff9800"
                     />
                 </Grid>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={6} sm={3}>
                     <MetricCard
                         title="Total Remaining Device"
                         value={cards.remaining_stock || 0}
@@ -122,12 +122,20 @@ export default function AgentAnalyticsDashboard() {
                         color="#4caf50"
                     />
                 </Grid>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={6} sm={3}>
                     <MetricCard
                         title="Total Sold Device"
                         value={cards.total_sales_count || 0}
                         icon={TrendingUp}
                         color="#2196f3"
+                    />
+                </Grid>
+                <Grid item xs={6} sm={3}>
+                    <MetricCard
+                        title="Total Returned Device"
+                        value={cards.total_returns || 0}
+                        icon={ReturnIcon}
+                        color="#f44336"
                     />
                 </Grid>
             </Grid>
