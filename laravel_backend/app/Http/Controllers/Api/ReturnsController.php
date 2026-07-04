@@ -305,11 +305,11 @@ class ReturnsController extends BaseApiController
             // Add product to warehouse inventory
             $this->addProductToWarehouseInventory($request->warehouse_id, $return->product_id);
 
-            // Update product status - BACK TO ACTIVE (available for sale)
+            // Update product status - Set to active and stock_status to returned
             $product = Product::find($return->product_id);
             if ($product) {
-                $product->status = 'active';
-                $product->stock_status = 'in_stock';
+                $product->status = 'active';           // Product is active
+                $product->stock_status = 'returned';   // ✅ Stock status set to returned
                 $product->condition = $request->condition ?? 'good';
                 $product->save();
             }
@@ -322,24 +322,25 @@ class ReturnsController extends BaseApiController
             $return->notes = ($return->notes ? $return->notes . "\n" : '') .
                            "✅ Approved by " . auth()->user()->name . " on " . now() .
                            " - Moved to warehouse: {$request->warehouse_id}" .
-                           " - Condition: " . ($request->condition ?? 'good');
+                           " - Condition: " . ($request->condition ?? 'good') .
+                           " - Stock Status: returned";
             $return->save();
 
             DB::commit();
 
             $this->logAudit('approve_return', 'return', $return->return_id,
-                "Approved return for IMEI: {$return->imei} to warehouse {$request->warehouse_id}. Product restored to active status.");
+                "Approved return for IMEI: {$return->imei} to warehouse {$request->warehouse_id}. Product restored to active status with stock_status: returned");
 
             return $this->successResponse([
                 'return' => $return->load(['product', 'stockMovement', 'approvedBy']),
                 'movement' => $movement,
                 'product' => [
                     'status' => 'active',
-                    'stock_status' => 'in_stock',
+                    'stock_status' => 'returned',
                     'condition' => $request->condition ?? 'good',
-                    'message' => 'Product has been restored to active status and is available for sale again.'
+                    'message' => 'Product has been restored to active status with stock_status: returned.'
                 ]
-            ], 'Return approved and product restored to inventory');
+            ], 'Return approved and product restored to inventory with returned status');
 
         } catch (\Exception $e) {
             DB::rollBack();
