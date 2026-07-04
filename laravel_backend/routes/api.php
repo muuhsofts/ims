@@ -261,28 +261,20 @@ Route::prefix('v5')->group(function () {
     });
 
     
- // routes file (v17 group)
-Route::prefix('v17')->group(function () {
-    Route::prefix('returns')->group(function () {
-        // List and search
-        Route::get('/', [ReturnsController::class, 'index']);
-        Route::get('/statistics', [ReturnsController::class, 'statistics']);
-        Route::get('/search', [ReturnsController::class, 'search']);
-        Route::get('/my-returns', [ReturnsController::class, 'myReturns']);
-        Route::get('/agent-sales', [ReturnsController::class, 'getAgentSales']);
-        
-        // Stock Controller only
-        Route::get('/pending-approval', [ReturnsController::class, 'pendingForApproval']);
-        Route::post('/{id}/approve', [ReturnsController::class, 'approveReturn']);
-        Route::post('/{id}/complete', [ReturnsController::class, 'completeReturn']);
-        
-        // IMEI validation
-        Route::get('/validate-imei', [ReturnsController::class, 'validateImei']);
-        
-        // CRUD
-        Route::get('/{id}', [ReturnsController::class, 'show']);
-        Route::post('/', [ReturnsController::class, 'store']);
-        Route::post('/{id}/cancel', [ReturnsController::class, 'cancelReturn']);
+    // v7 – Inventory
+Route::prefix('v7')->group(function () {
+    Route::prefix('inventory')->group(function () {
+        Route::get('/product-in/inventory/dropdown', [ProductController::class, 'productsInInventoryDropdown']); 
+        Route::get('/summary', [InventoryController::class, 'summary']);
+        Route::get('/statistics', [InventoryController::class, 'statistics']);
+        Route::get('/', [InventoryController::class, 'index']);
+        Route::post('/', [InventoryController::class, 'store']);
+        Route::get('/{id}', [InventoryController::class, 'show']);
+        Route::put('/{id}', [InventoryController::class, 'update']);
+        Route::delete('/{id}', [InventoryController::class, 'destroy']);
+        Route::get('/{id}/products', [InventoryController::class, 'getProducts']);
+        Route::post('/{id}/products', [InventoryController::class, 'addProducts']);
+        Route::delete('/{id}/products', [InventoryController::class, 'removeProducts']);
     });
 });
 
@@ -482,19 +474,20 @@ Route::prefix('v16')->group(function () {
 });
 
 
-// ====================== v17 – RETURNS MANAGEMENT ======================
-    Route::prefix('v17')->group(function () {
+// In your routes file (v17 group)
+Route::prefix('v17')->group(function () {
     Route::prefix('returns')->group(function () {
         // List and search
         Route::get('/', [ReturnsController::class, 'index']);
         Route::get('/statistics', [ReturnsController::class, 'statistics']);
         Route::get('/search', [ReturnsController::class, 'search']);
-        Route::get('/my-returns', [ReturnsController::class, 'myReturns']); // Agent's own returns
-        Route::get('/agent-sales', [ReturnsController::class, 'getAgentSales']); // Get agent's sales
+        Route::get('/my-returns', [ReturnsController::class, 'myReturns']);
+        Route::get('/agent-sales', [ReturnsController::class, 'getAgentSales']);
         
         // Stock Controller only
         Route::get('/pending-approval', [ReturnsController::class, 'pendingForApproval']);
         Route::post('/{id}/approve', [ReturnsController::class, 'approveReturn']);
+        Route::post('/{id}/complete', [ReturnsController::class, 'completeReturn']);
         
         // IMEI validation
         Route::get('/validate-imei', [ReturnsController::class, 'validateImei']);

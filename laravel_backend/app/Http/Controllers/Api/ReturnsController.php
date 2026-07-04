@@ -277,7 +277,7 @@ class ReturnsController extends BaseApiController
                 ]);
             }
 
-            // Validate warehouse
+            // Validate warehouse and condition
             $request->validate([
                 'warehouse_id' => 'required|string|exists:warehouses,warehouse_id',
                 'condition' => 'nullable|in:good,damaged,defective',
@@ -305,11 +305,11 @@ class ReturnsController extends BaseApiController
             // Add product to warehouse inventory
             $this->addProductToWarehouseInventory($request->warehouse_id, $return->product_id);
 
-            // Update product stock status
+            // Update product status - BACK TO ACTIVE (available for sale)
             $product = Product::find($return->product_id);
             if ($product) {
-                $product->stock_status = 'in_stock';
                 $product->status = 'active';
+                $product->stock_status = 'in_stock';
                 $product->condition = $request->condition ?? 'good';
                 $product->save();
             }
@@ -320,19 +320,26 @@ class ReturnsController extends BaseApiController
             $return->approved_at = now();
             $return->condition = $request->condition ?? 'good';
             $return->notes = ($return->notes ? $return->notes . "\n" : '') .
-                           "Approved by " . auth()->user()->name . " on " . now() .
-                           " - Moved to warehouse: {$request->warehouse_id}";
+                           "✅ Approved by " . auth()->user()->name . " on " . now() .
+                           " - Moved to warehouse: {$request->warehouse_id}" .
+                           " - Condition: " . ($request->condition ?? 'good');
             $return->save();
 
             DB::commit();
 
             $this->logAudit('approve_return', 'return', $return->return_id,
-                "Approved return for IMEI: {$return->imei} to warehouse {$request->warehouse_id}");
+                "Approved return for IMEI: {$return->imei} to warehouse {$request->warehouse_id}. Product restored to active status.");
 
             return $this->successResponse([
                 'return' => $return->load(['product', 'stockMovement', 'approvedBy']),
-                'movement' => $movement
-            ], 'Return approved and processed successfully');
+                'movement' => $movement,
+                'product' => [
+                    'status' => 'active',
+                    'stock_status' => 'in_stock',
+                    'condition' => $request->condition ?? 'good',
+                    'message' => 'Product has been restored to active status and is available for sale again.'
+                ]
+            ], 'Return approved and product restored to inventory');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -399,7 +406,7 @@ class ReturnsController extends BaseApiController
             $return->status = 'cancelled';
             $return->cancelled_at = now();
             $return->notes = ($return->notes ? $return->notes . "\n" : '') .
-                           "Cancelled on " . now() . " by " . auth()->user()->name;
+                           "❌ Cancelled on " . now() . " by " . auth()->user()->name;
             $return->save();
 
             // Restore product to agent inventory
@@ -495,7 +502,7 @@ class ReturnsController extends BaseApiController
             $return->completed_date = now();
             $return->completed_by = auth()->id();
             $return->notes = ($return->notes ? $return->notes . "\n" : '') .
-                           "Completed on " . now() . " by " . auth()->user()->name;
+                           "✅ Completed on " . now() . " by " . auth()->user()->name;
             $return->save();
 
             // Update sale status to returned (if not already)
