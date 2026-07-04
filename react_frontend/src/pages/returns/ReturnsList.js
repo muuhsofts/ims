@@ -1,5 +1,5 @@
 // src/pages/returns/ReturnsList.js
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     Box, Button, Chip, Dialog, DialogActions, DialogContent,
     DialogTitle, IconButton, InputAdornment, Menu, MenuItem,
@@ -18,7 +18,7 @@ import {
     CheckCircle as CheckCircleIcon,
     Cancel as CancelIcon,
     Pending as PendingIcon,
-    ThumbUp as ApproveIcon,  // Changed from Approve to ThumbUp
+    ThumbUp as ApproveIcon,
     Warehouse as WarehouseIcon
 } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
@@ -179,6 +179,7 @@ export default function ReturnsList() {
     const [approveModalOpen, setApproveModalOpen] = useState(false);
     const [selectedReturn, setSelectedReturn] = useState(null);
     const [actionMenu, setActionMenu] = useState(null);
+    const [allData, setAllData] = useState([]);
     const [confirmDialog, setConfirmDialog] = useState({
         open: false,
         title: '',
@@ -186,21 +187,63 @@ export default function ReturnsList() {
         action: null,
     });
 
-    const fetchData = useCallback(() => {
+    // Fetch all data once (no pagination params for client-side filtering)
+    const fetchAllReturns = useCallback(() => {
         if (!canView) return;
-        const params = {
-            page: page + 1,
-            per_page: rowsPerPage,
-            search: search || undefined,
-            status: statusFilter || undefined,
-        };
-        fetchReturns(params);
-    }, [page, rowsPerPage, search, statusFilter, canView, fetchReturns]);
+        fetchReturns({ per_page: 1000 });
+    }, [canView, fetchReturns]);
 
     useEffect(() => {
-        fetchData();
+        fetchAllReturns();
         fetchStatistics();
-    }, [fetchData, fetchStatistics]);
+    }, [fetchAllReturns, fetchStatistics]);
+
+    // Update allData when data changes
+    useEffect(() => {
+        if (Array.isArray(data)) {
+            setAllData(data);
+        }
+    }, [data]);
+
+    // Client-side filtering
+    const filteredReturns = useMemo(() => {
+        let result = allData;
+
+        // Filter by status
+        if (statusFilter) {
+            result = result.filter(r => r.status === statusFilter);
+        }
+
+        // Filter by search (IMEI or Customer Name)
+        if (search) {
+            const searchLower = search.toLowerCase();
+            result = result.filter(r => {
+                const searchableFields = [
+                    r.customer_name,
+                    r.imei,
+                    r.product?.sku,
+                    r.product?.category?.category_name,
+                    r.notes,
+                ].filter(Boolean);
+
+                return searchableFields.some(field =>
+                    String(field).toLowerCase().includes(searchLower)
+                );
+            });
+        }
+
+        return result;
+    }, [allData, search, statusFilter]);
+
+    // Calculate total filtered count
+    const filteredTotal = filteredReturns.length;
+
+    // Paginate the filtered data
+    const paginatedReturns = useMemo(() => {
+        const start = page * rowsPerPage;
+        const end = start + rowsPerPage;
+        return filteredReturns.slice(start, end);
+    }, [filteredReturns, page, rowsPerPage]);
 
     const handleMenuOpen = (event, returnItem) => {
         setSelectedReturn(returnItem);
@@ -225,7 +268,7 @@ export default function ReturnsList() {
             message: `Are you sure you want to cancel the return for ${selectedReturn.customer_name} (IMEI: ${selectedReturn.imei})?`,
             action: async () => {
                 await cancelReturn(selectedReturn.return_id);
-                fetchData();
+                fetchAllReturns();
             }
         });
         handleMenuClose();
@@ -242,7 +285,7 @@ export default function ReturnsList() {
                 message: `Are you sure you want to cancel the return for ${returnItem.customer_name} (IMEI: ${returnItem.imei})?`,
                 action: async () => {
                     await cancelReturn(returnItem.return_id);
-                    fetchData();
+                    fetchAllReturns();
                 }
             });
         }
@@ -259,11 +302,21 @@ export default function ReturnsList() {
         }
     };
 
+    const handleClearFilters = () => {
+        setSearch('');
+        setStatusFilter('');
+        setPage(0);
+    };
+
+    const handleRefresh = () => {
+        fetchAllReturns();
+    };
+
     if (!canView) {
         return <Typography sx={{ p: 2 }}>You do not have permission to view returns.</Typography>;
     }
 
-    const returns = Array.isArray(data) ? data : [];
+    const returns = paginatedReturns;
 
     return (
         <Box sx={{ width: '100%', p: { xs: 1, sm: 2, md: 3 }, m: 0 }}>
@@ -282,7 +335,7 @@ export default function ReturnsList() {
                     </Box>
                     <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} gap={2}>
                         <TextField
-                            label="Search by IMEI or Customer"
+                            label="Search by IMEI, Customer or Product"
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
@@ -305,14 +358,27 @@ export default function ReturnsList() {
                             <MenuItem value="completed">Completed</MenuItem>
                             <MenuItem value="cancelled">Cancelled</MenuItem>
                         </TextField>
-                        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchData} fullWidth={isMobile}>
+                        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={handleRefresh} fullWidth={isMobile}>
                             Refresh
                         </Button>
+                        {(search || statusFilter) && (
+                            <Button variant="text" onClick={handleClearFilters}>Clear Filters</Button>
+                        )}
                     </Box>
+                    {/* Show filtered count */}
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                        Showing {filteredReturns.length} of {allData.length} returns
+                        {search && ` (filtered by: "${search}")`}
+                        {statusFilter && ` (status: ${getStatusLabel(statusFilter)})`}
+                    </Typography>
                 </Box>
 
                 {/* Table or Card View */}
-                {showTableView ? (
+                {loading ? (
+                    <Box display="flex" justifyContent="center" py={4}>
+                        <CircularProgress />
+                    </Box>
+                ) : showTableView ? (
                     <TableContainer sx={{ overflowX: 'auto' }}>
                         <Table sx={{ minWidth: 800 }}>
                             <TableHead>
@@ -323,10 +389,12 @@ export default function ReturnsList() {
                                 </TableRow>
                             </TableHead>
                             <TableBody>
-                                {loading ? (
-                                    <TableRow><TableCell colSpan={headCells.length} align="center"><CircularProgress size={32} sx={{ my: 3 }} /></TableCell></TableRow>
-                                ) : returns.length === 0 ? (
-                                    <TableRow><TableCell colSpan={headCells.length} align="center">No returns found</TableCell></TableRow>
+                                {returns.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={headCells.length} align="center">
+                                            {allData.length === 0 ? 'No returns found' : 'No matching returns found'}
+                                        </TableCell>
+                                    </TableRow>
                                 ) : (
                                     returns.map((ret) => (
                                         <TableRow key={ret.return_id} hover>
@@ -396,10 +464,10 @@ export default function ReturnsList() {
                     </TableContainer>
                 ) : (
                     <Box sx={{ p: { xs: 2, sm: 3 } }}>
-                        {loading ? (
-                            <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
-                        ) : returns.length === 0 ? (
-                            <Paper sx={{ p: 3, textAlign: 'center' }}>No returns found</Paper>
+                        {returns.length === 0 ? (
+                            <Paper sx={{ p: 3, textAlign: 'center' }}>
+                                {allData.length === 0 ? 'No returns found' : 'No matching returns found'}
+                            </Paper>
                         ) : (
                             returns.map((ret) => (
                                 <ReturnCard
@@ -419,7 +487,7 @@ export default function ReturnsList() {
                     <TablePagination
                         rowsPerPageOptions={[5, 10, 25, 50]}
                         component="div"
-                        count={total}
+                        count={filteredTotal}
                         rowsPerPage={rowsPerPage}
                         page={page}
                         onPageChange={(e, newPage) => setPage(newPage)}
@@ -450,14 +518,14 @@ export default function ReturnsList() {
             <ReturnsModal
                 open={modalOpen}
                 onClose={() => setModalOpen(false)}
-                onSuccess={fetchData}
+                onSuccess={fetchAllReturns}
             />
 
             <ApproveReturnModal
                 open={approveModalOpen}
                 onClose={() => setApproveModalOpen(false)}
                 returnItem={selectedReturn}
-                onSuccess={fetchData}
+                onSuccess={fetchAllReturns}
             />
 
             {/* Confirm Dialog */}

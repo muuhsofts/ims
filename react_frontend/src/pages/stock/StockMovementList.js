@@ -1,5 +1,5 @@
 // src/pages/stock/StockMovementList.js
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     Box, Button, Chip, Dialog, DialogActions, DialogContent,
     DialogTitle, IconButton, InputAdornment, Menu, MenuItem,
@@ -125,21 +125,72 @@ export default function StockMovementList() {
     const [modalOpen, setModalOpen] = useState(false);
     const [selectedMovement, setSelectedMovement] = useState(null);
     const [actionMenu, setActionMenu] = useState(null);
+    const [allData, setAllData] = useState([]); // Store all data for client-side filtering
 
-    const fetchMovements = useCallback(() => {
+    // Fetch all data once (no pagination params for client-side filtering)
+    const fetchAllMovements = useCallback(() => {
         if (!canView) return;
-        const params = {
-            page: page + 1,
-            per_page: rowsPerPage,
-            search: search || undefined,
-            movement_type: movementTypeFilter || undefined,
-        };
-        fetchData(params);
-    }, [page, rowsPerPage, search, movementTypeFilter, canView, fetchData]);
+        // Fetch all data without pagination
+        fetchData({ per_page: 1000 });
+    }, [canView, fetchData]);
 
     useEffect(() => {
-        fetchMovements();
-    }, [fetchMovements]);
+        fetchAllMovements();
+    }, [fetchAllMovements]);
+
+    // Update allData when data changes
+    useEffect(() => {
+        if (Array.isArray(data)) {
+            setAllData(data);
+        }
+    }, [data]);
+
+    // Client-side filtering
+    const filteredMovements = useMemo(() => {
+        let result = allData;
+
+        // Filter by movement type
+        if (movementTypeFilter) {
+            result = result.filter(m => m.movement_type === movementTypeFilter);
+        }
+
+        // Filter by search
+        if (search) {
+            const searchLower = search.toLowerCase();
+            result = result.filter(m => {
+                const searchableFields = [
+                    m.product_name,
+                    m.imei,
+                    m.sku,
+                    m.brand,
+                    m.model,
+                    m.from_name,
+                    m.to_name,
+                    m.performed_by,
+                    m.requester_name,
+                    m.request_name,
+                    m.notes,
+                    m.movement_type_description,
+                ].filter(Boolean);
+
+                return searchableFields.some(field =>
+                    String(field).toLowerCase().includes(searchLower)
+                );
+            });
+        }
+
+        return result;
+    }, [allData, search, movementTypeFilter]);
+
+    // Calculate total filtered count
+    const filteredTotal = filteredMovements.length;
+
+    // Paginate the filtered data
+    const paginatedMovements = useMemo(() => {
+        const start = page * rowsPerPage;
+        const end = start + rowsPerPage;
+        return filteredMovements.slice(start, end);
+    }, [filteredMovements, page, rowsPerPage]);
 
     const handleMenuOpen = (event, movement) => {
         setSelectedMovement(movement);
@@ -156,13 +207,17 @@ export default function StockMovementList() {
     const handleModalClose = (refresh) => {
         setModalOpen(false);
         setSelectedMovement(null);
-        if (refresh) fetchMovements();
+        if (refresh) fetchAllMovements();
     };
 
     const handleClearFilters = () => {
         setSearch('');
         setMovementTypeFilter('');
         setPage(0);
+    };
+
+    const handleRefresh = () => {
+        fetchAllMovements();
     };
 
     if (!canView) {
@@ -173,7 +228,7 @@ export default function StockMovementList() {
         );
     }
 
-    const movements = Array.isArray(data) ? data : [];
+    const movements = paginatedMovements;
 
     const handleCardViewDetails = (movement) => {
         setSelectedMovement(movement);
@@ -187,7 +242,7 @@ export default function StockMovementList() {
                 <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: 1, borderColor: 'divider' }}>
                     <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} gap={2} alignItems="center">
                         <TextField
-                            label="Search by product, IMEI, SKU, brand or notes"
+                            label="Search by product, IMEI, SKU, brand, notes or names"
                             size="small"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
@@ -209,17 +264,27 @@ export default function StockMovementList() {
                                 ))}
                             </Select>
                         </FormControl>
-                        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchMovements}>
+                        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={handleRefresh}>
                             Refresh
                         </Button>
                         {(search || movementTypeFilter) && (
                             <Button variant="text" onClick={handleClearFilters}>Clear Filters</Button>
                         )}
                     </Box>
+                    {/* Show filtered count */}
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                        Showing {filteredMovements.length} of {allData.length} movements
+                        {search && ` (filtered by: "${search}")`}
+                        {movementTypeFilter && ` (type: ${movementTypeConfig[movementTypeFilter]?.label || movementTypeFilter})`}
+                    </Typography>
                 </Box>
 
                 {/* Table or Card View */}
-                {showTableView ? (
+                {loading ? (
+                    <Box display="flex" justifyContent="center" py={4}>
+                        <CircularProgress />
+                    </Box>
+                ) : showTableView ? (
                     <TableContainer sx={{ overflowX: 'auto' }}>
                         <Table sx={{ minWidth: 1200 }}>
                             <TableHead>
@@ -230,16 +295,10 @@ export default function StockMovementList() {
                                 </TableRow>
                             </TableHead>
                             <TableBody>
-                                {loading ? (
+                                {movements.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={headCells.length} align="center">
-                                            <CircularProgress size={32} sx={{ my: 3 }} />
-                                        </TableCell>
-                                    </TableRow>
-                                ) : movements.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={headCells.length} align="center">
-                                            No stock movements found
+                                            {allData.length === 0 ? 'No stock movements found' : 'No matching movements found'}
                                         </TableCell>
                                     </TableRow>
                                 ) : (
@@ -284,10 +343,10 @@ export default function StockMovementList() {
                     </TableContainer>
                 ) : (
                     <Box sx={{ p: { xs: 2, sm: 3 } }}>
-                        {loading ? (
-                            <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
-                        ) : movements.length === 0 ? (
-                            <Paper sx={{ p: 3, textAlign: 'center' }}>No stock movements found</Paper>
+                        {movements.length === 0 ? (
+                            <Paper sx={{ p: 3, textAlign: 'center' }}>
+                                {allData.length === 0 ? 'No stock movements found' : 'No matching movements found'}
+                            </Paper>
                         ) : (
                             movements.map((movement) => (
                                 <MovementCard
@@ -305,7 +364,7 @@ export default function StockMovementList() {
                     <TablePagination
                         rowsPerPageOptions={[10, 20, 50, 100]}
                         component="div"
-                        count={total}
+                        count={filteredTotal}
                         rowsPerPage={rowsPerPage}
                         page={page}
                         onPageChange={(e, newPage) => setPage(newPage)}
