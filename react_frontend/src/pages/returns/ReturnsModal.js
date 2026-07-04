@@ -14,6 +14,7 @@ export default function ReturnsModal({ open, onClose, onSuccess }) {
         imei: '',
         customer_name: '',
         notes: '',
+        return_reason: '',
     });
     const [validationResult, setValidationResult] = useState(null);
     const [validating, setValidating] = useState(false);
@@ -22,12 +23,22 @@ export default function ReturnsModal({ open, onClose, onSuccess }) {
     // Reset form when modal closes
     useEffect(() => {
         if (!open) {
-            setForm({ imei: '', customer_name: '', notes: '' });
+            setForm({ imei: '', customer_name: '', notes: '', return_reason: '' });
             setValidationResult(null);
             setValidating(false);
             setSubmitting(false);
         }
     }, [open]);
+
+    // Auto-populate customer name when validation succeeds
+    useEffect(() => {
+        if (validationResult?.valid && validationResult?.customer?.customer_name) {
+            setForm(prev => ({
+                ...prev,
+                customer_name: validationResult.customer.customer_name || ''
+            }));
+        }
+    }, [validationResult]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -156,7 +167,7 @@ export default function ReturnsModal({ open, onClose, onSuccess }) {
                                             </>
                                         )}
                                         {validationResult.customer && (
-                                            <Typography variant="caption" display="block">
+                                            <Typography variant="caption" display="block" color="success.main">
                                                 <strong>Customer:</strong> {validationResult.customer.customer_name} ({validationResult.customer.phone})
                                             </Typography>
                                         )}
@@ -165,7 +176,7 @@ export default function ReturnsModal({ open, onClose, onSuccess }) {
                             </Alert>
                         )}
 
-                        {/* Customer Name */}
+                        {/* Customer Name - Auto-populated from validation */}
                         <TextField
                             name="customer_name"
                             label="Customer Name"
@@ -175,20 +186,39 @@ export default function ReturnsModal({ open, onClose, onSuccess }) {
                             fullWidth
                             size="small"
                             disabled={submitting}
+                            helperText={validationResult?.valid ? "Auto-populated from validation" : "Enter customer name (will be auto-filled after validation)"}
+                            InputProps={{
+                                readOnly: !!validationResult?.valid,
+                                sx: validationResult?.valid ? { bgcolor: 'action.hover' } : {}
+                            }}
+                        />
+
+                        {/* Return Reason */}
+                        <TextField
+                            name="return_reason"
+                            label="Return Reason (Optional)"
+                            value={form.return_reason}
+                            onChange={handleChange}
+                            multiline
+                            rows={2}
+                            fullWidth
+                            size="small"
+                            disabled={submitting}
+                            placeholder="Why is this product being returned?"
                         />
 
                         {/* Notes */}
                         <TextField
                             name="notes"
-                            label="Notes (Optional)"
+                            label="Additional Notes (Optional)"
                             value={form.notes}
                             onChange={handleChange}
                             multiline
-                            rows={3}
+                            rows={2}
                             fullWidth
                             size="small"
                             disabled={submitting}
-                            placeholder="Reason for return or additional notes"
+                            placeholder="Any additional information about the return"
                         />
                     </Box>
                 </DialogContent>
