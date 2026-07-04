@@ -9,8 +9,6 @@ use App\Models\Product;
 use App\Models\Sale;
 use App\Models\Customer;
 use App\Models\StockMovement;
-use App\Models\Inventory;
-use App\Models\AgentInventory;
 use App\Traits\Auditable;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -33,7 +31,7 @@ class ReturnsController extends BaseApiController
 
         try {
             $user = auth()->user();
-            $query = Returns::with(['product', 'product.category', 'performedBy', 'approvedBy', 'sale', 'customer']);
+            $query = Returns::with(['product', 'product.category', 'performedBy', 'approvedBy', 'sale', 'customer', 'stockMovement']);
 
             // Stock Controllers can see all returns
             $isStockController = $user->role?->name === 'STOCK_CONTROLLER';
@@ -202,7 +200,7 @@ class ReturnsController extends BaseApiController
                 'performed_by' => auth()->id(),
             ]);
 
-            // ✅ ONLY create stock movement record - NO other changes
+            // Create stock movement for return request
             StockMovement::create([
                 'movement_id' => (string) Str::uuid(),
                 'request_id' => null,
@@ -210,7 +208,7 @@ class ReturnsController extends BaseApiController
                 'from_type' => 'sales_agent',
                 'from_id' => $user->id,
                 'to_type' => 'warehouse',
-                'to_id' => null, // Will be set when approved
+                'to_id' => null,
                 'quantity' => 1,
                 'movement_type' => 'return_request',
                 'reference_id' => $return->return_id,
@@ -223,7 +221,7 @@ class ReturnsController extends BaseApiController
             $this->logAudit('create_return', 'return', $return->return_id,
                 "Created return for IMEI: {$request->imei}, Customer: {$request->customer_name}, Sale: {$sale->sale_id}");
 
-            return $this->created($return->load(['product', 'product.category', 'sale', 'customer']),
+            return $this->created($return->load(['product', 'product.category', 'sale', 'customer', 'stockMovement']),
                 'Return created successfully. Waiting for stock controller approval.');
 
         } catch (ValidationException $e) {
@@ -237,7 +235,8 @@ class ReturnsController extends BaseApiController
 
     /**
      * Approve a return - Only Stock Controllers can approve
-     * Creates stock movement and updates inventory
+     * Updates stock movement with warehouse details
+     * Updates sale status to 'returned'
      * Permission: returns.approve
      */
     public function approveReturn(Request $request, $id)
@@ -271,7 +270,7 @@ class ReturnsController extends BaseApiController
 
             DB::beginTransaction();
 
-            // ✅ UPDATE stock movement with warehouse details
+            // Update stock movement with warehouse details
             $stockMovement = StockMovement::where('reference_id', $return->return_id)
                 ->where('movement_type', 'return_request')
                 ->first();
@@ -280,8 +279,9 @@ class ReturnsController extends BaseApiController
                 $stockMovement->to_id = $request->warehouse_id;
                 $stockMovement->movement_type = 'return_approved';
                 $stockMovement->notes = ($stockMovement->notes ?? '') . 
-                    " | Approved by " . $user->name . " on " . now() .
-                    " - Moved to warehouse: {$request->warehouse_id}";
+                    " | ✅ Approved by " . $user->name . " on " . now() .
+                    " - Moved to warehouse: {$request->warehouse_id}" .
+                    " - Condition: " . ($request->condition ?? 'good');
                 $stockMovement->save();
             } else {
                 // Create new stock movement if not found
@@ -301,7 +301,7 @@ class ReturnsController extends BaseApiController
                 ]);
             }
 
-            // ✅ Update return status to approved
+            // Update return status to approved
             $return->status = 'approved';
             $return->approved_by = auth()->id();
             $return->approved_at = now();
@@ -312,15 +312,21 @@ class ReturnsController extends BaseApiController
                            " - Condition: " . ($request->condition ?? 'good');
             $return->save();
 
+            // ✅ Update sale status to 'returned'
+            if ($return->sale) {
+                $return->sale->status = 'returned';
+                $return->sale->save();
+            }
+
             DB::commit();
 
             $this->logAudit('approve_return', 'return', $return->return_id,
-                "Approved return for IMEI: {$return->imei} to warehouse {$request->warehouse_id}");
+                "Approved return for IMEI: {$return->imei} to warehouse {$request->warehouse_id}. Sale status updated to returned.");
 
             return $this->successResponse([
-                'return' => $return->load(['product', 'stockMovement', 'approvedBy']),
+                'return' => $return->load(['product', 'stockMovement', 'approvedBy', 'sale']),
                 'movement' => $stockMovement,
-                'message' => 'Return approved successfully. Stock movement recorded.'
+                'message' => 'Return approved successfully. Sale status updated to returned.'
             ], 'Return approved successfully');
 
         } catch (\Exception $e) {
@@ -361,7 +367,7 @@ class ReturnsController extends BaseApiController
 
             DB::beginTransaction();
 
-            // ✅ Update stock movement to cancelled
+            // Update stock movement to cancelled
             $stockMovement = StockMovement::where('reference_id', $return->return_id)
                 ->whereIn('movement_type', ['return_request', 'return_approved'])
                 ->first();
@@ -373,20 +379,26 @@ class ReturnsController extends BaseApiController
                 $stockMovement->save();
             }
 
-            // ✅ Update return status to cancelled
+            // Update return status to cancelled
             $return->status = 'cancelled';
             $return->cancelled_at = now();
             $return->notes = ($return->notes ? $return->notes . "\n" : '') .
                            "❌ Cancelled on " . now() . " by " . $user->name;
             $return->save();
 
+            // ✅ Revert sale status back to 'completed' if it was changed
+            if ($return->sale && $return->sale->status === 'returned') {
+                $return->sale->status = 'completed';
+                $return->sale->save();
+            }
+
             DB::commit();
 
             $this->logAudit('cancel_return', 'return', $return->return_id,
-                "Cancelled return for IMEI: {$return->imei}");
+                "Cancelled return for IMEI: {$return->imei}. Sale status reverted.");
 
-            return $this->successResponse($return->load('product'),
-                'Return cancelled successfully.');
+            return $this->successResponse($return->load(['product', 'stockMovement', 'sale']),
+                'Return cancelled successfully. Sale status reverted.');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -422,7 +434,7 @@ class ReturnsController extends BaseApiController
 
             DB::beginTransaction();
 
-            // ✅ Update stock movement to completed
+            // Update stock movement to completed
             $stockMovement = StockMovement::where('reference_id', $return->return_id)
                 ->where('movement_type', 'return_approved')
                 ->first();
@@ -434,7 +446,7 @@ class ReturnsController extends BaseApiController
                 $stockMovement->save();
             }
 
-            // ✅ Update return status to completed
+            // Update return status to completed
             $return->status = 'completed';
             $return->completed_at = now();
             $return->completed_date = now();
@@ -443,12 +455,18 @@ class ReturnsController extends BaseApiController
                            "✅ Completed on " . now() . " by " . $user->name;
             $return->save();
 
+            // ✅ Ensure sale status remains 'returned'
+            if ($return->sale && $return->sale->status !== 'returned') {
+                $return->sale->status = 'returned';
+                $return->sale->save();
+            }
+
             DB::commit();
 
             $this->logAudit('complete_return', 'return', $return->return_id,
                 "Completed return for IMEI: {$return->imei}");
 
-            return $this->successResponse($return->load(['product', 'sale']),
+            return $this->successResponse($return->load(['product', 'sale', 'stockMovement']),
                 'Return completed successfully.');
 
         } catch (\Exception $e) {
