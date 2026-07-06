@@ -1,3 +1,4 @@
+// src/services/user.service.js
 import api from './api';
 
 export const userService = {
@@ -11,8 +12,6 @@ export const userService = {
     // Dropdown
     getUsersDropdown: (params) => api.get('/v1/users/dropdown', { params }),
     getSalesAgentsDropdown: (params) => api.get('/v1/users/sales-agents/dropdown', { params }),
-
-    // NEW: Branch Owner endpoints
     getBranchOwners: (params) => api.get('/v1/users/branch-owners', { params }),
     getBranchOwnersDropdown: (params) => api.get('/v1/users/branch-owners/dropdown', { params }),
 
@@ -22,14 +21,14 @@ export const userService = {
     suspendUser: (id) => api.patch(`/v1/users/${id}/suspend`),
 
     // Role & password
-    assignRole: (userId, role_id) =>
-        api.patch(`/v1/users/${userId}/role`, { role_id }),
-
+    assignRole: (userId, role_id) => api.patch(`/v1/users/${userId}/role`, { role_id }),
     resetUserPassword: (userId, password, password_confirmation) =>
-        api.post(`/v1/users/${userId}/reset-password`, {
-            password,
-            password_confirmation
-        }),
+        api.post(`/v1/users/${userId}/reset-password`, { password, password_confirmation }),
+
+    // 🔐 Verification methods
+    verifyUserOTP: (data) => api.post('/v1/auth/verify-otp', data),
+    resendUserVerification: (userId) => api.post(`/v1/users/${userId}/resend-verification`),
+    getUserVerificationStatus: (userId) => api.get(`/v1/users/${userId}/verification-status`),
 
     // Utilities
     getUserStats: () => api.get('/v1/users/stats'),

@@ -14,16 +14,16 @@ import {
     Refresh as RefreshIcon, Search as SearchIcon, Restore as RestoreIcon,
     DeleteSweep as DeleteSweepIcon, Person as PersonIcon,
     Email as EmailOutlinedIcon, Phone as PhoneIcon,
-    Work as WorkIcon
+    Work as WorkIcon, CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 
 import UserFormModal from './UserFormModal';
+import UserVerificationModal from './UserVerificationModal';
 import { showSnackbar } from "utils/snackbar";
 import { usePermission } from "@/hooks/usePermission";
 import { useUsers } from "context/UserContext";
 import { userService } from "services/user.service";
 
-// ✅ REMOVED 'cc' column from headCells
 const headCells = [
     { id: 'name', label: 'Name' },
     { id: 'email', label: 'Email' },
@@ -52,6 +52,8 @@ export default function UsersList() {
     const [editingUser, setEditingUser] = useState(null);
     const [actionMenu, setActionMenu] = useState(null);
     const [selectedUser, setSelectedUser] = useState(null);
+    const [verifyModalOpen, setVerifyModalOpen] = useState(false);
+    const [userToVerify, setUserToVerify] = useState(null);
 
     const [confirmDialog, setConfirmDialog] = useState({
         open: false,
@@ -194,6 +196,10 @@ export default function UsersList() {
                 setEditingUser(selectedUser);
                 setOpenModal(true);
                 break;
+            case 'verify':
+                setUserToVerify(selectedUser);
+                setVerifyModalOpen(true);
+                break;
             case 'activate':
                 try {
                     await update(selectedUser.id, { status: 'active' });
@@ -268,6 +274,11 @@ export default function UsersList() {
         }
     };
 
+    const handleVerifySuccess = () => {
+        fetchAll();
+        showSnackbar({ type: 'success', message: 'User verified successfully!' });
+    };
+
     if (!canView) return (
         <Box sx={{ p: 2 }}>
             <Paper sx={{ p: 3, textAlign: 'center' }}>
@@ -280,10 +291,8 @@ export default function UsersList() {
     const isLoading = showDeleted ? loadingDeleted : loading;
     const totalCount = showDeleted ? trashedTotal : users.length;
 
-    // Helper to format dates for cards
     const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString() : '-';
 
-    // Card component for mobile/tablet view - ✅ REMOVED LocationIcon and collection center display
     const UserCard = ({ user, isDeletedView }) => {
         const getStatusColor = (status) => {
             switch (status) {
@@ -327,8 +336,6 @@ export default function UsersList() {
                             {user.role?.display_name || user.role?.name || '-'}
                         </Typography>
                     </Box>
-
-                    {/* ✅ REMOVED Collection Center section */}
 
                     <Divider sx={{ my: 1 }} />
 
@@ -493,7 +500,6 @@ export default function UsersList() {
                                             <TableCell>{user.email}</TableCell>
                                             <TableCell>{user.phone || '-'}</TableCell>
                                             <TableCell>{user.role?.display_name || user.role?.name || '-'}</TableCell>
-                                            {/* ✅ REMOVED Collection Center column */}
                                             <TableCell>
                                                 {showDeleted ? (
                                                     <Chip label="Deleted" color="error" size="small" />
@@ -604,6 +610,13 @@ export default function UsersList() {
                                 </MenuItem>
                             );
                         }
+                        if (!selectedUser?.email_verified_at) {
+                            menuItems.push(
+                                <MenuItem key="verify" onClick={() => handleAction('verify')}>
+                                    <CheckCircleIcon sx={{ mr: 1, color: 'primary.main', fontSize: 20 }} /> Verify
+                                </MenuItem>
+                            );
+                        }
                         if (canActivate && selectedUser?.status !== 'active') {
                             menuItems.push(
                                 <MenuItem key="activate" onClick={() => handleAction('activate')}>
@@ -657,7 +670,16 @@ export default function UsersList() {
                 user={editingUser}
             />
 
-            {/* Confirmation Dialog */}
+            <UserVerificationModal
+                open={verifyModalOpen}
+                onClose={() => {
+                    setVerifyModalOpen(false);
+                    setUserToVerify(null);
+                }}
+                user={userToVerify}
+                onVerified={handleVerifySuccess}
+            />
+
             <Dialog
                 open={confirmDialog.open}
                 onClose={() => setConfirmDialog(prev => ({ ...prev, open: false }))}

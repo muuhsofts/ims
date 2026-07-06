@@ -12,10 +12,11 @@ import {
     Delete as DeleteIcon, VerifiedUser as VerifiedIcon, Block as BlockIcon,
     LockOpen as LockOpenIcon, Refresh as RefreshIcon, Search as SearchIcon,
     Person as PersonIcon, Email as EmailOutlinedIcon, Phone as PhoneIcon,
-    Store as StoreIcon
+    Store as StoreIcon, CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 
 import AgentFormModal from './AgentFormModal';
+import AgentVerificationModal from './AgentVerificationModal';
 import { showSnackbar } from "utils/snackbar";
 import { usePermission } from "@/hooks/usePermission";
 import { useAgents } from "context/AgentContext";
@@ -43,6 +44,8 @@ export default function AgentsList() {
     const [editingAgent, setEditingAgent] = useState(null);
     const [actionMenu, setActionMenu] = useState(null);
     const [selectedAgent, setSelectedAgent] = useState(null);
+    const [verifyModalOpen, setVerifyModalOpen] = useState(false);
+    const [agentToVerify, setAgentToVerify] = useState(null);
 
     const [confirmDialog, setConfirmDialog] = useState({
         open: false,
@@ -107,6 +110,10 @@ export default function AgentsList() {
                 setEditingAgent(selectedAgent);
                 setOpenModal(true);
                 break;
+            case 'verify':
+                setAgentToVerify(selectedAgent);
+                setVerifyModalOpen(true);
+                break;
             case 'activate':
                 try {
                     await update(selectedAgent.id, { status: 'active' });
@@ -152,6 +159,11 @@ export default function AgentsList() {
         } catch (err) {
             showSnackbar({ type: 'error', message: 'Action failed' });
         }
+    };
+
+    const handleVerifySuccess = () => {
+        fetchAll();
+        showSnackbar({ type: 'success', message: 'Agent verified successfully!' });
     };
 
     if (!canView) {
@@ -292,7 +304,6 @@ export default function AgentsList() {
                             sx={{ minWidth: { xs: '100%', sm: 180 } }}
                         >
                             <MenuItem value="">All Centers</MenuItem>
-                            {/* You can dynamically load centers here if needed */}
                         </TextField>
                         <Button
                             variant="outlined"
@@ -426,6 +437,11 @@ export default function AgentsList() {
                         <EditIcon sx={{ mr: 1, fontSize: 20 }} /> Edit
                     </MenuItem>
                 )}
+                {!selectedAgent?.email_verified_at && (
+                    <MenuItem onClick={() => handleAction('verify')}>
+                        <CheckCircleIcon sx={{ mr: 1, color: 'primary.main', fontSize: 20 }} /> Verify
+                    </MenuItem>
+                )}
                 {canActivate && selectedAgent?.status !== 'active' && (
                     <MenuItem onClick={() => handleAction('activate')}>
                         <VerifiedIcon sx={{ mr: 1, color: 'success.main', fontSize: 20 }} /> Activate
@@ -452,6 +468,16 @@ export default function AgentsList() {
                 open={openModal}
                 onClose={() => { setOpenModal(false); setEditingAgent(null); fetchAll(); }}
                 agent={editingAgent}
+            />
+
+            <AgentVerificationModal
+                open={verifyModalOpen}
+                onClose={() => {
+                    setVerifyModalOpen(false);
+                    setAgentToVerify(null);
+                }}
+                agent={agentToVerify}
+                onVerified={handleVerifySuccess}
             />
 
             <Dialog
