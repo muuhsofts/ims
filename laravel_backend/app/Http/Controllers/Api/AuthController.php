@@ -8,6 +8,8 @@ use App\Models\FailedLoginAttempt;
 use App\Models\UserSession;
 use App\Models\Role;
 use App\Mail\OTPMail;
+use App\Mail\VerificationSuccessMail;
+use App\Services\VerificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -17,85 +19,107 @@ use Carbon\Carbon;
 
 class AuthController extends BaseApiController
 {
-  public function register(Request $request)
-{
-    try {
-        $request->validate([
-            'name'     => 'required|string|max:255',
-            'email'    => 'required|email|unique:users',
-            'password' => 'required|string|min:8|confirmed',
-            'phone'    => 'nullable|string',
-            'role_id'  => 'required|string|exists:roles,id',   
-        ]);
+    protected $verificationService;
 
-        DB::beginTransaction();
-
-        $user = User::create([
-            'id'         => (string) Str::uuid(),
-            'name'       => $request->name,
-            'email'      => $request->email,
-            'password'   => Hash::make($request->password),
-            'phone'      => $request->phone,
-            'status'     => 'pending',
-            'is_active'  => false,
-            'created_by' => null,
-            'role_id'    => $request->role_id,   
-        ]);
-
-        $otpRecord = OTP::create([
-            'id'         => (string) Str::uuid(),
-            'email'      => $user->email,
-            'type'       => OTP::TYPE_REGISTRATION,
-            'name'       => $user->name,
-            'ip_address' => $request->ip(),
-            'user_agent' => $request->userAgent(),
-        ]);
-
-        Mail::to($user->email)->send(
-            new OTPMail($otpRecord->otp, $user->name, 'verification', $otpRecord->getVerificationUrl())
-        );
-
-        DB::commit();
-        return $this->created(['email' => $user->email], 'Registration successful. OTP sent.');
-    } catch (\Exception $e) {
-        DB::rollBack();
-        return $this->serverError('Registration failed: ' . $e->getMessage());
+    public function __construct(VerificationService $verificationService)
+    {
+        $this->verificationService = $verificationService;
     }
-}
+
+    public function register(Request $request)
+    {
+        try {
+            $request->validate([
+                'name'     => 'required|string|max:255',
+                'email'    => 'required|email|unique:users',
+                'password' => 'required|string|min:8|confirmed',
+                'phone'    => 'nullable|string',
+                'role_id'  => 'required|string|exists:roles,id',   
+            ]);
+
+            DB::beginTransaction();
+
+            $user = User::create([
+                'id'         => (string) Str::uuid(),
+                'name'       => $request->name,
+                'email'      => $request->email,
+                'password'   => Hash::make($request->password),
+                'phone'      => $request->phone,
+                'status'     => 'pending',
+                'is_active'  => false,
+                'created_by' => null,
+                'role_id'    => $request->role_id,   
+            ]);
+
+            $result = $this->verificationService->sendVerificationOTP($user, OTP::TYPE_REGISTRATION);
+
+            DB::commit();
+            
+            return $this->created([
+                'email' => $user->email,
+                'name' => $user->name,
+                'otp_sent' => true,
+                'expires_in' => $result['expires_in'],
+            ], 'Registration successful. OTP sent to your email.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return $this->serverError('Registration failed: ' . $e->getMessage());
+        }
+    }
 
     public function verifyOTP(Request $request)
-{
-    try {
-        $request->validate(['email' => 'required|email', 'otp' => 'required|string|size:6']);
+    {
+        try {
+            $request->validate([
+                'email' => 'required|email', 
+                'otp' => 'required|string|size:6'
+            ]);
 
-        $otpRecord = OTP::where('email', $request->email)
-            ->where('otp', $request->otp)
-            ->where('type', OTP::TYPE_REGISTRATION)
-            ->first();
+            $result = $this->verificationService->verifyWithOTP(
+                $request->email,
+                $request->otp,
+                OTP::TYPE_REGISTRATION
+            );
 
-        if (!$otpRecord || !$otpRecord->isValid()) {
-            return $this->badRequest('Invalid or expired OTP');
+            $user = User::where('email', $request->email)->firstOrFail();
+            $token = $user->createToken('auth_token')->plainTextToken;
+            $this->createSession($user, $request);
+
+            return $this->successResponse([
+                'user'  => $user->only(['id', 'name', 'email', 'phone']),
+                'role'  => $user->role ? $user->role->only(['id', 'name', 'display_name']) : null,
+                'token' => $token,
+                'verified' => true,
+            ], 'Email verified successfully');
+
+        } catch (\Exception $e) {
+            return $this->badRequest($e->getMessage());
         }
-
-        $user = User::where('email', $request->email)->firstOrFail();
-        $user->update(['email_verified_at' => now(), 'status' => 'active', 'is_active' => true]);
-        $otpRecord->markAsUsed();
-
-        // 🔁 Send verification success email
-        Mail::to($user->email)->send(new VerificationSuccessMail($user));
-
-        $token = $user->createToken('auth_token')->plainTextToken;
-        $this->createSession($user, $request);
-
-        return $this->successResponse([
-            'user'  => $user->only(['id', 'name', 'email', 'phone']),
-            'role'  => $user->role ? $user->role->only(['id', 'name', 'display_name']) : null,
-            'token' => $token,
-        ], 'Email verified successfully');
-    } catch (\Exception $e) {
-        return $this->serverError('Verification failed');
     }
-}
+
+    public function resendVerification(Request $request)
+    {
+        try {
+            $request->validate([
+                'email' => 'required|email|exists:users,email',
+            ]);
+
+            $result = $this->verificationService->resendOTP(
+                $request->email,
+                OTP::TYPE_REGISTRATION
+            );
+
+            return $this->successResponse([
+                'email' => $result['email'],
+                'otp_sent' => true,
+                'expires_in' => $result['expires_in'],
+            ], 'New verification OTP sent.');
+
+        } catch (\Exception $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
 
     public function login(Request $request)
     {
@@ -113,12 +137,18 @@ class AuthController extends BaseApiController
                 return $this->unauthorized('Invalid credentials');
             }
 
-            if (!$user->is_active || $user->status !== 'active') {
-                return $this->forbidden('Account is not active. Current status: ' . ($user->status ?? 'unknown'));
+            if (is_null($user->email_verified_at)) {
+                $this->verificationService->sendVerificationOTP($user, OTP::TYPE_REGISTRATION);
+                return $this->forbidden([
+                    'message' => 'Please verify your email first.',
+                    'email' => $user->email,
+                    'otp_sent' => true,
+                    'needs_verification' => true,
+                ]);
             }
 
-            if (is_null($user->email_verified_at)) {
-                return $this->forbidden('Please verify your email first');
+            if (!$user->is_active || $user->status !== 'active') {
+                return $this->forbidden('Account is not active. Current status: ' . ($user->status ?? 'unknown'));
             }
 
             $tokenResult = $user->createToken('auth_token');
@@ -138,41 +168,41 @@ class AuthController extends BaseApiController
                 'token'                   => $plainTextToken,
                 'password_days_remaining' => $user->getPasswordExpiryDaysRemaining() ?? 7,
             ], 'Login successful');
+
         } catch (\Exception $e) {
             return $this->serverError('Login failed: ' . $e->getMessage());
         }
     }
 
-    //  load user logged permissions
     public function permissions(Request $request)
-{
-    $user = $request->user();
+    {
+        $user = $request->user();
 
-    $hasPermission = $user->role
-        && $user->role->permissions()
-            ->where('name', 'permissions.view')
-            ->exists();
+        $hasPermission = $user->role
+            && $user->role->permissions()
+                ->where('name', 'permissions.view')
+                ->exists();
 
-    if (!$hasPermission) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Missing permission: permissions.view'
-        ], 403);
+        if (!$hasPermission) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Missing permission: permissions.view'
+            ], 403);
+        }
+
+        $role = $user->role;
+
+        if (!$role) {
+            return $this->successResponse([], 'No role assigned');
+        }
+
+        $permissions = $role->permissions->pluck('name');
+
+        return $this->successResponse(
+            $permissions,
+            'User permissions retrieved'
+        );
     }
-
-    $role = $user->role;
-
-    if (!$role) {
-        return $this->successResponse([], 'No role assigned');
-    }
-
-    $permissions = $role->permissions->pluck('name');
-
-    return $this->successResponse(
-        $permissions,
-        'User permissions retrieved'
-    );
-}
 
     public function logout(Request $request)
     {
@@ -198,28 +228,27 @@ class AuthController extends BaseApiController
         return $this->successResponse(['user' => $user->only(['id', 'name', 'email', 'phone', 'status'])], 'Profile updated');
     }
 
+    
+
     public function forgotPassword(Request $request)
-    {
-        try {
-            $request->validate(['email' => 'required|email|exists:users,email']);
-            $user = User::where('email', $request->email)->firstOrFail();
+{
+    try {
+        $request->validate(['email' => 'required|email|exists:users,email']);
+        $user = User::where('email', $request->email)->firstOrFail();
 
-            $otpRecord = OTP::create([
-                'id'    => (string) Str::uuid(),
-                'email' => $request->email,
-                'type'  => OTP::TYPE_PASSWORD_RESET,
-                'name'  => $user->name,
-            ]);
+        // Use VerificationService for consistency
+        $result = $this->verificationService->sendPasswordResetOTP($user);
 
-            Mail::to($request->email)->send(
-                new OTPMail($otpRecord->otp, $user->name, 'reset')
-            );
+        return $this->successResponse([
+            'email' => $user->email,
+            'otp_sent' => true,
+            'expires_in' => $result['expires_in'],
+        ], 'Password reset OTP sent');
 
-            return $this->successResponse(null, 'Password reset OTP sent');
-        } catch (\Exception $e) {
-            return $this->serverError('Failed to send OTP');
-        }
+    } catch (\Exception $e) {
+        return $this->serverError('Failed to send OTP: ' . $e->getMessage());
     }
+}
 
     public function resetPassword(Request $request)
     {
@@ -300,44 +329,39 @@ class AuthController extends BaseApiController
         return $this->successResponse(null, 'All sessions revoked');
     }
 
-   private function createSession(User $user, Request $request, string $tokenId = null): void
-{
-    UserSession::where('user_id', $user->id)->where('expires_at', '<', now())->delete();
-    
-    $deviceName = $this->getDeviceNameFromUserAgent($request); 
-    
-    UserSession::create([
-        'id'            => (string) Str::uuid(),
-        'user_id'       => $user->id,
-        'token'         => $tokenId ?? (string) Str::uuid(),
-        'ip_address'    => $request->ip(),
-        'user_agent'    => $request->userAgent(),
-        'device_name'   => $deviceName,   // ← no longer from request
-        'last_activity' => now(),
-        'expires_at'    => now()->addMinutes(30),
-        'is_active'     => true,
-    ]);
-}
+    private function createSession(User $user, Request $request, string $tokenId = null): void
+    {
+        UserSession::where('user_id', $user->id)->where('expires_at', '<', now())->delete();
+        
+        $deviceName = $this->getDeviceNameFromUserAgent($request); 
+        
+        UserSession::create([
+            'id'            => (string) Str::uuid(),
+            'user_id'       => $user->id,
+            'token'         => $tokenId ?? (string) Str::uuid(),
+            'ip_address'    => $request->ip(),
+            'user_agent'    => $request->userAgent(),
+            'device_name'   => $deviceName,
+            'last_activity' => now(),
+            'expires_at'    => now()->addMinutes(30),
+            'is_active'     => true,
+        ]);
+    }
 
     private function getDeviceNameFromUserAgent(Request $request): string
-{
-    $userAgent = $request->userAgent();
-    
-    if (str_contains($userAgent, 'Postman')) return 'Postman API Client';
-    if (str_contains($userAgent, 'Insomnia')) return 'Insomnia API Client';
-    if (str_contains($userAgent, 'curl')) return 'cURL';
-    if (str_contains($userAgent, 'Mozilla')) {
-        if (str_contains($userAgent, 'Windows')) return 'Windows Browser';
-        if (str_contains($userAgent, 'Macintosh')) return 'Mac Browser';
-        if (str_contains($userAgent, 'iPhone')) return 'iPhone Browser';
-        if (str_contains($userAgent, 'Android')) return 'Android Browser';
-        return 'Web Browser';
+    {
+        $userAgent = $request->userAgent();
+        
+        if (str_contains($userAgent, 'Postman')) return 'Postman API Client';
+        if (str_contains($userAgent, 'Insomnia')) return 'Insomnia API Client';
+        if (str_contains($userAgent, 'curl')) return 'cURL';
+        if (str_contains($userAgent, 'Mozilla')) {
+            if (str_contains($userAgent, 'Windows')) return 'Windows Browser';
+            if (str_contains($userAgent, 'Macintosh')) return 'Mac Browser';
+            if (str_contains($userAgent, 'iPhone')) return 'iPhone Browser';
+            if (str_contains($userAgent, 'Android')) return 'Android Browser';
+            return 'Web Browser';
+        }
+        return substr($userAgent, 0, 50);
     }
-    
-    // Fallback: first 50 chars of User-Agent
-    return substr($userAgent, 0, 50);
-}
-
-
-
 }

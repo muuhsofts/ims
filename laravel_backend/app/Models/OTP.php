@@ -8,12 +8,9 @@ use Carbon\Carbon;
 
 class OTP extends Model
 {
-
     protected $table = 'otps';
-
     public $incrementing = false;
     protected $keyType = 'string';
-
 
     protected $fillable = [
         'id', 'email', 'otp', 'token', 'name', 'user_data', 'expires_at',
@@ -87,13 +84,11 @@ class OTP extends Model
         return $this;
     }
 
-   
-
     public function getVerificationUrl(): string
-{
-    // Laravel web route (no 'api' prefix)
-    return url('/verify-email?token=' . $this->token . '&email=' . urlencode($this->email));
-}
+    {
+        return url('/verify-email?token=' . $this->token . '&email=' . urlencode($this->email));
+    }
+
     public function getApiVerificationUrl(): string
     {
         return url('/api/verification/verify-email?token=' . $this->token . '&email=' . urlencode($this->email));

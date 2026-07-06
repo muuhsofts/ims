@@ -1,3 +1,4 @@
+<!-- resources/views/emails/verification-success.blade.php -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -29,6 +30,10 @@
             margin: 0;
             font-size: 24px;
         }
+        .header p {
+            margin: 5px 0 0;
+            opacity: 0.9;
+        }
         .content {
             padding: 30px;
         }
@@ -54,6 +59,21 @@
             line-height: 1.6;
             margin: 20px 0;
         }
+        .info-box {
+            background: #e8f4fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin: 20px 0;
+            font-size: 14px;
+            border-radius: 4px;
+        }
+        .info-box ul {
+            margin: 5px 0 0 20px;
+            padding: 0;
+        }
+        .info-box ul li {
+            margin-bottom: 4px;
+        }
         .footer {
             background: #f8f9fa;
             padding: 20px;
@@ -61,6 +81,9 @@
             font-size: 12px;
             color: #999;
             border-top: 1px solid #eee;
+        }
+        .footer p {
+            margin: 5px 0;
         }
         .button {
             display: inline-block;
@@ -75,6 +98,15 @@
         .button:hover {
             background: #1e3c72;
         }
+        .verification-details {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .verification-details strong {
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -85,28 +117,51 @@
         </div>
         <div class="content">
             <div class="greeting">
-                <strong>Hello {{ $name }}!</strong>
+                <strong>Hello {{ $name ?? $user->name ?? 'User' }}!</strong>
             </div>
             
             <div class="success-box">
                 <div class="success-icon">✅</div>
                 <h2 style="color: #28a745; margin: 0;">Email Verified Successfully</h2>
-                <p style="margin-top: 10px;">Your email address <strong>{{ $email }}</strong> has been confirmed.</p>
+                <p style="margin-top: 10px;">Your email address <strong>{{ $email ?? $user->email ?? '' }}</strong> has been confirmed.</p>
             </div>
             
             <div class="message">
-                <p>You can now log in to your IMS account and start managing inventory, sales, and stock.</p>
-                <p>If you have any questions or need assistance, our support team is here to help.</p>
+                <p>Your account is now active and ready to use. You can now:</p>
+                <ul>
+                    <li>Log in to your IMS account</li>
+                    <li>Manage inventory, sales, and stock</li>
+                    <li>Access all features based on your role</li>
+                </ul>
             </div>
             
-            <div style="text-align: center;">
-                <a href="{{ config('app.frontend_url', 'https://imaratech.co.tz') }}" class="button">Go to Dashboard</a>
+            <div class="verification-details">
+                <p><strong>Account Details:</strong></p>
+                <ul style="margin: 5px 0 0 20px; padding: 0;">
+                    <li><strong>Name:</strong> {{ $name ?? $user->name ?? 'N/A' }}</li>
+                    <li><strong>Email:</strong> {{ $email ?? $user->email ?? 'N/A' }}</li>
+                    <li><strong>Status:</strong> Active</li>
+                </ul>
+            </div>
+            
+            <div class="info-box">
+                <strong>💡 Quick Tips:</strong>
+                <ul>
+                    <li>Keep your password secure and change it regularly</li>
+                    <li>Enable two-factor authentication for extra security</li>
+                    <li>Log out from shared devices after each session</li>
+                </ul>
+            </div>
+            
+           
+            
+            <div class="message" style="font-size: 14px; color: #888; border-top: 1px solid #eee; padding-top: 20px;">
+                <p>If you have any questions or need assistance, our support team is here to help.</p>
             </div>
         </div>
         <div class="footer">
-            <p>&copy; {{ date('Y') }} IMS – Inventory Management System. All rights reserved.</p>
-            <p>This is an automated message, please do not reply to this email.</p>
-            <p><small>Need help? Contact our support team.</small></p>
+            <p>&copy; {{ date('Y') }} {{ config('app.name', 'IMS') }} – Inventory Management System. All rights reserved.</p>
+            <p><small>Need help? Contact our support team at <a href="mailto:support@imaratech.co.tz" style="color: #2a5298;">support@imaratech.co.tz</a></small></p>
         </div>
     </div>
 </body>

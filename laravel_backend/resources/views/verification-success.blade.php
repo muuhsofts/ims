@@ -18,10 +18,7 @@
         <p>Hello <b>{{ $user->name }}</b></p>
         <p>Your email <b>{{ $user->email }}</b> is now verified.</p>
 
-        <a href="{{ $dashboardUrl ?? config('app.frontend_url') }}"
-           style="display:inline-block;padding:10px 20px;background:#2a5298;color:white;text-decoration:none;border-radius:5px;">
-           Go to Dashboard
-        </a>
+      
     </div>
 
 </div>

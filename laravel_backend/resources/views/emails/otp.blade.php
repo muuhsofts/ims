@@ -1,3 +1,4 @@
+<!-- resources/views/emails/otp.blade.php -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -29,6 +30,10 @@
             margin: 0;
             font-size: 24px;
         }
+        .header p {
+            margin: 5px 0 0;
+            opacity: 0.9;
+        }
         .content {
             padding: 30px;
         }
@@ -37,12 +42,17 @@
             color: #333;
             margin-bottom: 20px;
         }
+        .message {
+            color: #666;
+            line-height: 1.6;
+            margin: 20px 0;
+        }
         .otp-box {
             background: #f0f0f0;
             border-radius: 8px;
             padding: 20px;
             text-align: center;
-            margin: 20px 0;
+            margin: 25px 0;
         }
         .otp-code {
             font-size: 48px;
@@ -51,10 +61,10 @@
             color: #2a5298;
             font-family: monospace;
         }
-        .message {
+        .otp-label {
+            margin-top: 10px;
             color: #666;
-            line-height: 1.6;
-            margin: 20px 0;
+            font-size: 14px;
         }
         .warning {
             background: #fff3cd;
@@ -63,6 +73,11 @@
             margin: 20px 0;
             font-size: 14px;
             color: #856404;
+            border-radius: 4px;
+        }
+        .warning strong {
+            display: block;
+            margin-bottom: 5px;
         }
         .footer {
             background: #f8f9fa;
@@ -72,49 +87,8 @@
             color: #999;
             border-top: 1px solid #eee;
         }
-        .button {
-            display: inline-block;
-            background: #2a5298;
-            color: white;
-            padding: 12px 30px;
-            text-decoration: none;
-            border-radius: 5px;
-            margin: 10px 0;
-            font-weight: bold;
-        }
-        .button:hover {
-            background: #1e3c72;
-        }
-        .divider {
-            text-align: center;
-            margin: 25px 0;
-            position: relative;
-        }
-        .divider:before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background: #e0e0e0;
-        }
-        .divider span {
-            background: white;
-            padding: 0 15px;
-            position: relative;
-            color: #999;
-            font-size: 14px;
-        }
-        .verification-link-box {
-            text-align: center;
-            margin: 20px 0;
-        }
-        .note {
-            font-size: 12px;
-            color: #999;
-            text-align: center;
-            margin-top: 15px;
+        .footer p {
+            margin: 5px 0;
         }
     </style>
 </head>
@@ -137,51 +111,31 @@
                 @endif
             </div>
             
-            <!-- OTP Code Section -->
             <div class="otp-box">
                 <div class="otp-code">{{ $otp }}</div>
-                <p style="margin-top: 10px; color: #666;">Enter this code to continue</p>
+                <div class="otp-label">Enter this code to complete verification</div>
             </div>
-            
-            <!-- Verification Link Section (if provided) -->
-            @if(isset($verificationLink) && $verificationLink)
-            <div class="divider">
-                <span>OR</span>
-            </div>
-            
-            <div class="verification-link-box">
-                <a href="{{ $verificationLink }}" class="button">
-                    @if($type === 'reset')
-                        Reset Password Instantly
-                    @else
-                        Verify Email Instantly
-                    @endif
-                </a>
-                <p style="margin-top: 10px; font-size: 14px; color: #666;">
-                    Click the button above to {{ $type === 'reset' ? 'reset your password' : 'verify your email' }} instantly
-                </p>
-            </div>
-            @endif
             
             <div class="warning">
-                <strong>⚠️ Important:</strong> This OTP is valid for <strong>10 minutes</strong> only.
-                For security reasons, do not share this code with anyone.
+                <strong>⚠️ Important Security Notice:</strong>
+                <ul style="margin: 5px 0 0 20px; padding: 0;">
+                    <li>This OTP is valid for <strong>10 minutes</strong> only</li>
+                    <li>Do not share this code with anyone</li>
+                    <li>Never enter this code on any unofficial website</li>
+                </ul>
             </div>
             
-            <div class="message">
-                <p style="font-size: 14px;">
-                    @if($type === 'reset')
-                        If you didn't request a password reset, please ignore this email or contact support.
-                    @else
-                        If you didn't create an account with IMS, please ignore this email.
-                    @endif
-                </p>
+            <div class="message" style="font-size: 14px; color: #888; border-top: 1px solid #eee; padding-top: 20px; margin-top: 20px;">
+                @if($type === 'reset')
+                    <p>If you didn't request a password reset, please ignore this email.</p>
+                @else
+                    <p>If you didn't create an account with IMS, please ignore this email.</p>
+                @endif
             </div>
         </div>
         <div class="footer">
-            <p>&copy; {{ date('Y') }} IMS – Inventory Management System. All rights reserved.</p>
+            <p>&copy; {{ date('Y') }} {{ config('app.name', 'IMS') }} – All rights reserved.</p>
             <p>This is an automated message, please do not reply to this email.</p>
-            <p><small>Need help? Contact our support team.</small></p>
         </div>
     </div>
 </body>

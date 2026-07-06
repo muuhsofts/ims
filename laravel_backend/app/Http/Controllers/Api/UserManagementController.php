@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\Role;
 use App\Models\OTP;
 use App\Mail\OTPMail;
+use App\Services\VerificationService;
 use Illuminate\Support\Facades\Mail;
 use App\Traits\Auditable;
 use Illuminate\Http\Request;
@@ -19,6 +20,13 @@ class UserManagementController extends BaseApiController
 {
     use Auditable;
 
+    protected $verificationService;
+
+    public function __construct(VerificationService $verificationService)
+    {
+        $this->verificationService = $verificationService;
+    }
+
     /**
      * List users (with optional Collection Center relation)
      * Permission: users.view
@@ -29,7 +37,7 @@ class UserManagementController extends BaseApiController
         if ($perm) return $perm;
 
         try {
-            $query = User::with('role', 'createdBy', 'collectionCenter'); // added collectionCenter
+            $query = User::with('role', 'createdBy', 'collectionCenter');
 
             if ($request->filled('role_id')) {
                 $query->where('role_id', $request->role_id);
@@ -88,7 +96,7 @@ class UserManagementController extends BaseApiController
                 'password' => 'required|string|min:8',
                 'phone'    => 'nullable|string|max:20',
                 'role_id'  => 'required|string|exists:roles,id',
-                'cc_id'    => 'nullable|string|exists:collection_centers,cc_id', // new
+                'cc_id'    => 'nullable|string|exists:collection_centers,cc_id',
             ]);
 
             DB::beginTransaction();
@@ -104,23 +112,18 @@ class UserManagementController extends BaseApiController
                 'is_active'  => false,
                 'created_by' => $authUser->id,
                 'role_id'    => $role->id,
-                'cc_id'      => $request->cc_id ?? null, // optional
+                'cc_id'      => $request->cc_id ?? null,
             ]);
 
-            $otpRecord = OTP::create([
-                'id'    => (string) Str::uuid(),
-                'email' => $user->email,
-                'type'  => OTP::TYPE_REGISTRATION,
-                'name'  => $user->name,
-            ]);
-
-            Mail::to($user->email)->send(
-                new OTPMail($otpRecord->otp, $user->name, 'verification', $otpRecord->getVerificationUrl())
-            );
+            $result = $this->verificationService->sendVerificationOTP($user, OTP::TYPE_REGISTRATION);
 
             DB::commit();
             $this->logAudit('create_user', 'user', $user->id, "Created user {$user->email}");
-            return $this->created($user->load('role', 'collectionCenter'), 'User created. OTP sent.');
+            return $this->created([
+                'user' => $user->load('role', 'collectionCenter'),
+                'otp_sent' => true,
+                'expires_in' => $result['expires_in'],
+            ], 'User created. OTP sent.');
         } catch (ValidationException $e) {
             DB::rollBack();
             return $this->validationError($e->errors());
@@ -136,60 +139,118 @@ class UserManagementController extends BaseApiController
      * Others need users.edit permission.
      */
     public function update(Request $request, $id)
-{
-    try {
-        $authUser = $request->user();
-        $user = User::findOrFail($id);
+    {
+        try {
+            $authUser = $request->user();
+            $user = User::findOrFail($id);
 
-        // ✅ Correct: own profile if the authenticated user is the same as the user being updated
-        $isOwnProfile = ($user->id === $authUser->id);
+            $isOwnProfile = ($user->id === $authUser->id);
 
-        if (!$isOwnProfile) {
-            $perm = $this->checkPermission('users.edit');
-            if ($perm) return $perm;
-        }
-
-        $rules = [
-            'name'  => 'sometimes|string|max:255',
-            'phone' => 'nullable|string|max:20',
-        ];
-
-        // Only admins/managers can change status, role, or cc_id
-        if (!$isOwnProfile) {
-            $rules['status']  = 'sometimes|in:pending,active,inactive,suspended';
-            $rules['role_id'] = 'sometimes|string|exists:roles,id';
-            $rules['cc_id']   = 'nullable|string|exists:collection_centers,cc_id';
-        }
-
-        $request->validate($rules);
-
-        $data = $request->only(['name', 'phone']);
-        if (!$isOwnProfile) {
-            if ($request->has('status')) {
-                $data['status'] = $request->status;
-                $data['is_active'] = $request->status === 'active';
+            if (!$isOwnProfile) {
+                $perm = $this->checkPermission('users.edit');
+                if ($perm) return $perm;
             }
-            if ($request->has('role_id')) {
-                $data['role_id'] = $request->role_id;
-            }
-            if ($request->has('cc_id')) {
-                $data['cc_id'] = $request->cc_id;
-            }
-        }
 
-        $user->update($data);
-        $this->logAudit('update_user', 'user', $user->id, "Updated user {$user->email}");
-        return $this->successResponse($user->load('role', 'collectionCenter'), 'User updated');
-    } catch (\Exception $e) {
-        return $this->serverError('Failed to update user');
+            $rules = [
+                'name'  => 'sometimes|string|max:255',
+                'phone' => 'nullable|string|max:20',
+            ];
+
+            if (!$isOwnProfile) {
+                $rules['status']  = 'sometimes|in:pending,active,inactive,suspended';
+                $rules['role_id'] = 'sometimes|string|exists:roles,id';
+                $rules['cc_id']   = 'nullable|string|exists:collection_centers,cc_id';
+            }
+
+            $request->validate($rules);
+
+            $data = $request->only(['name', 'phone']);
+            if (!$isOwnProfile) {
+                if ($request->has('status')) {
+                    $data['status'] = $request->status;
+                    $data['is_active'] = $request->status === 'active';
+                }
+                if ($request->has('role_id')) {
+                    $data['role_id'] = $request->role_id;
+                }
+                if ($request->has('cc_id')) {
+                    $data['cc_id'] = $request->cc_id;
+                }
+            }
+
+            $user->update($data);
+            $this->logAudit('update_user', 'user', $user->id, "Updated user {$user->email}");
+            return $this->successResponse($user->load('role', 'collectionCenter'), 'User updated');
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to update user');
+        }
     }
-}
 
-    // -------------------------------------------------------------------------
-    // The rest of the methods (destroy, activate, deactivate, suspend, assignRole,
-    // resetUserPassword, stats, trashed, restore, forceDelete, Userdropdown,
-    // salesAgentDropdown) remain exactly as you provided.
-    // -------------------------------------------------------------------------
+    /**
+     * Verify user by ID
+     * Permission: users.activate
+     */
+    public function verifyUser(Request $request, $id)
+    {
+        $perm = $this->checkPermission('users.activate');
+        if ($perm) return $perm;
+
+        try {
+            $result = $this->verificationService->verifyUserById($id);
+            $this->logAudit('verify_user', 'user', $id, "Manually verified user with ID: {$id}");
+            return $this->successResponse($result, 'User verified successfully.');
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to verify user: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get verification status for a user
+     * Permission: users.view
+     */
+    public function getVerificationStatus(Request $request, $id)
+    {
+        $perm = $this->checkPermission('users.view');
+        if ($perm) return $perm;
+
+        try {
+            $status = $this->verificationService->checkVerificationStatus($id);
+            return $this->successResponse($status, 'Verification status retrieved.');
+        } catch (\Exception $e) {
+            return $this->notFound('User not found');
+        }
+    }
+
+    /**
+     * Resend verification OTP for user
+     * Permission: users.edit
+     */
+    public function resendUserVerification(Request $request, $id)
+    {
+        $perm = $this->checkPermission('users.edit');
+        if ($perm) return $perm;
+
+        try {
+            $user = User::findOrFail($id);
+
+            if (!is_null($user->email_verified_at)) {
+                return $this->badRequest('User is already verified.');
+            }
+
+            $result = $this->verificationService->resendOTP($user->email, OTP::TYPE_REGISTRATION);
+            
+            $this->logAudit('resend_user_verification', 'user', $id, "Resent verification OTP to user {$user->email}");
+            
+            return $this->successResponse([
+                'email' => $result['email'],
+                'otp_sent' => true,
+                'expires_in' => $result['expires_in'],
+            ], 'Verification OTP resent successfully.');
+
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to resend verification: ' . $e->getMessage());
+        }
+    }
 
     /**
      * Delete user (soft delete)
@@ -403,188 +464,168 @@ class UserManagementController extends BaseApiController
     }
 
     public function salesAgentDropdown(Request $request)
-{
-    try {
-        $user = $this->authUser();
-        if (!$user) {
-            return $this->unauthorized('Not authenticated');
-        }
-
-        $query = User::without('role')
-            ->select('id', 'name')
-            ->whereHas('role', function ($q) {
-                $q->where('name', 'SALES_AGENT');
-            })
-            ->where('status', 'active')
-            ->orderBy('name');
-
-        // Branch owners: only see sales agents assigned to their own collection center
-        if ($user->isBranchOwner()) {
-            if (empty($user->cc_id)) {
-                return $this->successResponse([], 'No branch assigned to this owner');
+    {
+        try {
+            $user = $this->authUser();
+            if (!$user) {
+                return $this->unauthorized('Not authenticated');
             }
-            $query->where('cc_id', $user->cc_id);
+
+            $query = User::without('role')
+                ->select('id', 'name')
+                ->whereHas('role', function ($q) {
+                    $q->where('name', 'SALES_AGENT');
+                })
+                ->where('status', 'active')
+                ->orderBy('name');
+
+            if ($user->isBranchOwner()) {
+                if (empty($user->cc_id)) {
+                    return $this->successResponse([], 'No branch assigned to this owner');
+                }
+                $query->where('cc_id', $user->cc_id);
+            }
+
+            if ($request->filled('search')) {
+                $query->where('name', 'LIKE', '%' . $request->search . '%');
+            }
+
+            $salesAgents = $query->limit(50)->get();
+
+            return $this->successResponse(
+                $salesAgents,
+                'Sales agents dropdown retrieved'
+            );
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to fetch sales agents dropdown');
         }
-
-        // Optional search filter
-        if ($request->filled('search')) {
-            $query->where('name', 'LIKE', '%' . $request->search . '%');
-        }
-
-        $salesAgents = $query->limit(50)->get();
-
-        return $this->successResponse(
-            $salesAgents,
-            'Sales agents dropdown retrieved'
-        );
-    } catch (\Exception $e) {
-        return $this->serverError('Failed to fetch sales agents dropdown');
     }
-}
 
-    /**
- * Resend OTP to a user (admin action)
- * Permission: users.edit (or create a dedicated permission)
- */
-public function resendOtp(Request $request, $id)
-{
-    $perm = $this->checkPermission('users.edit'); // adjust as needed
-    if ($perm) return $perm;
+    public function resendOtp(Request $request, $id)
+    {
+        $perm = $this->checkPermission('users.edit');
+        if ($perm) return $perm;
 
-    try {
-        $user = User::findOrFail($id);
+        try {
+            $user = User::findOrFail($id);
 
-        if ($user->email_verified_at) {
-            return $this->badRequest('Email already verified');
+            if ($user->email_verified_at) {
+                return $this->badRequest('Email already verified');
+            }
+
+            OTP::where('email', $user->email)
+                ->where('type', OTP::TYPE_REGISTRATION)
+                ->delete();
+
+            $otpRecord = OTP::create([
+                'id'         => (string) Str::uuid(),
+                'email'      => $user->email,
+                'type'       => OTP::TYPE_REGISTRATION,
+                'name'       => $user->name,
+                'expires_at' => now()->addMinutes(10),
+            ]);
+
+            Mail::to($user->email)->send(
+                new OTPMail($otpRecord->otp, $user->name, 'verification', null)
+            );
+
+            $this->logAudit('resend_otp', 'user', $user->id, "Resent OTP to {$user->email}");
+            return $this->successResponse(null, 'OTP resent successfully');
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to resend OTP');
         }
-
-        // Delete old OTPs for this email (registration type)
-        OTP::where('email', $user->email)
-            ->where('type', OTP::TYPE_REGISTRATION)
-            ->delete();
-
-        // Create new OTP
-        $otpRecord = OTP::create([
-            'id'         => (string) Str::uuid(),
-            'email'      => $user->email,
-            'type'       => OTP::TYPE_REGISTRATION,
-            'name'       => $user->name,
-            'expires_at' => now()->addMinutes(10),
-        ]);
-
-        // Send email
-        Mail::to($user->email)->send(
-            new OTPMail($otpRecord->otp, $user->name, 'verification', $otpRecord->getVerificationUrl())
-        );
-
-        $this->logAudit('resend_otp', 'user', $user->id, "Resent OTP to {$user->email}");
-        return $this->successResponse(null, 'OTP resent successfully');
-    } catch (\Exception $e) {
-        return $this->serverError('Failed to resend OTP');
     }
-}
 
-/**
- * Get all Branch Owner users with their IDs
- * Permission: users.view
- */
-public function getBranchOwners(Request $request)
-{
-    $perm = $this->checkPermission('users.view');
-    if ($perm) return $perm;
+    public function getBranchOwners(Request $request)
+    {
+        $perm = $this->checkPermission('users.view');
+        if ($perm) return $perm;
 
-    try {
-        // Find the BRANCH_OWNER role ID
-        $branchOwnerRole = Role::where('name', 'BRANCH_OWNER')->first();
-        
-        if (!$branchOwnerRole) {
-            return $this->notFound('BRANCH_OWNER role not found');
-        }
+        try {
+            $branchOwnerRole = Role::where('name', 'BRANCH_OWNER')->first();
+            
+            if (!$branchOwnerRole) {
+                return $this->notFound('BRANCH_OWNER role not found');
+            }
 
-        // Query users with BRANCH_OWNER role
-        $query = User::select('id', 'name', 'email', 'phone', 'status', 'cc_id', 'created_at')
-            ->where('role_id', $branchOwnerRole->id)
-            ->with('collectionCenter:id,cc_name,location')
-            ->orderBy('name', 'asc');
+            $query = User::select('id', 'name', 'email', 'phone', 'status', 'cc_id', 'created_at')
+                ->where('role_id', $branchOwnerRole->id)
+                ->with('collectionCenter:id,cc_name,location')
+                ->orderBy('name', 'asc');
 
-        // Optional filters
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
+            if ($request->filled('status')) {
+                $query->where('status', $request->status);
+            }
 
-        if ($request->filled('search')) {
-            $s = $request->search;
-            $query->where(function($q) use ($s) {
-                $q->where('name', 'LIKE', "%{$s}%")
-                  ->orWhere('email', 'LIKE', "%{$s}%")
-                  ->orWhere('phone', 'LIKE', "%{$s}%");
+            if ($request->filled('search')) {
+                $s = $request->search;
+                $query->where(function($q) use ($s) {
+                    $q->where('name', 'LIKE', "%{$s}%")
+                      ->orWhere('email', 'LIKE', "%{$s}%")
+                      ->orWhere('phone', 'LIKE', "%{$s}%");
+                });
+            }
+
+            $branchOwners = $query->paginate($request->get('per_page', 50));
+
+            $formattedData = $branchOwners->through(function ($user) {
+                return [
+                    'user_id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'phone' => $user->phone,
+                    'status' => $user->status,
+                    'collection_center' => $user->collectionCenter ? [
+                        'cc_id' => $user->collectionCenter->cc_id,
+                        'cc_name' => $user->collectionCenter->cc_name,
+                        'location' => $user->collectionCenter->location ?? 'N/A',
+                    ] : null,
+                    'created_at' => $user->created_at,
+                ];
             });
+
+            $this->logAudit('view_branch_owners', 'user', null, 'Viewed branch owners list');
+            return $this->successResponse($formattedData, 'Branch owners retrieved successfully');
+            
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to fetch branch owners: ' . $e->getMessage());
         }
-
-        $branchOwners = $query->paginate($request->get('per_page', 50));
-
-        // Format the response with additional info
-        $formattedData = $branchOwners->through(function ($user) {
-            return [
-                'user_id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'phone' => $user->phone,
-                'status' => $user->status,
-                'collection_center' => $user->collectionCenter ? [
-                    'cc_id' => $user->collectionCenter->cc_id,
-                    'cc_name' => $user->collectionCenter->cc_name,
-                    'location' => $user->collectionCenter->location ?? 'N/A',
-                ] : null,
-                'created_at' => $user->created_at,
-            ];
-        });
-
-        $this->logAudit('view_branch_owners', 'user', null, 'Viewed branch owners list');
-        return $this->successResponse($formattedData, 'Branch owners retrieved successfully');
-        
-    } catch (\Exception $e) {
-        return $this->serverError('Failed to fetch branch owners: ' . $e->getMessage());
     }
-}
 
-/**
- * Get a simple dropdown of Branch Owners (ID and Name only)
- */
-public function getBranchOwnersDropdown(Request $request)
-{
-    try {
-        $branchOwnerRole = Role::where('name', 'BRANCH_OWNER')->first();
-        
-        if (!$branchOwnerRole) {
-            return $this->successResponse([], 'No branch owners found');
+    public function getBranchOwnersDropdown(Request $request)
+    {
+        try {
+            $branchOwnerRole = Role::where('name', 'BRANCH_OWNER')->first();
+            
+            if (!$branchOwnerRole) {
+                return $this->successResponse([], 'No branch owners found');
+            }
+
+            $query = User::select('id', 'name', 'email')
+                ->where('role_id', $branchOwnerRole->id)
+                ->where('status', 'active')
+                ->orderBy('name', 'asc');
+
+            if ($request->filled('search')) {
+                $s = $request->search;
+                $query->where('name', 'LIKE', "%{$s}%");
+            }
+
+            $branchOwners = $query->limit(100)->get();
+
+            $formatted = $branchOwners->map(function ($user) {
+                return [
+                    'value' => $user->id,
+                    'label' => $user->name . ' (' . $user->email . ')',
+                    'name' => $user->name,
+                    'email' => $user->email,
+                ];
+            });
+
+            return $this->successResponse($formatted, 'Branch owners dropdown retrieved');
+            
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to fetch branch owners dropdown');
         }
-
-        $query = User::select('id', 'name', 'email')
-            ->where('role_id', $branchOwnerRole->id)
-            ->where('status', 'active')
-            ->orderBy('name', 'asc');
-
-        if ($request->filled('search')) {
-            $s = $request->search;
-            $query->where('name', 'LIKE', "%{$s}%");
-        }
-
-        $branchOwners = $query->limit(100)->get();
-
-        $formatted = $branchOwners->map(function ($user) {
-            return [
-                'value' => $user->id,  // For dropdown value
-                'label' => $user->name . ' (' . $user->email . ')',  // For dropdown label
-                'name' => $user->name,
-                'email' => $user->email,
-            ];
-        });
-
-        return $this->successResponse($formatted, 'Branch owners dropdown retrieved');
-        
-    } catch (\Exception $e) {
-        return $this->serverError('Failed to fetch branch owners dropdown');
     }
-}
 }

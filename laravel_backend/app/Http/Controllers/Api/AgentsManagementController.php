@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\OTP;
 use App\Models\CollectionCenter;
 use App\Mail\OTPMail;
+use App\Services\VerificationService;
 use App\Traits\Auditable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -20,21 +21,22 @@ class AgentsManagementController extends BaseApiController
 {
     use Auditable;
 
+    protected $verificationService;
+
+    public function __construct(VerificationService $verificationService)
+    {
+        $this->verificationService = $verificationService;
+    }
+
     // =========================================================================
     // PRIVATE HELPER METHODS
     // =========================================================================
 
-    /**
-     * Generate a default password (fixed to 12345678 for simplicity)
-     */
     private function generateDefaultPassword(): string
     {
         return '12345678';
     }
 
-    /**
-     * Get the role ID for SALES_AGENT.
-     */
     private function getSalesAgentRoleId()
     {
         $role = Role::where('name', 'SALES_AGENT')->first();
@@ -44,20 +46,12 @@ class AgentsManagementController extends BaseApiController
         return $role->id;
     }
 
-    /**
-     * Check if the authenticated user can view all agents.
-     * (Admin or Manager have full access.)
-     */
     private function canViewAllAgents(): bool
     {
         $user = auth()->user();
         return $user->role && in_array($user->role->name, ['ADMINISTRATOR', 'MANAGER']);
     }
 
-    /**
-     * Get the collection center IDs owned by the authenticated branch owner.
-     * Returns null if user is not a branch owner, or an array of IDs.
-     */
     private function getOwnedCenterIds($user)
     {
         if (!$user->role || $user->role->name !== 'BRANCH_OWNER') {
@@ -66,10 +60,6 @@ class AgentsManagementController extends BaseApiController
         return CollectionCenter::where('owner_id', $user->id)->pluck('cc_id')->toArray();
     }
 
-    /**
-     * Check if an agent belongs to any center owned by the given user.
-     * Used for show/update/delete/status actions.
-     */
     private function isAgentOwnedByUser($agent, $user): bool
     {
         if (!$agent->cc_id) return false;
@@ -78,9 +68,6 @@ class AgentsManagementController extends BaseApiController
         return in_array($agent->cc_id, $ownedIds);
     }
 
-    /**
-     * Check if user has access to an agent (admin, creator, or owner).
-     */
     private function hasAccessToAgent($agent, $user): bool
     {
         $isAdminOrManager = $this->canViewAllAgents();
@@ -90,9 +77,6 @@ class AgentsManagementController extends BaseApiController
         return $isAdminOrManager || $isCreator || $isOwnedByUser;
     }
 
-    /**
-     * Apply filters to agent query.
-     */
     private function applyAgentFilters($query, Request $request)
     {
         if ($request->filled('status')) {
@@ -116,13 +100,6 @@ class AgentsManagementController extends BaseApiController
     // PUBLIC API METHODS
     // =========================================================================
 
-    /**
-     * List sales agents – filtered by:
-     * - Admin/Manager: all agents
-     * - Branch Owner: all agents assigned to any collection center they own
-     * - Other users: only agents they created
-     * Permission: sales_agent.view
-     */
     public function index(Request $request)
     {
         $perm = $this->checkPermission('sales_agent.view');
@@ -140,12 +117,10 @@ class AgentsManagementController extends BaseApiController
             $isBranchOwner = !empty($ownedCenterIds);
 
             if ($isAdminOrManager) {
-                // Admins/Managers see all agents – no additional filter.
+                // Admins/Managers see all agents
             } elseif ($isBranchOwner) {
-                // Branch owners see agents assigned to any center they own.
                 $query->whereIn('cc_id', $ownedCenterIds);
             } else {
-                // Regular users see only agents they created.
                 $query->where(function($q) use ($authUser) {
                     $q->where('created_by', $authUser->id)
                       ->orWhereNull('created_by');
@@ -164,10 +139,6 @@ class AgentsManagementController extends BaseApiController
         }
     }
 
-    /**
-     * Show a single sales agent – only if user has access (owns center, created, or admin).
-     * Permission: sales_agent.view
-     */
     public function show(Request $request, $id)
     {
         $perm = $this->checkPermission('sales_agent.view');
@@ -192,8 +163,7 @@ class AgentsManagementController extends BaseApiController
     }
 
     /**
-     * Create a new sales agent – automatically generates password (12345678).
-     * Permission: sales_agent.create
+     * Create a new sales agent with verification
      */
     public function store(Request $request)
     {
@@ -210,7 +180,6 @@ class AgentsManagementController extends BaseApiController
                 'cc_id'    => 'nullable|string|exists:collection_centers,cc_id',
             ]);
 
-            // If user is branch owner, ensure they can assign to one of their centers
             $ownedCenterIds = $this->getOwnedCenterIds($authUser);
             if (!empty($ownedCenterIds) && $request->filled('cc_id')) {
                 if (!in_array($request->cc_id, $ownedCenterIds)) {
@@ -236,26 +205,22 @@ class AgentsManagementController extends BaseApiController
                 'cc_id'      => $request->cc_id ?? null,
             ]);
 
-            // Send OTP
-            $otpRecord = OTP::create([
-                'id'    => (string) Str::uuid(),
-                'email' => $user->email,
-                'type'  => OTP::TYPE_REGISTRATION,
-                'name'  => $user->name,
-            ]);
-
-            Mail::to($user->email)->send(
-                new OTPMail($otpRecord->otp, $user->name, 'verification', $otpRecord->getVerificationUrl())
-            );
+            $result = $this->verificationService->sendVerificationOTP($user, OTP::TYPE_REGISTRATION);
 
             DB::commit();
 
-            // Return the generated password so it can be displayed to the user
             $response = $user->load('role', 'collectionCenter');
             $response->generated_password = $defaultPassword;
 
             $this->logAudit('create_agent', 'user', $user->id, "Created sales agent {$user->email}");
-            return $this->created($response, 'Sales agent created. OTP sent. Default password: ' . $defaultPassword);
+            
+            return $this->created([
+                'agent' => $response,
+                'generated_password' => $defaultPassword,
+                'otp_sent' => true,
+                'expires_in' => $result['expires_in'],
+            ], 'Sales agent created. OTP sent to email.');
+
         } catch (ValidationException $e) {
             DB::rollBack();
             return $this->validationError($e->errors());
@@ -266,9 +231,97 @@ class AgentsManagementController extends BaseApiController
     }
 
     /**
-     * Update a sales agent – only if user has access.
+     * Verify agent by ID
+     * Permission: sales_agent.activate
+     */
+    public function verifyAgent(Request $request, $id)
+    {
+        $perm = $this->checkPermission('sales_agent.activate');
+        if ($perm) return $perm;
+
+        try {
+            $authUser = $request->user();
+            $roleId = $this->getSalesAgentRoleId();
+            $agent = User::where('role_id', $roleId)->findOrFail($id);
+
+            if (!$this->hasAccessToAgent($agent, $authUser)) {
+                return $this->forbidden('You do not have permission to verify this agent.');
+            }
+
+            $result = $this->verificationService->verifyAgentById($id);
+
+            $this->logAudit('verify_agent', 'user', $agent->id, "Manually verified sales agent {$agent->email}");
+
+            return $this->successResponse($result, 'Agent verified successfully.');
+
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to verify agent: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get verification status for an agent
+     * Permission: sales_agent.view
+     */
+    public function getAgentVerificationStatus(Request $request, $id)
+    {
+        $perm = $this->checkPermission('sales_agent.view');
+        if ($perm) return $perm;
+
+        try {
+            $authUser = $request->user();
+            $roleId = $this->getSalesAgentRoleId();
+            $agent = User::where('role_id', $roleId)->findOrFail($id);
+
+            if (!$this->hasAccessToAgent($agent, $authUser)) {
+                return $this->forbidden('You do not have permission to view this agent\'s verification status.');
+            }
+
+            $status = $this->verificationService->checkVerificationStatus($id);
+            return $this->successResponse($status, 'Verification status retrieved.');
+
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to check verification status: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Resend verification OTP for agent
      * Permission: sales_agent.edit
      */
+    public function resendAgentVerification(Request $request, $id)
+    {
+        $perm = $this->checkPermission('sales_agent.edit');
+        if ($perm) return $perm;
+
+        try {
+            $authUser = $request->user();
+            $roleId = $this->getSalesAgentRoleId();
+            $agent = User::where('role_id', $roleId)->findOrFail($id);
+
+            if (!$this->hasAccessToAgent($agent, $authUser)) {
+                return $this->forbidden('You do not have permission to resend verification.');
+            }
+
+            if (!is_null($agent->email_verified_at)) {
+                return $this->badRequest('Agent is already verified.');
+            }
+
+            $result = $this->verificationService->resendOTP($agent->email, OTP::TYPE_REGISTRATION);
+
+            $this->logAudit('resend_agent_verification', 'user', $agent->id, "Resent verification OTP to agent {$agent->email}");
+
+            return $this->successResponse([
+                'email' => $result['email'],
+                'otp_sent' => true,
+                'expires_in' => $result['expires_in'],
+            ], 'Verification OTP resent successfully.');
+
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to resend verification: ' . $e->getMessage());
+        }
+    }
+
     public function update(Request $request, $id)
     {
         $perm = $this->checkPermission('sales_agent.edit');
@@ -284,7 +337,6 @@ class AgentsManagementController extends BaseApiController
                 return $this->forbidden('You do not have permission to edit this agent.');
             }
 
-            // If branch owner, ensure they can assign to a center they own
             if ($request->has('cc_id') && $request->filled('cc_id')) {
                 $ownedCenterIds = $this->getOwnedCenterIds($authUser);
                 if (!empty($ownedCenterIds) && !in_array($request->cc_id, $ownedCenterIds)) {
@@ -317,10 +369,6 @@ class AgentsManagementController extends BaseApiController
         }
     }
 
-    /**
-     * Soft delete a sales agent – only if user has access.
-     * Permission: sales_agent.delete
-     */
     public function destroy(Request $request, $id)
     {
         $perm = $this->checkPermission('sales_agent.delete');
@@ -349,10 +397,6 @@ class AgentsManagementController extends BaseApiController
         }
     }
 
-    /**
-     * Restore a soft‑deleted sales agent – only if user has access.
-     * Permission: sales_agent.restore
-     */
     public function restore(Request $request, $id)
     {
         $perm = $this->checkPermission('sales_agent.restore');
@@ -376,10 +420,6 @@ class AgentsManagementController extends BaseApiController
         }
     }
 
-    /**
-     * Permanently delete a sales agent – only if user has access.
-     * Permission: sales_agent.delete
-     */
     public function forceDelete(Request $request, $id)
     {
         $perm = $this->checkPermission('sales_agent.delete');
@@ -404,10 +444,6 @@ class AgentsManagementController extends BaseApiController
         }
     }
 
-    /**
-     * Activate a sales agent – only if user has access.
-     * Permission: sales_agent.activate
-     */
     public function activate(Request $request, $id)
     {
         $perm = $this->checkPermission('sales_agent.activate');
@@ -431,10 +467,6 @@ class AgentsManagementController extends BaseApiController
         }
     }
 
-    /**
-     * Deactivate a sales agent – only if user has access.
-     * Permission: sales_agent.deactivate
-     */
     public function deactivate(Request $request, $id)
     {
         $perm = $this->checkPermission('sales_agent.deactivate');
@@ -458,10 +490,6 @@ class AgentsManagementController extends BaseApiController
         }
     }
 
-    /**
-     * Suspend a sales agent – only if user has access.
-     * Permission: sales_agent.suspend
-     */
     public function suspend(Request $request, $id)
     {
         $perm = $this->checkPermission('sales_agent.suspend');
@@ -486,10 +514,6 @@ class AgentsManagementController extends BaseApiController
         }
     }
 
-    /**
-     * List trashed (soft‑deleted) sales agents – filtered by ownership.
-     * Permission: sales_agent.view
-     */
     public function trashed(Request $request)
     {
         $perm = $this->checkPermission('sales_agent.view');
@@ -536,10 +560,6 @@ class AgentsManagementController extends BaseApiController
         }
     }
 
-    /**
-     * Get stats for sales agents – counts are always global (no ownership filter needed).
-     * Permission: sales_agent.view
-     */
     public function stats(Request $request)
     {
         $perm = $this->checkPermission('sales_agent.view');

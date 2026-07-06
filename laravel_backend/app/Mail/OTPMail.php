@@ -1,5 +1,4 @@
 <?php
-// app/Mail/OTPMail.php
 
 namespace App\Mail;
 
@@ -14,14 +13,12 @@ class OTPMail extends Mailable
     public $otp;
     public $name;
     public $type;
-    public $verificationLink;
 
-    public function __construct($otp, $name, $type = 'verification', $verificationLink = null)
+    public function __construct($otp, $name, $type = 'verification')
     {
         $this->otp = $otp;
         $this->name = $name;
         $this->type = $type;
-        $this->verificationLink = $verificationLink;
     }
 
     public function build()
@@ -34,7 +31,6 @@ class OTPMail extends Mailable
                         'otp' => $this->otp,
                         'name' => $this->name,
                         'type' => $this->type,
-                        'verificationLink' => $this->verificationLink
                     ]);
     }
 }

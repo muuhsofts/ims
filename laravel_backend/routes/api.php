@@ -54,11 +54,12 @@ Route::prefix('v1')->group(function () {
 
     // Public Auth Routes - Strict rate limiting
     Route::prefix('auth')->middleware('throttle:auth')->group(function () {
-        Route::post('register',        [AuthController::class, 'register']);
-        Route::post('login',           [AuthController::class, 'login']);
-        Route::post('verify-otp',      [AuthController::class, 'verifyOTP']);
-        Route::post('forgot-password', [AuthController::class, 'forgotPassword']);
-        Route::post('reset-password',  [AuthController::class, 'resetPassword']);
+        Route::post('register',             [AuthController::class, 'register']);
+        Route::post('login',                [AuthController::class, 'login']);
+        Route::post('verify-otp',           [AuthController::class, 'verifyOTP']);
+        Route::post('resend-verification',  [AuthController::class, 'resendVerification']);
+        Route::post('forgot-password',      [AuthController::class, 'forgotPassword']);
+        Route::post('reset-password',       [AuthController::class, 'resetPassword']);
     });
 
     // Public Verification Routes - Strict rate limiting
@@ -90,33 +91,40 @@ Route::prefix('v1')->group(function () {
             Route::delete('/{id}',   [UserSessionController::class, 'destroy']);
         });
 
-        // Users
+        // Users Management with Verification Routes
         Route::prefix('users')->group(function () {
-    Route::get('/trashed',              [UserManagementController::class, 'trashed']);
-     // Restore and force delete – these are fine where they are (more specific)
-    Route::patch('/{id}/restore',       [UserManagementController::class, 'restore']);
-    Route::post('/{id}/resend-otp', [UserManagementController::class, 'resendOtp']);
-    Route::delete('/{id}/force',        [UserManagementController::class, 'forceDelete']);
-    Route::get('/dropdown', [UserManagementController::class, 'Userdropdown']);
-    Route::get('/sales-agents/dropdown', [UserManagementController::class, 'salesAgentDropdown']);
-    Route::get('/branch-owners', [UserManagementController::class, 'getBranchOwners']);
-    Route::get('/branch-owners/dropdown', [UserManagementController::class, 'getBranchOwnersDropdown']);
+            // Trash & Restore
+            Route::get('/trashed',              [UserManagementController::class, 'trashed']);
+            Route::patch('/{id}/restore',       [UserManagementController::class, 'restore']);
+            Route::delete('/{id}/force',        [UserManagementController::class, 'forceDelete']);
+            
+            // Dropdowns
+            Route::get('/dropdown',             [UserManagementController::class, 'Userdropdown']);
+            Route::get('/sales-agents/dropdown', [UserManagementController::class, 'salesAgentDropdown']);
+            Route::get('/branch-owners',        [UserManagementController::class, 'getBranchOwners']);
+            Route::get('/branch-owners/dropdown', [UserManagementController::class, 'getBranchOwnersDropdown']);
 
-    Route::get('/',                     [UserManagementController::class, 'index']);
-    Route::post('/',                    [UserManagementController::class, 'store']);
-    Route::get('/stats',                [UserManagementController::class, 'stats']);
-    Route::get('/{id}',                 [UserManagementController::class, 'show']);
-    Route::put('/{id}',                 [UserManagementController::class, 'update']);
-    Route::delete('/{id}',              [UserManagementController::class, 'destroy']);
-    Route::patch('/{id}/activate',      [UserManagementController::class, 'activate']);
-    Route::patch('/{id}/deactivate',    [UserManagementController::class, 'deactivate']);
-    Route::patch('/{id}/suspend',       [UserManagementController::class, 'suspend']);
-    Route::patch('/{id}/role',          [UserManagementController::class, 'assignRole']);
-    Route::post('/{id}/reset-password', [UserManagementController::class, 'resetUserPassword']);
-    Route::post('/{id}/resend-otp',     [UserManagementController::class, 'resendOtp']);
+            // 🔐 Verification Routes
+            Route::post('/{id}/verify',              [UserManagementController::class, 'verifyUser']);
+            Route::get('/{id}/verification-status',  [UserManagementController::class, 'getVerificationStatus']);
+            Route::post('/{id}/resend-verification', [UserManagementController::class, 'resendUserVerification']);
+            Route::post('/{id}/resend-otp',          [UserManagementController::class, 'resendOtp']);
 
-   
-});
+            // CRUD
+            Route::get('/',                     [UserManagementController::class, 'index']);
+            Route::post('/',                    [UserManagementController::class, 'store']);
+            Route::get('/stats',                [UserManagementController::class, 'stats']);
+            Route::get('/{id}',                 [UserManagementController::class, 'show']);
+            Route::put('/{id}',                 [UserManagementController::class, 'update']);
+            Route::delete('/{id}',              [UserManagementController::class, 'destroy']);
+            
+            // Status Actions
+            Route::patch('/{id}/activate',      [UserManagementController::class, 'activate']);
+            Route::patch('/{id}/deactivate',    [UserManagementController::class, 'deactivate']);
+            Route::patch('/{id}/suspend',       [UserManagementController::class, 'suspend']);
+            Route::patch('/{id}/role',          [UserManagementController::class, 'assignRole']);
+            Route::post('/{id}/reset-password', [UserManagementController::class, 'resetUserPassword']);
+        });
 
         // Roles & Permissions
         Route::prefix('roles')->group(function () {
@@ -133,6 +141,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/{id}/permissions/revoke', [RolePermissionController::class, 'revokePermissionFromRole']);
         });
 
+        // Permissions
         Route::prefix('permissions')->group(function () {
             Route::get('/',        [RolePermissionController::class, 'getPermissions']);
             Route::post('/',       [RolePermissionController::class, 'createPermission']);
@@ -173,55 +182,49 @@ Route::prefix('v1')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| v2 to v14 – Protected Resource Routes
+| v2 to v17 – Protected Resource Routes
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
     // v2 – Product Categories
-   Route::prefix('v2')->group(function () {
-    Route::prefix('product-categories')->group(function () {
-
-        // Fixed method name (typo corrected)
-        Route::get('/dropdown', [ProductCategoryController::class, 'productCategoryDropdown']);
-
-        Route::get('/',          [ProductCategoryController::class, 'index']);
-        Route::post('/',         [ProductCategoryController::class, 'store']);
-        Route::get('/{id}',      [ProductCategoryController::class, 'show']);
-        Route::put('/{id}',      [ProductCategoryController::class, 'update']);
-        Route::delete('/{id}',   [ProductCategoryController::class, 'destroy']);
-        Route::patch('/{id}/activate',   [ProductCategoryController::class, 'activate']);
-        Route::patch('/{id}/deactivate', [ProductCategoryController::class, 'deactivate']);
-        Route::patch('/{id}/toggle-status', [ProductCategoryController::class, 'toggleStatus']);
+    Route::prefix('v2')->group(function () {
+        Route::prefix('product-categories')->group(function () {
+            Route::get('/dropdown', [ProductCategoryController::class, 'productCategoryDropdown']);
+            Route::get('/',          [ProductCategoryController::class, 'index']);
+            Route::post('/',         [ProductCategoryController::class, 'store']);
+            Route::get('/{id}',      [ProductCategoryController::class, 'show']);
+            Route::put('/{id}',      [ProductCategoryController::class, 'update']);
+            Route::delete('/{id}',   [ProductCategoryController::class, 'destroy']);
+            Route::patch('/{id}/activate',   [ProductCategoryController::class, 'activate']);
+            Route::patch('/{id}/deactivate', [ProductCategoryController::class, 'deactivate']);
+            Route::patch('/{id}/toggle-status', [ProductCategoryController::class, 'toggleStatus']);
+        });
     });
-});
 
     // v3 – Products
-    // v3 – Products
-Route::prefix('v3')->group(function () {
-    Route::prefix('products')->group(function () {
-        Route::get('/dropdown',               [ProductController::class, 'Productdropdown']);   
-        Route::get('/purchase-info', [ProductController::class, 'getPurchaseInfo']);  
-        Route::get('/scan/imei/{imei}',       [ProductController::class, 'scanByImei']);
-        Route::post('/scan/imei',             [ProductController::class, 'scanImeiPost']);
-        Route::patch('/{id}/assign-imei',     [ProductController::class, 'assignImei']);
-        Route::get('/',                       [ProductController::class, 'index']);
-        Route::post('/',                      [ProductController::class, 'store']);
-        Route::get('/{id}',                   [ProductController::class, 'show']);
-        Route::put('/{id}',                   [ProductController::class, 'update']);
-        Route::delete('/{id}',                [ProductController::class, 'destroy']);
-        Route::patch('/{id}/restore',         [ProductController::class, 'restore']);
-        Route::delete('/{id}/force',          [ProductController::class, 'forceDelete']);
-        Route::patch('/{id}/status',          [ProductController::class, 'changeStatus']);
+    Route::prefix('v3')->group(function () {
+        Route::prefix('products')->group(function () {
+            Route::get('/dropdown',               [ProductController::class, 'Productdropdown']);   
+            Route::get('/purchase-info',          [ProductController::class, 'getPurchaseInfo']);  
+            Route::get('/scan/imei/{imei}',       [ProductController::class, 'scanByImei']);
+            Route::post('/scan/imei',             [ProductController::class, 'scanImeiPost']);
+            Route::patch('/{id}/assign-imei',     [ProductController::class, 'assignImei']);
+            Route::get('/',                       [ProductController::class, 'index']);
+            Route::post('/',                      [ProductController::class, 'store']);
+            Route::get('/{id}',                   [ProductController::class, 'show']);
+            Route::put('/{id}',                   [ProductController::class, 'update']);
+            Route::delete('/{id}',                [ProductController::class, 'destroy']);
+            Route::patch('/{id}/restore',         [ProductController::class, 'restore']);
+            Route::delete('/{id}/force',          [ProductController::class, 'forceDelete']);
+            Route::patch('/{id}/status',          [ProductController::class, 'changeStatus']);
+        });
     });
-});
 
     // v4 – Suppliers
     Route::prefix('v4')->group(function () {
         Route::prefix('suppliers')->group(function () {
-
             Route::get('/dropdown', [SupplierController::class, 'Suppliersdropdown']);
-
             Route::get('/',                     [SupplierController::class, 'index']);
             Route::post('/',                    [SupplierController::class, 'store']);
             Route::get('/{id}',                 [SupplierController::class, 'show']);
@@ -234,19 +237,19 @@ Route::prefix('v3')->group(function () {
     });
 
     // v5 – Warehouses
-Route::prefix('v5')->group(function () {
-    Route::prefix('warehouses')->group(function () {
-        Route::get('/dropdown',             [WarehouseController::class, 'Warehousesdropdown']);  
-        Route::get('/',                     [WarehouseController::class, 'index']);
-        Route::post('/',                    [WarehouseController::class, 'store']);
-        Route::get('/{id}',                 [WarehouseController::class, 'show']);
-        Route::put('/{id}',                 [WarehouseController::class, 'update']);
-        Route::delete('/{id}',              [WarehouseController::class, 'destroy']);
-        Route::patch('/{id}/restore',       [WarehouseController::class, 'restore']);
-        Route::delete('/{id}/force',        [WarehouseController::class, 'forceDelete']);
-        Route::patch('/{id}/status',        [WarehouseController::class, 'changeStatus']);
+    Route::prefix('v5')->group(function () {
+        Route::prefix('warehouses')->group(function () {
+            Route::get('/dropdown',             [WarehouseController::class, 'Warehousesdropdown']);  
+            Route::get('/',                     [WarehouseController::class, 'index']);
+            Route::post('/',                    [WarehouseController::class, 'store']);
+            Route::get('/{id}',                 [WarehouseController::class, 'show']);
+            Route::put('/{id}',                 [WarehouseController::class, 'update']);
+            Route::delete('/{id}',              [WarehouseController::class, 'destroy']);
+            Route::patch('/{id}/restore',       [WarehouseController::class, 'restore']);
+            Route::delete('/{id}/force',        [WarehouseController::class, 'forceDelete']);
+            Route::patch('/{id}/status',        [WarehouseController::class, 'changeStatus']);
+        });
     });
-});
 
     // v6 – Purchases
     Route::prefix('v6')->group(function () {
@@ -260,23 +263,22 @@ Route::prefix('v5')->group(function () {
         });
     });
 
-    
     // v7 – Inventory
-Route::prefix('v7')->group(function () {
-    Route::prefix('inventory')->group(function () {
-        Route::get('/product-in/inventory/dropdown', [ProductController::class, 'productsInInventoryDropdown']); 
-        Route::get('/summary', [InventoryController::class, 'summary']);
-        Route::get('/statistics', [InventoryController::class, 'statistics']);
-        Route::get('/', [InventoryController::class, 'index']);
-        Route::post('/', [InventoryController::class, 'store']);
-        Route::get('/{id}', [InventoryController::class, 'show']);
-        Route::put('/{id}', [InventoryController::class, 'update']);
-        Route::delete('/{id}', [InventoryController::class, 'destroy']);
-        Route::get('/{id}/products', [InventoryController::class, 'getProducts']);
-        Route::post('/{id}/products', [InventoryController::class, 'addProducts']);
-        Route::delete('/{id}/products', [InventoryController::class, 'removeProducts']);
+    Route::prefix('v7')->group(function () {
+        Route::prefix('inventory')->group(function () {
+            Route::get('/product-in/inventory/dropdown', [ProductController::class, 'productsInInventoryDropdown']); 
+            Route::get('/summary', [InventoryController::class, 'summary']);
+            Route::get('/statistics', [InventoryController::class, 'statistics']);
+            Route::get('/', [InventoryController::class, 'index']);
+            Route::post('/', [InventoryController::class, 'store']);
+            Route::get('/{id}', [InventoryController::class, 'show']);
+            Route::put('/{id}', [InventoryController::class, 'update']);
+            Route::delete('/{id}', [InventoryController::class, 'destroy']);
+            Route::get('/{id}/products', [InventoryController::class, 'getProducts']);
+            Route::post('/{id}/products', [InventoryController::class, 'addProducts']);
+            Route::delete('/{id}/products', [InventoryController::class, 'removeProducts']);
+        });
     });
-});
 
     // v8 – Transfer Requests
     Route::prefix('v8')->group(function () {
@@ -294,9 +296,8 @@ Route::prefix('v7')->group(function () {
         });
     });
 
-         // v9 – Collection Centers & Stock
+    // v9 – Collection Centers & Stock
     Route::prefix('v9')->group(function () {
-        
         // COLLECTION CENTERS
         Route::prefix('collection-centers')->group(function () {
             Route::get('/dropdown',             [CollectionCenterController::class, 'CCdropdown']);
@@ -308,26 +309,19 @@ Route::prefix('v7')->group(function () {
             Route::patch('/{id}/restore',       [CollectionCenterController::class, 'restore']);
         });
 
-       // COLLECTION CENTER INVENTORIES
-Route::prefix('collection-center-inventories')->group(function () {
-    // Confirm receipt by ID (branch owner only)
-    Route::post('/{id}/confirm', [CollectionCenterInventoryController::class, 'confirmInventoryReceipt']);
+        // COLLECTION CENTER INVENTORIES
+        Route::prefix('collection-center-inventories')->group(function () {
+            Route::post('/{id}/confirm',        [CollectionCenterInventoryController::class, 'confirmInventoryReceipt']);
+            Route::post('/my/confirm',          [CollectionCenterInventoryController::class, 'confirmMyReceipt']);
+            Route::get('/my-products',          [CollectionCenterInventoryController::class, 'getMyProductsDropdown']);
+            Route::get('/',                     [CollectionCenterInventoryController::class, 'index']);
+            Route::post('/',                    [CollectionCenterInventoryController::class, 'store']);
+            Route::get('/{id}',                 [CollectionCenterInventoryController::class, 'show']);
+            Route::put('/{id}',                 [CollectionCenterInventoryController::class, 'update']);
+            Route::delete('/{id}',              [CollectionCenterInventoryController::class, 'destroy']);
+        });
 
-    // Confirm receipt for logged‑in owner's own center (no ID)
-    Route::post('/my/confirm', [CollectionCenterInventoryController::class, 'confirmMyReceipt']);
-
-    // ✅ NEW: Get products in the logged‑in branch owner's own collection centre
-    Route::get('/my-products', [CollectionCenterInventoryController::class, 'getMyProductsDropdown']);
-
-    // Other CRUD routes...
-    Route::get('/', [CollectionCenterInventoryController::class, 'index']);
-    Route::post('/', [CollectionCenterInventoryController::class, 'store']);
-    Route::get('/{id}', [CollectionCenterInventoryController::class, 'show']);
-    Route::put('/{id}', [CollectionCenterInventoryController::class, 'update']);
-    Route::delete('/{id}', [CollectionCenterInventoryController::class, 'destroy']);
-});
-
-        // STOCK MOVEMENTS (only once)
+        // STOCK MOVEMENTS
         Route::prefix('stock-movements')->group(function () {
             Route::get('/',                     [StockMovementController::class, 'index']);
             Route::post('/',                    [StockMovementController::class, 'store']);
@@ -336,26 +330,24 @@ Route::prefix('collection-center-inventories')->group(function () {
             Route::delete('/{id}',              [StockMovementController::class, 'destroy']);
         });
     });
-    
 
     // v10 – Distributions
     Route::prefix('v10')->group(function () {
-    Route::prefix('distributions')->group(function () {
-        Route::get('/',                     [DistributionController::class, 'index']);
-        Route::post('/',                    [DistributionController::class, 'store']);
-        Route::get('/{id}',                 [DistributionController::class, 'show']);
-        Route::patch('/{id}/confirm',       [DistributionController::class, 'confirmReceipt']);
-        Route::post('/confirm-by-imei',     [DistributionController::class, 'confirmByImei']);
+        Route::prefix('distributions')->group(function () {
+            Route::get('/',                     [DistributionController::class, 'index']);
+            Route::post('/',                    [DistributionController::class, 'store']);
+            Route::get('/{id}',                 [DistributionController::class, 'show']);
+            Route::patch('/{id}/confirm',       [DistributionController::class, 'confirmReceipt']);
+            Route::post('/confirm-by-imei',     [DistributionController::class, 'confirmByImei']);
+        });
+        Route::get('/collection-center/stock',  [DistributionController::class, 'getAvailableStock']);
     });
-
-    Route::get('/collection-center/stock',  [DistributionController::class, 'getAvailableStock']);
-   });
 
     // v11 – Agent Sales
     Route::prefix('v11')->group(function () {
         Route::get('/agent/stock',          [AgentSalesController::class, 'availableStock']);
         Route::post('/agent/scan',          [AgentSalesController::class, 'scanProduct']);
-        Route::post('/agent/sale-product',          [AgentSalesController::class, 'saleProduct']);
+        Route::post('/agent/sale-product',  [AgentSalesController::class, 'saleProduct']);
         Route::post('/agent/return',        [AgentSalesController::class, 'returnDamaged']);
         Route::get('/agent/sales',          [AgentSalesController::class, 'mySales']);
         Route::get('/agent/sales/{id}',     [AgentSalesController::class, 'showSale']);
@@ -363,10 +355,10 @@ Route::prefix('collection-center-inventories')->group(function () {
 
     // v12 – Customers
     Route::prefix('v12')->group(function () {
-    Route::get('/customers/my', [CustomerController::class, 'myCustomers']);  
-    Route::patch('/customers/{id}/restore', [CustomerController::class, 'restore']);
-    Route::apiResource('customers', CustomerController::class);
-});
+        Route::get('/customers/my',          [CustomerController::class, 'myCustomers']);  
+        Route::patch('/customers/{id}/restore', [CustomerController::class, 'restore']);
+        Route::apiResource('customers', CustomerController::class);
+    });
 
     // v13 – Receipts
     Route::prefix('v13')->group(function () {
@@ -374,129 +366,101 @@ Route::prefix('collection-center-inventories')->group(function () {
         Route::get('/receipts/{id}',      [ReceiptController::class, 'show']);
         Route::get('/receipts/order/{saleId}', [ReceiptController::class, 'bySale']);
     });
-   
+
     // v14 – Reports & Dashboard
-Route::prefix('v14')->group(function () {
-    
-   // Reports
-    Route::prefix('reports')->group(function () {
-        
-       // Stock Reports
-        Route::get('stock', [ReportController::class, 'stockReport']);
+    Route::prefix('v14')->group(function () {
+        // Reports
+        Route::prefix('reports')->group(function () {
+            Route::get('stock', [ReportController::class, 'stockReport']);
+            Route::get('branch/stock', [BranchOwnerReportController::class, 'branchStockReport']);
+            Route::get('branch/agent-stock', [BranchOwnerReportController::class, 'branchAgentStockReport']);
+            Route::get('branch/agent-products', [BranchOwnerReportController::class, 'branchAgentProductsReport']);
+            Route::get('purchases', [ReportController::class, 'purchasesReport']);
+            Route::get('revenue-analytics', [RevenueAnalyticsController::class, 'getRevenueAnalytics']);
+            Route::get('sales', [ReportController::class, 'salesReport']);
+            Route::get('sales/weekly', [ReportController::class, 'weeklySalesReport']);
+            Route::get('sales/monthly', [ReportController::class, 'monthlySalesReport']);
+            Route::get('sales/yearly', [ReportController::class, 'yearlySalesReport']);
+            Route::get('sales/custom', [ReportController::class, 'customSalesReport']);
+            Route::get('inventory', [ReportController::class, 'inventoryReport']);
+            Route::get('inventory/movements', [ReportController::class, 'inventoryMovementsReport']);
+            Route::get('suppliers', [ReportController::class, 'suppliersReport']);
+            Route::get('customers', [ReportController::class, 'customersReport']);
+            Route::get('collection-centers', [ReportController::class, 'collectionCentersReport']);
+            Route::get('stock-distributions', [ReportController::class, 'stockDistributionsReport']);
+            Route::get('transfers', [ReportController::class, 'transferRequestsReport']);
+            Route::get('dashboard', [ReportController::class, 'dashboardSummary']);
+        });
 
-        // Branch Owner Reports
-        Route::get('branch/stock', [BranchOwnerReportController::class, 'branchStockReport']);
-        Route::get('branch/agent-stock', [BranchOwnerReportController::class, 'branchAgentStockReport']);
-        Route::get('branch/agent-products', [BranchOwnerReportController::class, 'branchAgentProductsReport']);
-
-        // Purchase Reports
-        Route::get('purchases', [ReportController::class, 'purchasesReport']);
-        // Revenue Analytics (independent)
-        Route::get('revenue-analytics', [RevenueAnalyticsController::class, 'getRevenueAnalytics']);
-
-        // Sales Reports
-        Route::get('sales', [ReportController::class, 'salesReport']);
-        Route::get('sales/weekly', [ReportController::class, 'weeklySalesReport']);
-        Route::get('sales/monthly', [ReportController::class, 'monthlySalesReport']);
-        Route::get('sales/yearly', [ReportController::class, 'yearlySalesReport']);
-        Route::get('sales/custom', [ReportController::class, 'customSalesReport']);
-
-        // Inventory Reports
-        Route::get('inventory', [ReportController::class, 'inventoryReport']);
-        Route::get('inventory/movements', [ReportController::class, 'inventoryMovementsReport']);
-
-        // Supplier Reports
-        Route::get('suppliers', [ReportController::class, 'suppliersReport']);
-
-        // Customer Reports
-        Route::get('customers', [ReportController::class, 'customersReport']);
-
-        // Collection Center Reports
-        Route::get('collection-centers', [ReportController::class, 'collectionCentersReport']);
-
-        // Stock Distribution Reports
-        Route::get('stock-distributions', [ReportController::class, 'stockDistributionsReport']);
-
-        // Transfer Reports
-        Route::get('transfers', [ReportController::class, 'transferRequestsReport']);
-
-        // Dashboard Summary
-        Route::get('dashboard', [ReportController::class, 'dashboardSummary']);
-  
-
+        // Dashboard Analytics
+        Route::prefix('analytics')->group(function () {
+            Route::get('/dashboard', [DashboardAnalyticsReportController::class, 'index']);
+            Route::get('/agent-dashboard', [AgentAnalyticsReportController::class, 'index']);
+            Route::get('/branch-owner-dashboard', [BranchOwnerAnalyticsReportController::class, 'index']);
+        });
     });
 
-    
-
-    // Dashboard Analytics
-    Route::prefix('analytics')->group(function () {
-        Route::get('/dashboard', [DashboardAnalyticsReportController::class, 'index']);
-         Route::get('/agent-dashboard', [AgentAnalyticsReportController::class, 'index']);
-         Route::get('/branch-owner-dashboard', [BranchOwnerAnalyticsReportController::class, 'index']);
-
+    // v15 – Invoices
+    Route::prefix('v15')->group(function () {
+        Route::get('/invoices',                     [InvoiceController::class, 'index']);
+        Route::get('/invoices/{id}',                [InvoiceController::class, 'show']);
+        Route::get('/invoices/download/{id}',       [InvoiceController::class, 'download']);
+        Route::get('/invoices/sale/{saleId}',       [InvoiceController::class, 'bySale']);
     });
 
-});
+    // v16 – Agents Management (Sales Agents only) with Verification Routes
+    Route::prefix('v16')->group(function () {
+        Route::prefix('agents')->group(function () {
+            // Soft‑delete & restore
+            Route::get('/trashed',          [AgentsManagementController::class, 'trashed']);
+            Route::patch('/{id}/restore',   [AgentsManagementController::class, 'restore']);
+            Route::delete('/{id}/force',    [AgentsManagementController::class, 'forceDelete']);
 
+            // 🔐 Verification Routes
+            Route::post('/{id}/verify',              [AgentsManagementController::class, 'verifyAgent']);
+            Route::get('/{id}/verification-status',  [AgentsManagementController::class, 'getAgentVerificationStatus']);
+            Route::post('/{id}/resend-verification', [AgentsManagementController::class, 'resendAgentVerification']);
 
-    // v14 – Invoices
-Route::prefix('v15')->group(function () {
-    Route::get('/invoices',          [InvoiceController::class, 'index']);
-    Route::get('/invoices/{id}',     [InvoiceController::class, 'show']);
-    Route::get('/invoices/download/{id}', [InvoiceController::class, 'download']);
-    Route::get('/invoices/sale/{saleId}', [InvoiceController::class, 'bySale']);
-});
+            // Status actions
+            Route::patch('/{id}/activate',   [AgentsManagementController::class, 'activate']);
+            Route::patch('/{id}/deactivate', [AgentsManagementController::class, 'deactivate']);
+            Route::patch('/{id}/suspend',    [AgentsManagementController::class, 'suspend']);
 
+            // Stats
+            Route::get('/stats', [AgentsManagementController::class, 'stats']);
 
-// v16 – Agents Management (Sales Agents only)
-Route::prefix('v16')->group(function () {
-    Route::prefix('agents')->group(function () {
-        // Soft‑delete & restore
-        Route::get('/trashed',         [AgentsManagementController::class, 'trashed']);
-        Route::patch('/{id}/restore',  [AgentsManagementController::class, 'restore']);
-        Route::delete('/{id}/force',   [AgentsManagementController::class, 'forceDelete']);
-
-        // Status actions
-        Route::patch('/{id}/activate',   [AgentsManagementController::class, 'activate']);
-        Route::patch('/{id}/deactivate', [AgentsManagementController::class, 'deactivate']);
-        Route::patch('/{id}/suspend',    [AgentsManagementController::class, 'suspend']);
-
-        // Stats
-        Route::get('/stats', [AgentsManagementController::class, 'stats']);
-
-        // CRUD
-        Route::get('/',        [AgentsManagementController::class, 'index']);
-        Route::post('/',       [AgentsManagementController::class, 'store']);
-        Route::get('/{id}',    [AgentsManagementController::class, 'show']);
-        Route::put('/{id}',    [AgentsManagementController::class, 'update']);
-        Route::delete('/{id}', [AgentsManagementController::class, 'destroy']);
+            // CRUD
+            Route::get('/',        [AgentsManagementController::class, 'index']);
+            Route::post('/',       [AgentsManagementController::class, 'store']);
+            Route::get('/{id}',    [AgentsManagementController::class, 'show']);
+            Route::put('/{id}',    [AgentsManagementController::class, 'update']);
+            Route::delete('/{id}', [AgentsManagementController::class, 'destroy']);
+        });
     });
-});
 
-
-// In your routes file (v17 group)
-Route::prefix('v17')->group(function () {
-    Route::prefix('returns')->group(function () {
-        // List and search
-        Route::get('/', [ReturnsController::class, 'index']);
-        Route::get('/statistics', [ReturnsController::class, 'statistics']);
-        Route::get('/search', [ReturnsController::class, 'search']);
-        Route::get('/my-returns', [ReturnsController::class, 'myReturns']);
-        Route::get('/agent-sales', [ReturnsController::class, 'getAgentSales']);
-        
-        // Stock Controller only
-        Route::get('/pending-approval', [ReturnsController::class, 'pendingForApproval']);
-        Route::post('/{id}/approve', [ReturnsController::class, 'approveReturn']);
-        Route::post('/{id}/complete', [ReturnsController::class, 'completeReturn']);
-        
-        // IMEI validation
-        Route::get('/validate-imei', [ReturnsController::class, 'validateImei']);
-        
-        // CRUD
-        Route::get('/{id}', [ReturnsController::class, 'show']);
-        Route::post('/', [ReturnsController::class, 'store']);
-        Route::post('/{id}/cancel', [ReturnsController::class, 'cancelReturn']);
+    // v17 – Returns
+    Route::prefix('v17')->group(function () {
+        Route::prefix('returns')->group(function () {
+            // List and search
+            Route::get('/', [ReturnsController::class, 'index']);
+            Route::get('/statistics', [ReturnsController::class, 'statistics']);
+            Route::get('/search', [ReturnsController::class, 'search']);
+            Route::get('/my-returns', [ReturnsController::class, 'myReturns']);
+            Route::get('/agent-sales', [ReturnsController::class, 'getAgentSales']);
+            
+            // Stock Controller only
+            Route::get('/pending-approval', [ReturnsController::class, 'pendingForApproval']);
+            Route::post('/{id}/approve', [ReturnsController::class, 'approveReturn']);
+            Route::post('/{id}/complete', [ReturnsController::class, 'completeReturn']);
+            
+            // IMEI validation
+            Route::get('/validate-imei', [ReturnsController::class, 'validateImei']);
+            
+            // CRUD
+            Route::get('/{id}', [ReturnsController::class, 'show']);
+            Route::post('/', [ReturnsController::class, 'store']);
+            Route::post('/{id}/cancel', [ReturnsController::class, 'cancelReturn']);
+        });
     });
-});
 
-});
+}); 
