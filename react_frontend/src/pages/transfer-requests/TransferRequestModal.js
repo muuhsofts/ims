@@ -1,4 +1,3 @@
-// src/pages/transfer-requests/TransferRequestModal.js
 import React, { useState, useEffect } from 'react';
 import {
     Dialog, DialogTitle, DialogContent, DialogActions,
@@ -84,23 +83,6 @@ export default function TransferRequestModal({ open, onClose }) {
         setItems(updated);
     };
 
-    // Handle quantity change with validation
-    const handleQuantityChange = (index, value) => {
-        const parsedValue = parseInt(value);
-        // Allow empty string for clearing the field
-        if (value === '') {
-            handleItemChange(index, 'quantity', '');
-            return;
-        }
-        // Validate number and ensure minimum of 1
-        if (!isNaN(parsedValue) && parsedValue >= 1) {
-            handleItemChange(index, 'quantity', parsedValue);
-        } else if (value !== '') {
-            // Show error for invalid values
-            showSnackbar({ type: 'error', message: 'Quantity must be at least 1' });
-        }
-    };
-
     const toggleSku = (itemIndex, skuValue) => {
         const updated = [...items];
         const currentSkus = updated[itemIndex].skus;
@@ -120,19 +102,9 @@ export default function TransferRequestModal({ open, onClose }) {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        // Validate items with quantity check
-        const validItems = items.filter(item =>
-            item.category_id &&
-            item.skus.length > 0 &&
-            item.quantity &&
-            item.quantity >= 1
-        );
-
+        const validItems = items.filter(item => item.category_id && item.skus.length > 0);
         if (validItems.length === 0) {
-            showSnackbar({
-                type: 'error',
-                message: 'Add at least one item with a category, at least one SKU, and a valid quantity'
-            });
+            showSnackbar({ type: 'error', message: 'Add at least one item with a category and at least one SKU' });
             return;
         }
 
@@ -219,25 +191,14 @@ export default function TransferRequestModal({ open, onClose }) {
                                             variant="outlined"
                                         />
 
-                                        {/* Editable Quantity Field */}
                                         <TextField
                                             label="Quantity"
                                             type="number"
-                                            value={item.quantity === '' ? '' : item.quantity}
-                                            onChange={(e) => handleQuantityChange(idx, e.target.value)}
+                                            value={item.quantity}
+                                            onChange={(e) => handleItemChange(idx, 'quantity', parseInt(e.target.value) || 1)}
                                             fullWidth
                                             size="small"
-                                            inputProps={{
-                                                min: 1,
-                                                step: 1,
-                                                'aria-label': 'Quantity'
-                                            }}
-                                            error={item.quantity === '' || (typeof item.quantity === 'number' && item.quantity < 1)}
-                                            helperText={
-                                                (item.quantity === '' || (typeof item.quantity === 'number' && item.quantity < 1))
-                                                    ? 'Quantity must be at least 1'
-                                                    : ''
-                                            }
+                                            inputProps={{ min: 1 }}
                                         />
 
                                         <Box>
@@ -278,14 +239,7 @@ export default function TransferRequestModal({ open, onClose }) {
                                 </Box>
                             );
                         })}
-                        <Button
-                            startIcon={<AddIcon />}
-                            onClick={addItem}
-                            variant="outlined"
-                            size="small"
-                            fullWidth={fullScreen}
-                            disabled={loading}
-                        >
+                        <Button startIcon={<AddIcon />} onClick={addItem} variant="outlined" size="small" fullWidth={fullScreen}>
                             Add Another Item
                         </Button>
                         <TextField
@@ -301,11 +255,7 @@ export default function TransferRequestModal({ open, onClose }) {
                 </DialogContent>
                 <DialogActions sx={{ p: { xs: 2, sm: 3 } }}>
                     <Button onClick={() => onClose(false)} disabled={loading}>Cancel</Button>
-                    <Button
-                        type="submit"
-                        variant="contained"
-                        disabled={loading || loadingCategories}
-                    >
+                    <Button type="submit" variant="contained" disabled={loading || loadingCategories}>
                         {loading ? <CircularProgress size={24} /> : 'Create Request'}
                     </Button>
                 </DialogActions>
