@@ -122,6 +122,9 @@ class InventoryController extends BaseApiController
 
             // Log each product in the inventory
             foreach ($inventory->products as $product) {
+                // Get loan prices with company names
+                $loanPrices = $this->formatLoanPrices($product);
+                
                 InventoryLog::create([
                     'log_date'         => now()->toDateString(),
                     'product_id'       => $product->product_id,
@@ -132,7 +135,7 @@ class InventoryController extends BaseApiController
                     'quantity_change'  => 0,
                     'new_quantity'     => $product->quantity ?? 0,
                     'reference_id'     => $inventory->inventory_id,
-                    'notes'            => 'Inventory created',
+                    'notes'            => 'Inventory created' . ($loanPrices ? ' | Loan Prices: ' . $loanPrices : ''),
                     'performed_by'     => $authUser->id,
                     'performed_by_name'=> $authUser->name ?? null,
                 ]);
@@ -149,6 +152,33 @@ class InventoryController extends BaseApiController
             DB::rollBack();
             return $this->serverError($e->getMessage());
         }
+    }
+
+    /**
+     * Format loan prices for logging
+     */
+    private function formatLoanPrices($product)
+    {
+        if (empty($product->loan_selling_price)) {
+            return '';
+        }
+        
+        $prices = is_array($product->loan_selling_price) 
+            ? $product->loan_selling_price 
+            : json_decode($product->loan_selling_price, true);
+            
+        if (empty($prices)) {
+            return '';
+        }
+        
+        $formatted = [];
+        foreach ($prices as $item) {
+            $company = \App\Models\Company::find($item['company_id']);
+            $companyName = $company ? $company->company_name : 'Unknown';
+            $formatted[] = $companyName . ': TSh ' . number_format($item['price'], 2);
+        }
+        
+        return implode(' | ', $formatted);
     }
 
     /**
@@ -191,6 +221,8 @@ class InventoryController extends BaseApiController
 
             // Log each product in the updated inventory
             foreach ($inventory->products as $product) {
+                $loanPrices = $this->formatLoanPrices($product);
+                
                 InventoryLog::create([
                     'log_date'         => now()->toDateString(),
                     'product_id'       => $product->product_id,
@@ -201,7 +233,7 @@ class InventoryController extends BaseApiController
                     'quantity_change'  => 0,
                     'new_quantity'     => $product->quantity ?? 0,
                     'reference_id'     => $inventory->inventory_id,
-                    'notes'            => 'Inventory updated',
+                    'notes'            => 'Inventory updated' . ($loanPrices ? ' | Loan Prices: ' . $loanPrices : ''),
                     'performed_by'     => $authUser->id,
                     'performed_by_name'=> $authUser->name ?? null,
                 ]);
@@ -361,10 +393,39 @@ class InventoryController extends BaseApiController
             $inventory = Inventory::withProducts()->findOrFail($id);
             $inventory->loadProducts();
 
+            // Format products with company loan prices
+            $formattedProducts = $inventory->products->map(function ($product) {
+                $loanPrices = [];
+                if (!empty($product->loan_selling_price)) {
+                    $prices = is_array($product->loan_selling_price) 
+                        ? $product->loan_selling_price 
+                        : json_decode($product->loan_selling_price, true);
+                    
+                    foreach ($prices as $item) {
+                        $company = \App\Models\Company::find($item['company_id']);
+                        $loanPrices[] = [
+                            'company_id' => $item['company_id'],
+                            'company_name' => $company ? $company->company_name : 'Unknown',
+                            'price' => $item['price']
+                        ];
+                    }
+                }
+                
+                return [
+                    'product_id' => $product->product_id,
+                    'sku' => $product->sku,
+                    'imei' => $product->imei,
+                    'category_name' => $product->category->category_name ?? null,
+                    'model' => $product->category->model ?? null,
+                    'cash_selling_price' => $product->cash_selling_price,
+                    'loan_prices' => $loanPrices, // Company loan prices with names
+                ];
+            });
+
             return $this->successResponse([
                 'inventory_id' => $inventory->inventory_id,
                 'warehouse'    => $inventory->warehouse,
-                'products'     => $inventory->products,
+                'products'     => $formattedProducts,
                 'total'        => count($inventory->product_ids),
             ], 'Products retrieved successfully');
         } catch (\Exception $e) {
@@ -407,6 +468,8 @@ class InventoryController extends BaseApiController
             foreach ($request->product_ids as $productId) {
                 $product = Product::with('category')->find($productId);
                 if ($product) {
+                    $loanPrices = $this->formatLoanPrices($product);
+                    
                     InventoryLog::create([
                         'log_date'         => now()->toDateString(),
                         'product_id'       => $product->product_id,
@@ -417,7 +480,7 @@ class InventoryController extends BaseApiController
                         'quantity_change'  => 1,
                         'new_quantity'     => count($inventory->product_ids),
                         'reference_id'     => $inventory->inventory_id,
-                        'notes'            => 'Products added to inventory',
+                        'notes'            => 'Products added to inventory' . ($loanPrices ? ' | Loan Prices: ' . $loanPrices : ''),
                         'performed_by'     => $authUser->id,
                         'performed_by_name'=> $authUser->name ?? null,
                     ]);

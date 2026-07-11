@@ -20,8 +20,8 @@ class ReturnsController extends BaseApiController
     use Auditable;
 
     /**
-     * List returns - agents see only their returns
-     * Stock Controllers see all returns
+     * List returns - Stock Controllers see all returns
+     * Users with returns.view permission see all returns
      * Permission: returns.view
      */
     public function index(Request $request)
@@ -33,18 +33,9 @@ class ReturnsController extends BaseApiController
             $user = auth()->user();
             $query = Returns::with(['product', 'product.category', 'performedBy', 'approvedBy', 'sale', 'customer', 'stockMovement']);
 
-            // Stock Controllers can see all returns
-            $isStockController = $user->role?->name === 'STOCK_CONTROLLER';
-            
-            if (!$isStockController) {
-                // Regular users see only their own returns
-                $query->where('performed_by', $user->id);
-                
-                // If user is a sales agent, only show their returns
-                if ($user->isSalesAgent()) {
-                    $query->where('agent_id', $user->id);
-                }
-            }
+            // Stock Controllers can see all returns (no filtering needed)
+            // Non-Stock Controllers with returns.view permission also see all returns
+            // Removed all agent/performer filtering logic
 
             // Filters
             if ($request->filled('status')) {
@@ -91,11 +82,7 @@ class ReturnsController extends BaseApiController
             $return = Returns::with(['product', 'product.category', 'performedBy', 'approvedBy', 'stockMovement', 'sale', 'customer'])
                             ->findOrFail($id);
 
-            // Check if user can view this return
-            $isStockController = $user->role?->name === 'STOCK_CONTROLLER';
-            if (!$isStockController && $return->performed_by !== $user->id) {
-                return $this->forbidden('You are not authorized to view this return');
-            }
+            // Removed permission check - users with returns.view can view any return
 
             $this->logAudit('view_return', 'return', $return->return_id, 
                 "Viewed return for IMEI: {$return->imei}");
@@ -352,11 +339,7 @@ class ReturnsController extends BaseApiController
             $user = auth()->user();
             $return = Returns::with(['product', 'sale'])->findOrFail($id);
 
-            // Check if user can cancel this return
-            $isStockController = $user->role?->name === 'STOCK_CONTROLLER';
-            if (!$isStockController && $return->performed_by !== $user->id) {
-                return $this->forbidden('You are not authorized to cancel this return');
-            }
+            // Removed authorization check - users with returns.cancel can cancel any return
 
             // Only returned status can be cancelled
             if ($return->status !== 'returned') {
@@ -494,10 +477,7 @@ class ReturnsController extends BaseApiController
 
             $returnsQuery = Returns::with(['product', 'product.category', 'sale']);
 
-            // Stock Controllers see all, others see only their own
-            if ($user->role?->name !== 'STOCK_CONTROLLER') {
-                $returnsQuery->where('performed_by', $user->id);
-            }
+            // Removed filtering - users with returns.view can search all returns
 
             $returns = $returnsQuery->where('imei', 'LIKE', "%{$query}%")
                 ->orWhere('customer_name', 'LIKE', "%{$query}%")
@@ -522,12 +502,9 @@ class ReturnsController extends BaseApiController
 
         try {
             $user = auth()->user();
-            $isStockController = $user->role?->name === 'STOCK_CONTROLLER';
-
+            
+            // Removed filtering - users with returns.view can see all statistics
             $query = Returns::query();
-            if (!$isStockController) {
-                $query->where('performed_by', $user->id);
-            }
 
             $stats = [
                 'total' => $query->count(),

@@ -1,5 +1,6 @@
 <?php
 // app/Http/Controllers/Api/ProductController.php
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\BaseApiController;
@@ -73,7 +74,6 @@ class ProductController extends BaseApiController
      */
     private function getBuyingPriceFromPurchase($categoryId, $sku)
     {
-        // Get the most recent completed purchase for this category and SKU
         $purchase = Purchase::where('category_id', $categoryId)
             ->where('status', 'completed')
             ->whereJsonContains('selected_skus', $sku)
@@ -97,7 +97,7 @@ class ProductController extends BaseApiController
     }
 
     /**
-     * Bulk create products (multiple IMEIs, one category & SKU)
+     * Bulk create products with company loan prices
      * Permission: products.create
      */
     public function store(Request $request)
@@ -112,11 +112,12 @@ class ProductController extends BaseApiController
                 'imeis' => 'required|string',
                 'buying_price' => 'sometimes|numeric|min:0|nullable',
                 'cash_selling_price' => 'sometimes|numeric|min:0|nullable',
-                'loan_selling_price' => 'sometimes|numeric|min:0|nullable',
+                'loan_selling_price' => 'required|array|min:1',
+                'loan_selling_price.*.company_id' => 'required|string|exists:companies,id',
+                'loan_selling_price.*.price' => 'required|numeric|min:0',
                 'status' => 'sometimes|in:active,inactive,sold,damaged',
             ]);
 
-            // Verify that the selected SKU belongs to the category's sku array
             $category = \App\Models\ProductCategory::find($request->category_id);
             if (!$category) {
                 return $this->validationError(['category_id' => ['Category not found']]);
@@ -126,7 +127,6 @@ class ProductController extends BaseApiController
                 return $this->validationError(['sku' => ["SKU '{$request->sku}' is not valid for this category"]]);
             }
 
-            // Parse IMEIs (newline, comma, space)
             $imeis = preg_split('/[\s,]+/', trim($request->imeis));
             $imeis = array_filter($imeis, fn($imei) => !empty($imei));
             if (empty($imeis)) {
@@ -138,13 +138,11 @@ class ProductController extends BaseApiController
                 return $this->validationError(['imeis' => ['Duplicate IMEIs in the list']]);
             }
 
-            // Check existing IMEIs
             $existing = Product::whereIn('imei', $uniqueImeis)->pluck('imei')->toArray();
             if (!empty($existing)) {
                 return $this->validationError(['imeis' => ['IMEIs already exist: ' . implode(', ', $existing)]]);
             }
 
-            // --- NEW LOGIC: Auto-fill buying price from purchase ---
             $buyingPrice = $request->buying_price;
             if (empty($buyingPrice) || $buyingPrice === null) {
                 $purchasePrice = $this->getBuyingPriceFromPurchase($request->category_id, $request->sku);
@@ -155,7 +153,6 @@ class ProductController extends BaseApiController
                 }
             }
 
-            // --- NEW LOGIC: Validate IMEI quantity against purchased items ---
             $totalPurchased = $this->getTotalPurchasedQuantity($request->category_id, $request->sku);
             $existingProducts = Product::where('category_id', $request->category_id)
                 ->where('sku', $request->sku)
@@ -170,6 +167,19 @@ class ProductController extends BaseApiController
                 ]);
             }
 
+            // Format loan prices
+            $loanPrices = [];
+            if ($request->has('loan_selling_price') && is_array($request->loan_selling_price)) {
+                foreach ($request->loan_selling_price as $lp) {
+                    if (isset($lp['company_id']) && isset($lp['price'])) {
+                        $loanPrices[] = [
+                            'company_id' => $lp['company_id'],
+                            'price' => (float) $lp['price']
+                        ];
+                    }
+                }
+            }
+
             DB::beginTransaction();
             $created = [];
             foreach ($uniqueImeis as $imei) {
@@ -179,7 +189,7 @@ class ProductController extends BaseApiController
                     'imei' => $imei,
                     'buying_price' => $buyingPrice,
                     'cash_selling_price' => $request->cash_selling_price ?? null,
-                    'loan_selling_price' => $request->loan_selling_price ?? null,
+                    'loan_selling_price' => $loanPrices,
                     'status' => $request->input('status', 'active'),
                     'stock_status' => 'in_stock',
                 ]);
@@ -188,7 +198,7 @@ class ProductController extends BaseApiController
             DB::commit();
 
             $this->logAudit('create_products', 'product', null,
-                "Bulk created " . count($created) . " products for category {$request->category_id}, SKU {$request->sku}");
+                "Bulk created " . count($created) . " products with company loan prices");
 
             return $this->created($created, count($created) . ' products created successfully');
         } catch (ValidationException $e) {
@@ -201,7 +211,7 @@ class ProductController extends BaseApiController
     }
 
     /**
-     * Update a single product
+     * Update a single product with company loan prices
      * Permission: products.edit
      */
     public function update(Request $request, $id)
@@ -218,13 +228,27 @@ class ProductController extends BaseApiController
                 'imei' => 'nullable|string|max:255|unique:products,imei,' . $product->product_id . ',product_id',
                 'buying_price' => 'sometimes|numeric|min:0',
                 'cash_selling_price' => 'sometimes|numeric|min:0|nullable',
-                'loan_selling_price' => 'sometimes|numeric|min:0|nullable',
+                'loan_selling_price' => 'sometimes|array|min:1',
+                'loan_selling_price.*.company_id' => 'required|string|exists:companies,id',
+                'loan_selling_price.*.price' => 'required|numeric|min:0',
                 'status' => 'sometimes|in:active,inactive,sold,damaged',
             ]);
 
-            $data = $request->only(['category_id', 'sku', 'imei', 'buying_price', 'cash_selling_price', 'loan_selling_price', 'status']);
+            $data = $request->only(['category_id', 'sku', 'imei', 'buying_price', 'cash_selling_price', 'status']);
 
-            // If category or SKU is changed, validate SKU belongs to new category
+            if ($request->has('loan_selling_price') && is_array($request->loan_selling_price)) {
+                $loanPrices = [];
+                foreach ($request->loan_selling_price as $lp) {
+                    if (isset($lp['company_id']) && isset($lp['price'])) {
+                        $loanPrices[] = [
+                            'company_id' => $lp['company_id'],
+                            'price' => (float) $lp['price']
+                        ];
+                    }
+                }
+                $data['loan_selling_price'] = !empty($loanPrices) ? $loanPrices : null;
+            }
+
             if (($request->has('category_id') && $request->category_id != $product->category_id) ||
                 ($request->has('sku') && $request->sku != $product->sku)) {
                 $catId = $request->category_id ?? $product->category_id;
@@ -245,6 +269,8 @@ class ProductController extends BaseApiController
                 "Updated product IMEI: {$product->imei}");
 
             return $this->successResponse($product->load('category'), 'Product updated');
+        } catch (ValidationException $e) {
+            return $this->validationError($e->errors());
         } catch (\Exception $e) {
             return $this->serverError('Failed to update product: ' . $e->getMessage());
         }
@@ -402,9 +428,6 @@ class ProductController extends BaseApiController
     // DROPDOWN ENDPOINTS
     // -------------------------------------------------------------------------
 
-    /**
-     * Get purchase info for a category and SKU
-     */
     public function getPurchaseInfo(Request $request)
     {
         try {
@@ -416,25 +439,21 @@ class ProductController extends BaseApiController
             $categoryId = $request->category_id;
             $sku = $request->sku;
 
-            // Get latest completed purchase
             $latestPurchase = Purchase::where('category_id', $categoryId)
                 ->where('status', 'completed')
                 ->whereJsonContains('selected_skus', $sku)
                 ->orderBy('created_at', 'desc')
                 ->first();
 
-            // Get total purchased quantity from ALL completed purchases
             $totalPurchased = Purchase::where('category_id', $categoryId)
                 ->where('status', 'completed')
                 ->whereJsonContains('selected_skus', $sku)
                 ->sum('quantity_ordered');
 
-            // Get current products count
             $currentCount = Product::where('category_id', $categoryId)
                 ->where('sku', $sku)
                 ->count();
 
-            // Get all purchases for this category and SKU
             $purchases = Purchase::where('category_id', $categoryId)
                 ->where('status', 'completed')
                 ->whereJsonContains('selected_skus', $sku)
@@ -464,16 +483,12 @@ class ProductController extends BaseApiController
         }
     }
 
-    /**
-     * Products NOT in any inventory (warehouse or collection center) – available for new addition
-     */
     public function Productdropdown(Request $request)
     {
         $perm = $this->checkPermission('products.view');
         if ($perm) return $perm;
 
         try {
-            // 1. Get all product IDs from warehouse inventory
             $warehouseProductIds = Inventory::pluck('product_ids')
                 ->filter()
                 ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
@@ -481,7 +496,6 @@ class ProductController extends BaseApiController
                 ->values()
                 ->toArray();
 
-            // 2. Get all product IDs from CC inventory
             $ccProductIds = CollectionCenterInventory::pluck('product_ids')
                 ->filter()
                 ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
@@ -489,10 +503,8 @@ class ProductController extends BaseApiController
                 ->values()
                 ->toArray();
 
-            // 3. Merge both arrays and remove duplicates
             $excludedIds = array_unique(array_merge($warehouseProductIds, $ccProductIds));
 
-            // 4. Build product query, excluding those already used anywhere
             $products = Product::select('product_id', 'imei', 'sku', 'category_id', 'stock_status',
                 'cash_selling_price', 'loan_selling_price')
                 ->with(['category' => fn($q) => $q->select('category_id', 'category_name', 'model')])
@@ -523,17 +535,12 @@ class ProductController extends BaseApiController
         }
     }
 
-    /**
-     * Products currently in warehouse inventory (stock_status = in_stock) available to move to CC
-     */
     public function productsInInventoryDropdown(Request $request)
     {
-        // Permission check
         if (!$this->userCan('products.view')) {
             return $this->forbidden();
         }
 
-        // Get all product IDs that are currently in ANY warehouse inventory
         $warehouseProductIds = Inventory::pluck('product_ids')
             ->filter()
             ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
@@ -541,14 +548,12 @@ class ProductController extends BaseApiController
             ->values()
             ->toArray();
 
-        // Get all product IDs that are already in ANY CC inventory
         $ccProductIds = CollectionCenterInventory::pluck('product_ids')
             ->filter()
             ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
             ->unique()
             ->toArray();
 
-        // Available = in warehouse but NOT in any CC
         $availableIds = array_diff($warehouseProductIds, $ccProductIds);
 
         if (empty($availableIds)) {

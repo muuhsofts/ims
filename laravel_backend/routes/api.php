@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\BranchOwnerReportController;
 use App\Http\Controllers\Api\RevenueAnalyticsController;
 use App\Http\Controllers\Api\ReturnsController;
 use App\Http\Controllers\Api\InvoiceController;
+use App\Http\Controllers\Api\CompanyController;
 use App\Http\Controllers\Api\AgentsManagementController;
 
 /*
@@ -462,5 +463,31 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
             Route::post('/{id}/cancel', [ReturnsController::class, 'cancelReturn']);
         });
     });
+
+// v18 – Companies
+Route::prefix('v18')->group(function () {
+    Route::prefix('companies')->group(function () {
+        // Soft delete & restore
+        Route::get('/trashed', [CompanyController::class, 'trashed']);
+        Route::patch('/{id}/restore', [CompanyController::class, 'restore']);
+        Route::delete('/{id}/force', [CompanyController::class, 'forceDelete']);
+        
+        // Dropdown
+        Route::get('/dropdown', [CompanyController::class, 'companyDropdown']);
+        
+        // Stats
+        Route::get('/stats', [CompanyController::class, 'stats']);
+        
+        // Status
+        Route::patch('/{id}/toggle-status', [CompanyController::class, 'toggleStatus']);
+        
+        // CRUD
+        Route::get('/', [CompanyController::class, 'index']);
+        Route::post('/', [CompanyController::class, 'store']);
+        Route::get('/{id}', [CompanyController::class, 'show']);
+        Route::put('/{id}', [CompanyController::class, 'update']);
+        Route::delete('/{id}', [CompanyController::class, 'destroy']);
+    });
+});
 
 }); 

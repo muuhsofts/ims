@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Models\StockMovement;
 use App\Models\StockMovementLog;       
 use App\Models\Warehouse;
+use App\Models\Company;
 use App\Traits\Auditable;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -86,48 +87,47 @@ class CollectionCenterInventoryController extends BaseApiController
     // =========================================================================
 
     private function getProductWarehouseMap(array $productIds): array
-{
-    $productWarehouseMap = [];
-    $allInventories = Inventory::all();
-    $missingProducts = [];
+    {
+        $productWarehouseMap = [];
+        $allInventories = Inventory::all();
+        $missingProducts = [];
 
-    $productIds = array_map(fn($id) => trim((string)$id), $productIds);
+        $productIds = array_map(fn($id) => trim((string)$id), $productIds);
 
-    foreach ($productIds as $pid) {
-        $found = false;
+        foreach ($productIds as $pid) {
+            $found = false;
 
-        foreach ($allInventories as $inv) {
-            $invIds = $inv->product_ids;
-            if (is_string($invIds)) $invIds = json_decode($invIds, true);
-            if (!is_array($invIds)) $invIds = [];
-            $invIds = array_map('strval', $invIds);
+            foreach ($allInventories as $inv) {
+                $invIds = $inv->product_ids;
+                if (is_string($invIds)) $invIds = json_decode($invIds, true);
+                if (!is_array($invIds)) $invIds = [];
+                $invIds = array_map('strval', $invIds);
 
-            if (in_array(strval($pid), $invIds)) {
-                // Track BOTH the inventory row id and warehouse id
-                $productWarehouseMap[$pid] = [
-                    'inventory_id' => $inv->inventory_id,
-                    'warehouse_id' => $inv->warehouse_id,
-                ];
-                $found = true;
-                break;
+                if (in_array(strval($pid), $invIds)) {
+                    $productWarehouseMap[$pid] = [
+                        'inventory_id' => $inv->inventory_id,
+                        'warehouse_id' => $inv->warehouse_id,
+                    ];
+                    $found = true;
+                    break;
+                }
+            }
+
+            if (!$found) {
+                $product = Product::find($pid) ?? Product::where('imei', $pid)->first();
+                $imei = $product->imei ?? $pid;
+                $sku = $product->sku ?? 'N/A';
+                $category = $product?->category?->category_name ?? 'N/A';
+                $missingProducts[] = "IMEI: {$imei} (SKU: {$sku}, Category: {$category})";
             }
         }
 
-        if (!$found) {
-            $product = Product::find($pid) ?? Product::where('imei', $pid)->first();
-            $imei = $product->imei ?? $pid;
-            $sku = $product->sku ?? 'N/A';
-            $category = $product?->category?->category_name ?? 'N/A';
-            $missingProducts[] = "IMEI: {$imei} (SKU: {$sku}, Category: {$category})";
+        if (!empty($missingProducts)) {
+            throw new \Exception("The following products are not in any warehouse inventory:\n" . implode("\n", $missingProducts));
         }
-    }
 
-    if (!empty($missingProducts)) {
-        throw new \Exception("The following products are not in any warehouse inventory:\n" . implode("\n", $missingProducts));
+        return $productWarehouseMap;
     }
-
-    return $productWarehouseMap;
-}
 
     // =========================================================================
     // STOCK MOVEMENT HELPERS
@@ -137,120 +137,116 @@ class CollectionCenterInventoryController extends BaseApiController
      * Move products from warehouse to collection center - Creates a NEW record per transfer
      * ALWAYS deducts from warehouse inventory
      */
-     private function moveProductsToCC(array $productIds, string $toCcId, string $performedBy, ?string $requestId = null): CollectionCenterInventory
-{
-    if (empty($productIds)) {
-        throw new \Exception("No products to move.");
-    }
+    private function moveProductsToCC(array $productIds, string $toCcId, string $performedBy, ?string $requestId = null): CollectionCenterInventory
+    {
+        if (empty($productIds)) {
+            throw new \Exception("No products to move.");
+        }
 
-    $productIds = array_map(fn($id) => trim((string)$id), $productIds);
+        $productIds = array_map(fn($id) => trim((string)$id), $productIds);
 
-    // Map is now: product_id => ['inventory_id' => ..., 'warehouse_id' => ...]
-    $productWarehouseMap = $this->getProductWarehouseMap($productIds);
+        $productWarehouseMap = $this->getProductWarehouseMap($productIds);
 
-    // Group product IDs by the SPECIFIC inventory row, not just warehouse_id
-    $grouped = [];
-    foreach ($productWarehouseMap as $pid => $info) {
-        $grouped[$info['inventory_id']][] = $pid;
-    }
+        $grouped = [];
+        foreach ($productWarehouseMap as $pid => $info) {
+            $grouped[$info['inventory_id']][] = $pid;
+        }
 
-    // Create a transfer request if none provided
-    if (is_null($requestId)) {
-        $transferRequest = \App\Models\TransferRequest::create([
-            'request_id' => (string) Str::uuid(),
-            'requester_id' => $performedBy,
+        if (is_null($requestId)) {
+            $transferRequest = \App\Models\TransferRequest::create([
+                'request_id' => (string) Str::uuid(),
+                'requester_id' => $performedBy,
+                'cc_id' => $toCcId,
+                'requested_items' => $productIds,
+                'total_quantity' => count($productIds),
+                'received_quantity' => 0,
+                'status' => 'completed',
+                'approved_by' => $performedBy,
+                'approved_at' => now(),
+                'notes' => "Direct transfer from warehouse to collection center",
+            ]);
+            $requestId = $transferRequest->request_id;
+        }
+
+        DB::transaction(function () use ($grouped, $toCcId, $performedBy, $requestId, $productIds, $productWarehouseMap) {
+            foreach ($grouped as $inventoryId => $pids) {
+                $sourceInventory = Inventory::find($inventoryId);
+                if (!$sourceInventory) {
+                    throw new \Exception("Warehouse inventory record not found: {$inventoryId}");
+                }
+
+                $currentIds = $sourceInventory->product_ids;
+                if (is_string($currentIds)) $currentIds = json_decode($currentIds, true);
+                if (!is_array($currentIds)) $currentIds = [];
+                $currentIds = array_map('strval', $currentIds);
+                $pids = array_map('strval', $pids);
+
+                $missing = array_diff($pids, $currentIds);
+                if (!empty($missing)) {
+                    $missingProducts = Product::whereIn('product_id', $missing)->pluck('imei', 'product_id');
+                    $missingImeis = $missingProducts->values()->implode(', ');
+                    throw new \Exception("Products with IMEI(s) {$missingImeis} not found in warehouse.");
+                }
+
+                $updatedIds = array_values(array_diff($currentIds, $pids));
+                $sourceInventory->update([
+                    'product_ids' => $updatedIds,
+                    'quantity' => count($updatedIds),
+                ]);
+            }
+
+            Product::whereIn('product_id', $productIds)->update(['stock_status' => 'transferred']);
+        });
+
+        $warehouseIds = array_unique(array_column($productWarehouseMap, 'warehouse_id'));
+        $sourceWarehouseId = (count($warehouseIds) === 1) ? $warehouseIds[0] : null;
+
+        $ccInventory = CollectionCenterInventory::create([
             'cc_id' => $toCcId,
-            'requested_items' => $productIds,
-            'total_quantity' => count($productIds),
-            'received_quantity' => 0,
-            'status' => 'completed', // Or 'approved' based on your workflow
-            'approved_by' => $performedBy,
-            'approved_at' => now(),
-            'notes' => "Direct transfer from warehouse to collection center",
+            'product_ids' => $productIds,
+            'quantity' => count($productIds),
+            'source_warehouse_id' => $sourceWarehouseId,
+            'cc_inventory_status' => 'pending',
         ]);
-        $requestId = $transferRequest->request_id;
-    }
 
-    DB::transaction(function () use ($grouped, $toCcId, $performedBy, $requestId, $productIds, $productWarehouseMap) {
-        foreach ($grouped as $inventoryId => $pids) {
-            $sourceInventory = Inventory::find($inventoryId);
-            if (!$sourceInventory) {
-                throw new \Exception("Warehouse inventory record not found: {$inventoryId}");
+        foreach ($productIds as $productId) {
+            $fromWarehouse = $productWarehouseMap[$productId]['warehouse_id'] ?? null;
+            if (is_null($fromWarehouse)) {
+                throw new \Exception("Source warehouse not found for product {$productId}");
             }
 
-            $currentIds = $sourceInventory->product_ids;
-            if (is_string($currentIds)) $currentIds = json_decode($currentIds, true);
-            if (!is_array($currentIds)) $currentIds = [];
-            $currentIds = array_map('strval', $currentIds);
-            $pids = array_map('strval', $pids);
+            StockMovement::create([
+                'movement_id'   => (string) Str::uuid(),
+                'request_id'    => $requestId,
+                'reference_id'  => $ccInventory->cc_inventory_id,
+                'product_id'    => $productId,
+                'from_type'     => 'warehouse',
+                'from_id'       => $fromWarehouse,
+                'to_type'       => 'collection_center',
+                'to_id'         => $toCcId,
+                'quantity'      => 1,
+                'movement_type' => 'transfer',
+                'notes'         => "Transferred from warehouse to collection center (Transfer ID: {$ccInventory->cc_inventory_id})",
+                'performed_by'  => $performedBy,
+            ]);
 
-            $missing = array_diff($pids, $currentIds);
-            if (!empty($missing)) {
-                $missingProducts = Product::whereIn('product_id', $missing)->pluck('imei', 'product_id');
-                $missingImeis = $missingProducts->values()->implode(', ');
-                throw new \Exception("Products with IMEI(s) {$missingImeis} not found in warehouse.");
-            }
-
-            $updatedIds = array_values(array_diff($currentIds, $pids));
-            $sourceInventory->update([
-                'product_ids' => $updatedIds,
-                'quantity' => count($updatedIds),
+            StockMovementLog::create([
+                'product_id'    => $productId,
+                'from_type'     => 'warehouse',
+                'from_id'       => $fromWarehouse,
+                'to_type'       => 'collection_center',
+                'to_id'         => $toCcId,
+                'quantity'      => 1,
+                'movement_type' => 'transfer',
+                'reference_id'  => $ccInventory->cc_inventory_id,
+                'notes'         => "Transferred from warehouse to collection center",
+                'performed_by'  => $performedBy,
+                'created_at'    => now(),
             ]);
         }
 
-        Product::whereIn('product_id', $productIds)->update(['stock_status' => 'transferred']);
-    });
-
-    // Use warehouse_id from the map for the CC record / stock movement logs
-    $warehouseIds = array_unique(array_column($productWarehouseMap, 'warehouse_id'));
-    $sourceWarehouseId = (count($warehouseIds) === 1) ? $warehouseIds[0] : null;
-
-    $ccInventory = CollectionCenterInventory::create([
-        'cc_id' => $toCcId,
-        'product_ids' => $productIds,
-        'quantity' => count($productIds),
-        'source_warehouse_id' => $sourceWarehouseId,
-        'cc_inventory_status' => 'pending',
-    ]);
-
-    foreach ($productIds as $productId) {
-        $fromWarehouse = $productWarehouseMap[$productId]['warehouse_id'] ?? null;
-        if (is_null($fromWarehouse)) {
-            throw new \Exception("Source warehouse not found for product {$productId}");
-        }
-
-        StockMovement::create([
-            'movement_id'   => (string) Str::uuid(),
-            'request_id'    => $requestId, // Now this is a valid transfer request ID
-            'reference_id'  => $ccInventory->cc_inventory_id,
-            'product_id'    => $productId,
-            'from_type'     => 'warehouse',
-            'from_id'       => $fromWarehouse,
-            'to_type'       => 'collection_center',
-            'to_id'         => $toCcId,
-            'quantity'      => 1,
-            'movement_type' => 'transfer',
-            'notes'         => "Transferred from warehouse to collection center (Transfer ID: {$ccInventory->cc_inventory_id})",
-            'performed_by'  => $performedBy,
-        ]);
-
-        StockMovementLog::create([
-            'product_id'    => $productId,
-            'from_type'     => 'warehouse',
-            'from_id'       => $fromWarehouse,
-            'to_type'       => 'collection_center',
-            'to_id'         => $toCcId,
-            'quantity'      => 1,
-            'movement_type' => 'transfer',
-            'reference_id'  => $ccInventory->cc_inventory_id,
-            'notes'         => "Transferred from warehouse to collection center",
-            'performed_by'  => $performedBy,
-            'created_at'    => now(),
-        ]);
+        return $ccInventory;
     }
-
-    return $ccInventory;
-}
 
     /**
      * Return products from collection center back to warehouse
@@ -260,7 +256,6 @@ class CollectionCenterInventoryController extends BaseApiController
     {
         if (empty($productIds)) return;
 
-        // Find the specific inventory record containing these products
         $ccInventory = null;
         $inventories = CollectionCenterInventory::where('cc_id', $fromCcId)
             ->whereIn('cc_inventory_status', ['pending', 'arrived'])
@@ -290,7 +285,6 @@ class CollectionCenterInventoryController extends BaseApiController
         }
 
         DB::transaction(function () use ($productIds, $fromCcId, $performedBy, $ccInventory, $targetWarehouseId) {
-            // 1. Remove products from CC inventory
             $currentCcIds = $ccInventory->product_ids ?? [];
             $updatedCcIds = array_values(array_diff($currentCcIds, $productIds));
             
@@ -307,7 +301,6 @@ class CollectionCenterInventoryController extends BaseApiController
                 ]);
             }
 
-            // 2. ADD products back to the target warehouse inventory
             $warehouseInventory = Inventory::firstOrCreate(
                 ['warehouse_id' => $targetWarehouseId],
                 ['product_ids' => [], 'quantity' => 0]
@@ -319,10 +312,8 @@ class CollectionCenterInventoryController extends BaseApiController
                 'quantity' => count($mergedIds),
             ]);
 
-            // 3. Update product status back to in_stock
             Product::whereIn('product_id', $productIds)->update(['stock_status' => 'in_stock']);
 
-            // 4. Log returns
             foreach ($productIds as $productId) {
                 StockMovement::create([
                     'movement_id'   => (string) Str::uuid(),
@@ -359,7 +350,7 @@ class CollectionCenterInventoryController extends BaseApiController
     // =========================================================================
 
     /**
-     * Attach product details to inventory record
+     * ✅ FIXED: Attach product details to inventory record with company names for loan prices
      */
     private function attachProducts($inventory)
     {
@@ -368,13 +359,40 @@ class CollectionCenterInventoryController extends BaseApiController
             return $inventory;
         }
         
-        $inventory->products = Product::with('category')
+        $products = Product::with('category')
             ->whereIn('product_id', $inventory->product_ids ?? [])
             ->get()
             ->map(function ($product) {
                 $product->name = $product->category?->category_name ?? null;
+                
+                // ✅ Process loan_selling_price to include company names
+                $loanPrices = [];
+                if (!empty($product->loan_selling_price)) {
+                    $prices = is_array($product->loan_selling_price) 
+                        ? $product->loan_selling_price 
+                        : json_decode($product->loan_selling_price, true);
+                    
+                    if (is_array($prices)) {
+                        foreach ($prices as $item) {
+                            if (isset($item['company_id']) && isset($item['price'])) {
+                                $company = Company::find($item['company_id']);
+                                $loanPrices[] = [
+                                    'company_id' => $item['company_id'],
+                                    'company_name' => $company ? $company->company_name : $item['company_id'],
+                                    'price' => $item['price']
+                                ];
+                            }
+                        }
+                    }
+                }
+                
+                // ✅ Add loan_prices with company names to the product
+                $product->loan_prices = $loanPrices;
+                
                 return $product;
             });
+            
+        $inventory->products = $products;
         return $inventory;
     }
 
@@ -397,12 +415,9 @@ class CollectionCenterInventoryController extends BaseApiController
         foreach ($ids as $id) {
             $id = trim((string)$id);
             
-            // Check if it's a valid UUID
             if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id)) {
-                // It's a UUID, use as is
                 $productIds[] = $id;
             } else {
-                // Not a UUID, try to find by IMEI
                 $product = Product::where('imei', $id)->first();
                 if ($product) {
                     $productIds[] = $product->product_id;
@@ -557,8 +572,7 @@ class CollectionCenterInventoryController extends BaseApiController
     }
 
     /**
-     * Create a new transfer (each transfer = separate record, NO MERGING!)
-     * FIXED: Converts IMEI to Product ID if needed
+     * Create a new transfer
      */
     public function store(Request $request)
     {
@@ -569,14 +583,12 @@ class CollectionCenterInventoryController extends BaseApiController
             $validated = $request->validate([
                 'cc_id'         => 'required|string|exists:collection_centers,cc_id',
                 'product_ids'   => 'required|array|min:1',
-                'product_ids.*' => 'required|string',  // Accept UUID or IMEI
+                'product_ids.*' => 'required|string',
             ]);
             
-            // 🔥 CONVERT IMEI TO PRODUCT ID IF NEEDED
             $productIds = $this->convertToProductIds($validated['product_ids']);
             $validated['product_ids'] = $productIds;
             
-            // Check products are available (in_stock)
             $notAvailable = Product::whereIn('product_id', $validated['product_ids'])
                 ->where('stock_status', '!=', 'in_stock')
                 ->pluck('imei', 'product_id');
@@ -586,7 +598,6 @@ class CollectionCenterInventoryController extends BaseApiController
                 ]);
             }
             
-            // Check products are in warehouse inventory
             try {
                 $productWarehouseMap = $this->getProductWarehouseMap($validated['product_ids']);
             } catch (\Exception $e) {
@@ -595,7 +606,6 @@ class CollectionCenterInventoryController extends BaseApiController
                 ]);
             }
             
-            // Validate products not in any other CC
             $this->validateProductsNotInAnyCC($validated['product_ids']);
             
             DB::beginTransaction();
@@ -639,7 +649,6 @@ class CollectionCenterInventoryController extends BaseApiController
                 'product_ids.*' => 'required|string',
             ]);
             
-            // 🔥 CONVERT IMEI TO PRODUCT ID IF NEEDED
             $productIds = $this->convertToProductIds($validated['product_ids']);
             $validated['product_ids'] = $productIds;
             
@@ -882,6 +891,27 @@ class CollectionCenterInventoryController extends BaseApiController
                 ->whereIn('product_id', $allProductIds)
                 ->get()
                 ->map(function ($product) use ($assignedCcId, $transferMap) {
+                    // ✅ Process loan_prices with company names
+                    $loanPrices = [];
+                    if (!empty($product->loan_selling_price)) {
+                        $prices = is_array($product->loan_selling_price) 
+                            ? $product->loan_selling_price 
+                            : json_decode($product->loan_selling_price, true);
+                        
+                        if (is_array($prices)) {
+                            foreach ($prices as $item) {
+                                if (isset($item['company_id']) && isset($item['price'])) {
+                                    $company = Company::find($item['company_id']);
+                                    $loanPrices[] = [
+                                        'company_id' => $item['company_id'],
+                                        'company_name' => $company ? $company->company_name : $item['company_id'],
+                                        'price' => $item['price']
+                                    ];
+                                }
+                            }
+                        }
+                    }
+                    
                     $productData = $product->toArray();
                     $productData['collection_center'] = [
                         'cc_id' => $assignedCcId,
@@ -890,6 +920,7 @@ class CollectionCenterInventoryController extends BaseApiController
                         'status' => $transferMap[$product->product_id]['status'] ?? null,
                     ];
                     $productData['product_name'] = $product->product_name;
+                    $productData['loan_prices'] = $loanPrices; // ✅ Add loan_prices with company names
                     return $productData;
                 });
                 
@@ -939,6 +970,27 @@ class CollectionCenterInventoryController extends BaseApiController
             ->whereIn('product_id', $allProductIds)
             ->get()
             ->map(function ($product) use ($center) {
+                // ✅ Process loan_prices with company names
+                $loanPrices = [];
+                if (!empty($product->loan_selling_price)) {
+                    $prices = is_array($product->loan_selling_price) 
+                        ? $product->loan_selling_price 
+                        : json_decode($product->loan_selling_price, true);
+                    
+                    if (is_array($prices)) {
+                        foreach ($prices as $item) {
+                            if (isset($item['company_id']) && isset($item['price'])) {
+                                $company = Company::find($item['company_id']);
+                                $loanPrices[] = [
+                                    'company_id' => $item['company_id'],
+                                    'company_name' => $company ? $company->company_name : $item['company_id'],
+                                    'price' => $item['price']
+                                ];
+                            }
+                        }
+                    }
+                }
+                
                 return [
                     'product_id'        => $product->product_id,
                     'imei'              => $product->imei,
@@ -946,7 +998,7 @@ class CollectionCenterInventoryController extends BaseApiController
                     'category_name'     => $product->category?->category_name,
                     'model'             => $product->category?->model,
                     'cash_selling_price' => $product->cash_selling_price,
-                    'loan_selling_price' => $product->loan_selling_price,
+                    'loan_prices'       => $loanPrices, // ✅ Return loan_prices with company names
                     'buying_price'      => $product->buying_price,
                     'collection_center' => [
                         'cc_id' => $center->cc_id,

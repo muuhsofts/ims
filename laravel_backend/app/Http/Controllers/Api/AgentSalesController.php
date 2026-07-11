@@ -8,6 +8,7 @@ use App\Models\Sale;
 use App\Models\Product;
 use App\Models\Customer;
 use App\Models\Receipt;
+use App\Models\Company;
 use App\Traits\Auditable;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -19,7 +20,7 @@ class AgentSalesController extends BaseApiController
     use Auditable;
 
     /**
-     * 1. View agent inventory – returns FULL product details
+     * 1. View agent inventory – returns FULL product details with company loan prices
      *    - ADMIN/MANAGER: all agents
      *    - SALES_AGENT: own stock only
      * Permission: agent.stock.view
@@ -68,10 +69,31 @@ class AgentSalesController extends BaseApiController
     }
 
     /**
-     * Format a single inventory entry with full product details
+     * Format a single inventory entry with full product details and company loan prices
      */
     private function formatInventoryItem($inventory, $product, $quantity)
     {
+        // ✅ Process loan prices with company names
+        $loanPrices = [];
+        if (!empty($product->loan_selling_price)) {
+            $prices = is_array($product->loan_selling_price) 
+                ? $product->loan_selling_price 
+                : json_decode($product->loan_selling_price, true);
+            
+            if (is_array($prices)) {
+                foreach ($prices as $item) {
+                    if (isset($item['company_id']) && isset($item['price'])) {
+                        $company = Company::find($item['company_id']);
+                        $loanPrices[] = [
+                            'company_id' => $item['company_id'],
+                            'company_name' => $company ? $company->company_name : $item['company_id'],
+                            'price' => (float) $item['price']
+                        ];
+                    }
+                }
+            }
+        }
+
         return [
             'agent_inv_id'      => $inventory->agent_inv_id,
             'agent_id'          => $inventory->user_id,
@@ -85,7 +107,7 @@ class AgentSalesController extends BaseApiController
             'color'             => $product->color ?? null,
             'buying_price'      => (float) $product->buying_price,
             'cash_selling_price' => (float) $product->cash_selling_price,
-            'loan_selling_price' => (float) $product->loan_selling_price,
+            'loan_prices'       => $loanPrices, // ✅ Array with company_name and price
             'stock_status'      => $product->stock_status,
             'quantity_received' => $inventory->quantity_received,
             'quantity_sold'     => $inventory->quantity_sold,
@@ -94,7 +116,34 @@ class AgentSalesController extends BaseApiController
     }
 
     /**
-     * 2. Scan product by IMEI – check availability in agent inventory
+     * Format loan prices for response
+     */
+    private function formatLoanPrices($product)
+    {
+        $loanPrices = [];
+        if (!empty($product->loan_selling_price)) {
+            $prices = is_array($product->loan_selling_price) 
+                ? $product->loan_selling_price 
+                : json_decode($product->loan_selling_price, true);
+            
+            if (is_array($prices)) {
+                foreach ($prices as $item) {
+                    if (isset($item['company_id']) && isset($item['price'])) {
+                        $company = Company::find($item['company_id']);
+                        $loanPrices[] = [
+                            'company_id' => $item['company_id'],
+                            'company_name' => $company ? $company->company_name : $item['company_id'],
+                            'price' => (float) $item['price']
+                        ];
+                    }
+                }
+            }
+        }
+        return $loanPrices;
+    }
+
+    /**
+     * 2. Scan product by IMEI – check availability in agent inventory with loan prices
      * Permission: agent.product.scan
      */
     public function scanProduct(Request $request)
@@ -138,6 +187,9 @@ class AgentSalesController extends BaseApiController
                 return $this->badRequest('Product not available in your inventory');
             }
 
+            // ✅ Get loan prices with company names
+            $loanPrices = $this->formatLoanPrices($product);
+
             return $this->successResponse([
                 'product_id'         => $product->product_id,
                 'product_name'       => $product->product_name,
@@ -147,7 +199,7 @@ class AgentSalesController extends BaseApiController
                 'sku'                => $product->sku,
                 'color'              => $product->color,
                 'cash_selling_price' => (float) $product->cash_selling_price,
-                'loan_selling_price' => (float) $product->loan_selling_price,
+                'loan_prices'        => $loanPrices, // ✅ Array with company_name and price
                 'available_quantity' => $available,
             ], 'Product found – ready for sale');
 
@@ -160,6 +212,7 @@ class AgentSalesController extends BaseApiController
 
     /**
      * 3. Sell a product – updates inventory (both new/old structures), creates sale and receipt
+     *    Supports company-specific loan prices
      * Permission: agent.sale.create
      */
     public function saleProduct(Request $request)
@@ -177,7 +230,8 @@ class AgentSalesController extends BaseApiController
                 'product_id'     => 'required|string|exists:products,product_id',
                 'customer_id'    => 'required|string|exists:customers,customer_id',
                 'payment_method' => 'required|in:cash,loan',
-                'total_amount'   => 'nullable|numeric|min:0', // allow manual discount
+                'company_id'     => 'nullable|string|exists:companies,id', // ✅ For loan price selection
+                'total_amount'   => 'nullable|numeric|min:0',
                 'notes'          => 'nullable|string',
             ]);
 
@@ -198,17 +252,15 @@ class AgentSalesController extends BaseApiController
                 return $this->badRequest('Product not in your inventory');
             }
 
-            // Fetch the product to get the correct selling price
+            // Fetch the product
             $product = Product::find($validated['product_id']);
             if (!$product) {
                 return $this->badRequest('Product not found');
             }
 
-            // Determine the total amount: use provided total_amount if present, else compute from product price
+            // Determine the total amount
             if (isset($validated['total_amount']) && !is_null($validated['total_amount'])) {
                 $totalAmount = $validated['total_amount'];
-                // Optionally, you could add validation that discount doesn't exceed original price
-                // but we'll just accept any non-negative amount.
             } else {
                 if ($validated['payment_method'] === 'cash') {
                     if (is_null($product->cash_selling_price)) {
@@ -216,10 +268,27 @@ class AgentSalesController extends BaseApiController
                     }
                     $totalAmount = $product->cash_selling_price;
                 } else { // loan
-                    if (is_null($product->loan_selling_price)) {
+                    // ✅ Get loan price for specific company or default
+                    $loanPrice = null;
+                    if ($validated['company_id']) {
+                        // Try to get company-specific loan price
+                        $loanPrice = $product->getLoanPriceForCompany($validated['company_id']);
+                    }
+                    
+                    // Fallback to first loan price or null
+                    if ($loanPrice === null && !empty($product->loan_selling_price)) {
+                        $prices = is_array($product->loan_selling_price) 
+                            ? $product->loan_selling_price 
+                            : json_decode($product->loan_selling_price, true);
+                        if (!empty($prices)) {
+                            $loanPrice = $prices[0]['price'] ?? null;
+                        }
+                    }
+                    
+                    if (is_null($loanPrice)) {
                         return $this->badRequest('Loan selling price is not set for this product.');
                     }
-                    $totalAmount = $product->loan_selling_price;
+                    $totalAmount = $loanPrice;
                 }
             }
 
@@ -384,7 +453,7 @@ class AgentSalesController extends BaseApiController
                 ->orderBy('created_at', 'desc')
                 ->paginate($request->get('per_page', 20));
 
-            // Add product details to each sale
+            // Add product details and loan prices to each sale
             $sales->getCollection()->transform(function ($sale) {
                 $product = $sale->product;
                 if ($product) {
@@ -394,7 +463,7 @@ class AgentSalesController extends BaseApiController
                     $sale->category_name = $product->category->category_name ?? null;
                     $sale->model = $product->category->model ?? null;
                     $sale->cash_selling_price = (float) $product->cash_selling_price;
-                    $sale->loan_selling_price = (float) $product->loan_selling_price;
+                    $sale->loan_prices = $this->formatLoanPrices($product); // ✅ Company loan prices
                 }
                 return $sale;
             });
@@ -423,7 +492,7 @@ class AgentSalesController extends BaseApiController
                 return $this->forbidden('Unauthorized');
             }
 
-            // Enrich with product details
+            // Enrich with product details and loan prices
             $product = $sale->product;
             if ($product) {
                 $sale->product_name = $product->product_name;
@@ -432,7 +501,7 @@ class AgentSalesController extends BaseApiController
                 $sale->category_name = $product->category->category_name ?? null;
                 $sale->model = $product->category->model ?? null;
                 $sale->cash_selling_price = (float) $product->cash_selling_price;
-                $sale->loan_selling_price = (float) $product->loan_selling_price;
+                $sale->loan_prices = $this->formatLoanPrices($product); // ✅ Company loan prices
             }
 
             return $this->successResponse($sale, 'Sale details with full product info');
