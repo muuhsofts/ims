@@ -26,7 +26,8 @@ import {
   Receipt as InvoiceIcon,
   Analytics as AnalyticsIcon,
   Storefront as StorefrontIcon,
-  ReceiptLong as ReturnsIcon, // 👈 Add returns icon
+  ReceiptLong as ReturnsIcon,
+  Business as CompanyIcon, // 👈 Add company icon
 } from '@mui/icons-material';
 
 const addIf = (condition, item) => (condition ? [item] : []);
@@ -259,7 +260,7 @@ export function getSidebarStructure(hasPermission) {
     });
   }
 
-  // 👇 ----- Returns -----
+  // ----- Returns -----
   const hasReturnsPerm = hasPermission('returns.view') || hasPermission('returns.create') ||
       hasPermission('returns.submit') || hasPermission('returns.cancel');
   if (hasReturnsPerm) {
@@ -342,19 +343,30 @@ export function getSidebarStructure(hasPermission) {
 
   // ----- Settings -----
   const settingsChildren = [
-    ...addIf(hasPermission('users.view') || hasPermission('users.create') || hasPermission('users.edit') || hasPermission('users.delete'),
+    // 👇 Companies - Added on top of Users
+    ...addIf(hasPermission('companies.view') || hasPermission('companies.create') ||
+        hasPermission('companies.edit') || hasPermission('companies.delete') ||
+        hasPermission('companies.restore'),
+        { label: 'Companies', link: '/app/settings/companies' }),
+    ...addIf(hasPermission('users.view') || hasPermission('users.create') ||
+        hasPermission('users.edit') || hasPermission('users.delete'),
         { label: 'Users', link: '/app/settings/users' }),
-    ...addIf(hasPermission('sales_agent.view') || hasPermission('sales_agent.create') || hasPermission('sales_agent.edit') || hasPermission('sales_agent.delete'),
+    ...addIf(hasPermission('sales_agent.view') || hasPermission('sales_agent.create') ||
+        hasPermission('sales_agent.edit') || hasPermission('sales_agent.delete'),
         { label: 'Agents', link: '/app/settings/agents' }),
-    ...addIf(hasPermission('roles.view') || hasPermission('roles.create') || hasPermission('roles.edit') || hasPermission('roles.delete'),
+    ...addIf(hasPermission('roles.view') || hasPermission('roles.create') ||
+        hasPermission('roles.edit') || hasPermission('roles.delete'),
         { label: 'Roles', link: '/app/settings/roles' }),
     ...addIf(hasPermission('roles.assign_permissions'),
         { label: 'Permissions', link: '/app/settings/permissions' }),
     ...addIf(hasPermission('audit.view'), { label: 'Audit Trails', link: '/app/settings/audit' }),
-    ...addIf(hasPermission('otp.view') || hasPermission('otp.cleanup'), { label: 'OTP Management', link: '/app/settings/otp' }),
-    ...addIf(hasPermission('failed_logins.view') || hasPermission('failed_logins.clear') || hasPermission('failed_logins.block'),
+    ...addIf(hasPermission('otp.view') || hasPermission('otp.cleanup'),
+        { label: 'OTP Management', link: '/app/settings/otp' }),
+    ...addIf(hasPermission('failed_logins.view') || hasPermission('failed_logins.clear') ||
+        hasPermission('failed_logins.block'),
         { label: 'Failed Logins', link: '/app/settings/failed-logins' }),
   ];
+
   if (settingsChildren.length > 0) {
     structure.push({
       id: 15,
@@ -387,7 +399,6 @@ const staticStructure = [
     icon: <SalesIcon />,
     children: [{ label: 'Sales Dashboard', link: '/app/sales' }],
   },
-  // 👇 Returns static structure
   {
     id: 18,
     label: 'Returns',
@@ -430,6 +441,8 @@ const staticStructure = [
     link: '#',
     icon: <SettingsIcon />,
     children: [
+      // 👇 Companies - Added on top of Users in static structure
+      { label: 'Companies', link: '/app/settings/companies', icon: <CompanyIcon /> },
       { label: 'Users', link: '/app/settings/users', icon: <UsersIcon /> },
       { label: 'Agents', link: '/app/settings/agents', icon: <AgentIcon /> },
       { label: 'Roles', link: '/app/settings/roles', icon: <RolesIcon /> },

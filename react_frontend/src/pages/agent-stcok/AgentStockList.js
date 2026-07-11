@@ -4,9 +4,9 @@ import {
     Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
     IconButton, Paper, Table, TableBody, TableCell, TableContainer,
     TableHead, TableRow, Typography, CircularProgress, Stack, Tooltip,
-    Card, CardContent, Divider, useMediaQuery, useTheme, Grid
+    Card, CardContent, Divider, useMediaQuery, useTheme, Grid, Collapse
 } from '@mui/material';
-import { Refresh as RefreshIcon, Visibility as ViewIcon, Person as PersonIcon } from '@mui/icons-material';
+import { Refresh as RefreshIcon, Visibility as ViewIcon, Person as PersonIcon, Business as BusinessIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
 import { showSnackbar } from 'utils/snackbar';
 import { agentSalesService } from 'services/agent-sales.service';
 
@@ -17,7 +17,7 @@ const headCells = [
     { id: 'model', label: 'Model' },
     { id: 'sku', label: 'SKU' },
     { id: 'cash_selling_price', label: 'Cash Price' },
-    { id: 'loan_selling_price', label: 'Loan Price' },
+    { id: 'loan_prices', label: 'Loan Prices' },
     { id: 'available_qty', label: 'Available Qty', align: 'center' },
     { id: 'actions', label: 'Actions', align: 'center' },
 ];
@@ -25,7 +25,7 @@ const headCells = [
 // Helper to format price
 const formatPrice = (price) => {
     if (price === null || price === undefined || isNaN(price)) return '—';
-    return new Intl.NumberFormat('en-TZ', { style: 'currency', currency: 'TZS' }).format(price);
+    return `TSh ${parseFloat(price).toLocaleString()}`;
 };
 
 // Helper to determine if we are in admin/manager view (has agent_name)
@@ -43,9 +43,19 @@ const DetailRow = ({ label, value, fontFamily }) => (
     </Box>
 );
 
+// ✅ Get loan prices from product
+const getLoanPrices = (product) => {
+    if (!product?.loan_prices) return [];
+    return Array.isArray(product.loan_prices) ? product.loan_prices : [];
+};
+
 // Stock Card Component (used on mobile/tablet)
 const StockCard = ({ item, showAgent, onViewDetails }) => {
     const safeValue = (val) => (val !== null && val !== undefined ? val : 'N/A');
+    const loanPrices = getLoanPrices(item);
+    const hasLoanPrices = loanPrices.length > 0;
+    const [expanded, setExpanded] = useState(false);
+
     return (
         <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
             <CardContent sx={{ p: 2 }}>
@@ -83,9 +93,35 @@ const StockCard = ({ item, showAgent, onViewDetails }) => {
                         <Typography variant="caption" color="text.secondary">Cash Price</Typography>
                         <Typography variant="body2" fontWeight="bold">{formatPrice(item.cash_selling_price)}</Typography>
                     </Grid>
-                    <Grid item xs={6}>
-                        <Typography variant="caption" color="text.secondary">Loan Price</Typography>
-                        <Typography variant="body2" fontWeight="bold">{formatPrice(item.loan_selling_price)}</Typography>
+                    <Grid item xs={12}>
+                        <Typography variant="caption" color="text.secondary">Loan Prices</Typography>
+                        {hasLoanPrices ? (
+                            <Box sx={{ mt: 0.5 }}>
+                                <Box display="flex" alignItems="center" gap={0.5}>
+                                    <BusinessIcon fontSize="small" color="primary" sx={{ fontSize: '0.8rem' }} />
+                                    <Typography variant="caption" fontWeight="bold">
+                                        {loanPrices.length} company{loanPrices.length > 1 ? 'ies' : ''}
+                                    </Typography>
+                                    <IconButton size="small" onClick={() => setExpanded(!expanded)}>
+                                        {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                                    </IconButton>
+                                </Box>
+                                <Collapse in={expanded}>
+                                    {loanPrices.map((lp, idx) => (
+                                        <Typography key={idx} variant="caption" display="block" sx={{ fontSize: '0.7rem', ml: 1 }}>
+                                            {lp.company_name}: {formatPrice(lp.price)}
+                                        </Typography>
+                                    ))}
+                                </Collapse>
+                                {!expanded && loanPrices.length > 2 && (
+                                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                                        +{loanPrices.length - 2} more
+                                    </Typography>
+                                )}
+                            </Box>
+                        ) : (
+                            <Typography variant="body2" color="text.secondary">N/A</Typography>
+                        )}
                     </Grid>
                     <Grid item xs={6}>
                         <Typography variant="caption" color="text.secondary">Available Qty</Typography>
@@ -102,11 +138,52 @@ const StockCard = ({ item, showAgent, onViewDetails }) => {
     );
 };
 
+// ✅ Loan Prices Cell for table
+const LoanPricesCell = ({ product }) => {
+    const loanPrices = getLoanPrices(product);
+    const [expanded, setExpanded] = useState(false);
+    const displayCount = 2;
+
+    if (loanPrices.length === 0) {
+        return <Typography variant="body2" color="text.secondary">N/A</Typography>;
+    }
+
+    const visiblePrices = expanded ? loanPrices : loanPrices.slice(0, displayCount);
+    const hasMore = loanPrices.length > displayCount;
+
+    return (
+        <Box>
+            <Box display="flex" alignItems="center" gap={0.5}>
+                <BusinessIcon fontSize="small" color="primary" sx={{ fontSize: '0.8rem' }} />
+                <Typography variant="caption" fontWeight="bold">
+                    {loanPrices.length} company{loanPrices.length > 1 ? 'ies' : ''}
+                </Typography>
+                <IconButton size="small" onClick={() => setExpanded(!expanded)}>
+                    {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                </IconButton>
+            </Box>
+            <Collapse in={expanded || loanPrices.length <= displayCount}>
+                <Box sx={{ mt: 0.5 }}>
+                    {visiblePrices.map((lp, idx) => (
+                        <Typography key={idx} variant="caption" display="block" sx={{ fontSize: '0.7rem' }}>
+                            {lp.company_name}: {formatPrice(lp.price)}
+                        </Typography>
+                    ))}
+                    {hasMore && !expanded && (
+                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                            +{loanPrices.length - displayCount} more
+                        </Typography>
+                    )}
+                </Box>
+            </Collapse>
+        </Box>
+    );
+};
+
 export default function AgentStockList() {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-    const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'md'));
-    const showTableView = useMediaQuery(theme.breakpoints.up('md')); // Table on medium and up
+    const showTableView = useMediaQuery(theme.breakpoints.up('md'));
 
     const [stock, setStock] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -151,7 +228,7 @@ export default function AgentStockList() {
                 {/* Header */}
                 <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexDirection: { xs: 'column', sm: 'row' }, gap: 2 }}>
                     <Typography variant="h5" sx={{ fontSize: { xs: '1.5rem', sm: '1.75rem' } }}>
-                        {showAgentColumn ? 'Agents Stock Inventory' : 'My Available Stock'}
+                        {showAgentColumn ? 'Agents Stock Inventory' : ' Available Stock'}
                     </Typography>
                     <Button
                         variant="outlined"
@@ -167,7 +244,7 @@ export default function AgentStockList() {
                 {/* Table View (Desktop) */}
                 {showTableView ? (
                     <TableContainer sx={{ overflowX: 'auto' }}>
-                        <Table sx={{ minWidth: 1050 }}>
+                        <Table sx={{ minWidth: 1150 }}>
                             <TableHead>
                                 <TableRow>
                                     {showAgentColumn && <TableCell>Agent</TableCell>}
@@ -212,7 +289,7 @@ export default function AgentStockList() {
                                                 <Typography variant="body2" fontWeight={500}>{formatPrice(item.cash_selling_price)}</Typography>
                                             </TableCell>
                                             <TableCell>
-                                                <Typography variant="body2" fontWeight={500}>{formatPrice(item.loan_selling_price)}</Typography>
+                                                <LoanPricesCell product={item} />
                                             </TableCell>
                                             <TableCell align="center">
                                                 <Chip label={item.available_quantity} color={item.available_quantity > 0 ? 'success' : 'error'} size="small" />
@@ -275,7 +352,27 @@ export default function AgentStockList() {
                             <DetailRow label="SKU" value={selectedProduct.sku} />
                             <DetailRow label="Stock Status" value={selectedProduct.stock_status} />
                             <DetailRow label="Cash Price" value={formatPrice(selectedProduct.cash_selling_price)} />
-                            <DetailRow label="Loan Price" value={formatPrice(selectedProduct.loan_selling_price)} />
+
+                            {/* ✅ Loan Prices in Modal */}
+                            <Box>
+                                <Typography variant="body2" fontWeight={600} sx={{ minWidth: 120, display: 'inline-block' }}>
+                                    Loan Prices:
+                                </Typography>
+                                {getLoanPrices(selectedProduct).length > 0 ? (
+                                    <Box sx={{ mt: 0.5, ml: 2 }}>
+                                        {getLoanPrices(selectedProduct).map((lp, idx) => (
+                                            <Typography key={idx} variant="body2">
+                                                • {lp.company_name}: {formatPrice(lp.price)}
+                                            </Typography>
+                                        ))}
+                                    </Box>
+                                ) : (
+                                    <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
+                                        N/A
+                                    </Typography>
+                                )}
+                            </Box>
+
                             <DetailRow label="Available Quantity" value={selectedProduct.available_quantity} />
                             {selectedProduct.agent_name && <DetailRow label="Agent" value={selectedProduct.agent_name} />}
                         </Stack>

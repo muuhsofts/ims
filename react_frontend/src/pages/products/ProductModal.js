@@ -1,4 +1,4 @@
-// src/pages/products/ProductModal.js
+// src/pages/products/ProductModal.js - COMPLETE FIXED VERSION
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     Dialog, DialogTitle, DialogContent, DialogActions,
@@ -22,6 +22,7 @@ import { showSnackbar } from 'utils/snackbar';
 import { useProducts } from '@/hooks/useProducts';
 import { productCategoryService } from 'services/product-category.service';
 import { productService } from 'services/product.service';
+import api from 'services/api';
 
 const SCANNER_ID = 'imei-qr-reader';
 
@@ -44,12 +45,16 @@ export default function ProductModal({ open, onClose, product }) {
     const [showPurchaseDetails, setShowPurchaseDetails] = useState(false);
     const [isAutoFilled, setIsAutoFilled] = useState(false);
 
+    const [loanPrices, setLoanPrices] = useState([]);
+    const [selectedCompanyForPrice, setSelectedCompanyForPrice] = useState('');
+    const [companyPriceValue, setCompanyPriceValue] = useState('');
+    const [availableCompanies, setAvailableCompanies] = useState([]);
+
     const [form, setForm] = useState({
         category_id: '',
         sku: '',
         buying_price: '',
         cash_selling_price: '',
-        loan_selling_price: '',
         status: 'active',
     });
 
@@ -59,7 +64,35 @@ export default function ProductModal({ open, onClose, product }) {
 
     useEffect(() => { imeisRef.current = imeis; }, [imeis]);
 
-    // ── scanner ───────────────────────────────────────────────────────────────
+    // Fetch companies
+    useEffect(() => {
+        if (!open) return;
+        const fetchCompanies = async () => {
+            try {
+                const res = await api.get('/v18/companies/dropdown');
+                if (res.data?.success) {
+                    setAvailableCompanies(res.data.data || []);
+                }
+            } catch (err) {
+                console.error('Failed to fetch companies:', err);
+            }
+        };
+        fetchCompanies();
+    }, [open]);
+
+    // Load existing loan prices when editing
+    useEffect(() => {
+        if (product && product.loan_selling_price) {
+            const prices = typeof product.loan_selling_price === 'string'
+                ? JSON.parse(product.loan_selling_price)
+                : product.loan_selling_price;
+            setLoanPrices(prices || []);
+        } else {
+            setLoanPrices([]);
+        }
+    }, [product]);
+
+    // Scanner
     const destroyScanner = useCallback(async () => {
         if (!html5QrRef.current) return;
         try {
@@ -86,12 +119,28 @@ export default function ProductModal({ open, onClose, product }) {
                     processingRef.current = true;
 
                     const imei = decodedText.trim();
+
                     if (imeisRef.current.includes(imei)) {
                         showSnackbar({ type: 'warning', message: `Duplicate IMEI: ${imei}` });
-                    } else {
-                        setImeis(prev => [...prev, imei]);
-                        showSnackbar({ type: 'success', message: `✓ Added: ${imei}` });
+                        processingRef.current = false;
+                        return;
                     }
+
+                    // ✅ FIXED: Only block if we've already reached the limit (>=)
+                    if (purchaseInfo && !product) {
+                        const availableToAdd = purchaseInfo.available_to_add || 0;
+                        if (availableToAdd > 0 && imeisRef.current.length >= availableToAdd) {
+                            showSnackbar({
+                                type: 'error',
+                                message: `Maximum ${availableToAdd} items reached. Cannot add more.`
+                            });
+                            processingRef.current = false;
+                            return;
+                        }
+                    }
+
+                    setImeis(prev => [...prev, imei]);
+                    showSnackbar({ type: 'success', message: `✓ Added: ${imei}` });
 
                     try { await qr.stop(); } catch (_) {}
                     await launchScanner();
@@ -104,7 +153,7 @@ export default function ProductModal({ open, onClose, product }) {
             html5QrRef.current = null;
             setScanning(false);
         }
-    }, []);
+    }, [purchaseInfo, product]);
 
     const startScanner = useCallback(() => {
         setScanning(true);
@@ -116,7 +165,7 @@ export default function ProductModal({ open, onClose, product }) {
         setScanning(false);
     }, [destroyScanner]);
 
-    // ── fetch purchase info ───────────────────────────────────────────────────
+    // Fetch purchase info
     const fetchPurchaseInfo = useCallback(async (categoryId, sku) => {
         if (!categoryId || !sku) {
             setPurchaseInfo(null);
@@ -136,15 +185,12 @@ export default function ProductModal({ open, onClose, product }) {
                 const data = res.data.data;
                 setPurchaseInfo(data);
 
-                // Auto-fill buying price if available
                 if (data.unit_price && data.purchase_exists) {
                     const unitPrice = parseFloat(data.unit_price);
                     setAutoFilledBuyingPrice(unitPrice);
                     setIsAutoFilled(true);
 
-                    // Only auto-fill if buying price is empty or not manually changed
                     setForm(prev => {
-                        // If buying price is empty, auto-fill it
                         if (!prev.buying_price || prev.buying_price === '') {
                             return { ...prev, buying_price: unitPrice };
                         }
@@ -155,13 +201,11 @@ export default function ProductModal({ open, onClose, product }) {
                     setIsAutoFilled(false);
                 }
 
-                // Show purchase details by default if there's purchase history
                 if (data.purchases && data.purchases.length > 0) {
                     setShowPurchaseDetails(true);
                 }
             }
         } catch (err) {
-            // Don't show error for 404, just set purchase info to null
             if (err.response?.status !== 404) {
                 console.error('Failed to fetch purchase info:', err);
             }
@@ -173,7 +217,7 @@ export default function ProductModal({ open, onClose, product }) {
         }
     }, []);
 
-    // ── lifecycle ─────────────────────────────────────────────────────────────
+    // Lifecycle
     useEffect(() => {
         if (!open) return;
         (async () => {
@@ -196,7 +240,6 @@ export default function ProductModal({ open, onClose, product }) {
                 sku: product.sku || '',
                 buying_price: parseFloat(product.buying_price) || '',
                 cash_selling_price: parseFloat(product.cash_selling_price) || '',
-                loan_selling_price: parseFloat(product.loan_selling_price) || '',
                 status: product.status || 'active',
             });
             setImeis([product.imei].filter(Boolean));
@@ -204,7 +247,6 @@ export default function ProductModal({ open, onClose, product }) {
             if (cat) {
                 setSelectedCategory(cat);
                 setAvailableSkus(cat.sku || []);
-                // Fetch purchase info for editing mode as well
                 fetchPurchaseInfo(product.category_id, product.sku);
             }
         } else {
@@ -213,7 +255,6 @@ export default function ProductModal({ open, onClose, product }) {
                 sku: '',
                 buying_price: '',
                 cash_selling_price: '',
-                loan_selling_price: '',
                 status: 'active'
             });
             setImeis([]);
@@ -224,13 +265,14 @@ export default function ProductModal({ open, onClose, product }) {
             setAutoFilledBuyingPrice(null);
             setIsAutoFilled(false);
             setShowPurchaseDetails(false);
+            setLoanPrices([]);
         }
         stopScanner();
     }, [product, categories, open, stopScanner, fetchPurchaseInfo]);
 
     useEffect(() => () => { destroyScanner(); }, [destroyScanner]);
 
-    // ── form handlers ─────────────────────────────────────────────────────────
+    // Form handlers
     const handleCategoryChange = (e) => {
         const catId = e.target.value;
         const cat = categories.find(c => c.category_id === catId);
@@ -242,11 +284,11 @@ export default function ProductModal({ open, onClose, product }) {
         setAutoFilledBuyingPrice(null);
         setIsAutoFilled(false);
         setShowPurchaseDetails(false);
+        setLoanPrices([]);
     };
 
     const handleSkuChange = (sku) => {
         setForm(prev => ({ ...prev, sku }));
-        // Fetch purchase info when SKU is selected
         if (form.category_id && sku) {
             fetchPurchaseInfo(form.category_id, sku);
         }
@@ -254,27 +296,38 @@ export default function ProductModal({ open, onClose, product }) {
 
     const handleChange = (e) => {
         const { name, value } = e.target;
-
-        // If user manually changes buying price, clear auto-fill flag
         if (name === 'buying_price') {
             setIsAutoFilled(false);
         }
-
         setForm(prev => ({ ...prev, [name]: value }));
     };
 
+    // ✅ FIXED: Manual add - only block if >= available
     const handleManualAdd = () => {
         const imei = manualImei.trim();
-        if (!imei) { showSnackbar({ type: 'error', message: 'Enter an IMEI first' }); return; }
-        if (imeis.includes(imei)) { showSnackbar({ type: 'warning', message: 'IMEI already in list' }); return; }
+        if (!imei) {
+            showSnackbar({ type: 'error', message: 'Enter an IMEI first' });
+            return;
+        }
+        if (imeis.includes(imei)) {
+            showSnackbar({ type: 'warning', message: 'IMEI already in list' });
+            return;
+        }
 
-        // Check if adding this IMEI would exceed available
         if (purchaseInfo && !product) {
             const availableToAdd = purchaseInfo.available_to_add || 0;
-            if (imeis.length >= availableToAdd && availableToAdd > 0) {
+            // ✅ Only block if we've already reached the limit (>=)
+            if (availableToAdd > 0 && imeis.length >= availableToAdd) {
                 showSnackbar({
                     type: 'error',
-                    message: `Cannot add more. Only ${availableToAdd} more items available from purchase.`
+                    message: `Maximum ${availableToAdd} items reached. Cannot add more.`
+                });
+                return;
+            }
+            if (availableToAdd === 0 && purchaseInfo.total_purchased > 0) {
+                showSnackbar({
+                    type: 'error',
+                    message: 'No items available from this purchase.'
                 });
                 return;
             }
@@ -291,50 +344,151 @@ export default function ProductModal({ open, onClose, product }) {
         showSnackbar({ type: 'info', message: 'All IMEIs cleared' });
     };
 
-    // ── submit ────────────────────────────────────────────────────────────────
+    // Loan price handlers
+    const handleAddLoanPrice = () => {
+        if (!selectedCompanyForPrice) {
+            showSnackbar({ type: 'error', message: 'Select a company' });
+            return;
+        }
+        if (!companyPriceValue || parseFloat(companyPriceValue) <= 0) {
+            showSnackbar({ type: 'error', message: 'Enter a valid price' });
+            return;
+        }
+
+        if (loanPrices.some(lp => lp.company_id === selectedCompanyForPrice)) {
+            showSnackbar({ type: 'error', message: 'This company already has a price set' });
+            return;
+        }
+
+        const company = availableCompanies.find(c => c.id === selectedCompanyForPrice);
+
+        setLoanPrices(prev => [
+            ...prev,
+            {
+                company_id: selectedCompanyForPrice,
+                price: parseFloat(companyPriceValue)
+            }
+        ]);
+        setSelectedCompanyForPrice('');
+        setCompanyPriceValue('');
+        showSnackbar({ type: 'success', message: `Loan price added for ${company?.label || 'company'}` });
+    };
+
+    const handleRemoveLoanPrice = (companyId) => {
+        setLoanPrices(prev => prev.filter(lp => lp.company_id !== companyId));
+        showSnackbar({ type: 'info', message: 'Loan price removed' });
+    };
+
+    const getCompanyName = (companyId) => {
+        const company = availableCompanies.find(c => c.id === companyId);
+        return company ? company.label : companyId;
+    };
+
+    // ✅ FIXED: Check if we can add more IMEIs (only block if >= available)
+    const canAddMoreImeis = () => {
+        if (purchaseInfo && !product) {
+            const availableToAdd = purchaseInfo.available_to_add || 0;
+            // Can add more if we have LESS THAN available
+            if (availableToAdd > 0 && imeis.length < availableToAdd) {
+                return true;
+            }
+            // Cannot add if we've reached or exceeded the limit
+            if (availableToAdd > 0 && imeis.length >= availableToAdd) {
+                return false;
+            }
+            // If available is 0, cannot add
+            if (availableToAdd === 0 && purchaseInfo.total_purchased > 0) {
+                return false;
+            }
+            return true;
+        }
+        return true;
+    };
+
+    // ✅ FIXED: Check if we can submit (IMEI count >= 1 AND <= available)
+    const canSubmit = () => {
+        if (imeis.length === 0) return false;
+
+        if (purchaseInfo && !product) {
+            const availableToAdd = purchaseInfo.available_to_add || 0;
+
+            // If available is greater than 0, we need imeis.length <= available
+            if (availableToAdd > 0) {
+                return imeis.length > 0 && imeis.length <= availableToAdd;
+            }
+
+            // If available is 0, cannot submit (no items available)
+            if (availableToAdd === 0 && purchaseInfo.total_purchased > 0) {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    // ✅ FIXED: Submit handler
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (!form.category_id) { showSnackbar({ type: 'error', message: 'Select a category' }); return; }
-        if (!form.sku) { showSnackbar({ type: 'error', message: 'Select an SKU' }); return; }
-        if (imeis.length === 0) { showSnackbar({ type: 'error', message: 'Add at least one IMEI' }); return; }
-        if (Number(form.buying_price) <= 0) { showSnackbar({ type: 'error', message: 'Buying price must be > 0' }); return; }
+        if (!form.category_id) {
+            showSnackbar({ type: 'error', message: 'Select a category' });
+            return;
+        }
+        if (!form.sku) {
+            showSnackbar({ type: 'error', message: 'Select an SKU' });
+            return;
+        }
+        if (imeis.length === 0) {
+            showSnackbar({ type: 'error', message: 'Add at least one IMEI' });
+            return;
+        }
+        if (Number(form.buying_price) <= 0) {
+            showSnackbar({ type: 'error', message: 'Buying price must be > 0' });
+            return;
+        }
 
-        // Check if we have enough purchased items
+        // ✅ FIXED: Only block if imeis.length > available (exceeds limit)
         if (purchaseInfo && !product) {
             const availableToAdd = purchaseInfo.available_to_add || 0;
-            if (imeis.length > availableToAdd && availableToAdd > 0) {
+            if (availableToAdd > 0 && imeis.length > availableToAdd) {
                 showSnackbar({
                     type: 'error',
-                    message: `Cannot add ${imeis.length} products. Only ${availableToAdd} more items available from purchase (${purchaseInfo.current_count} already added of ${purchaseInfo.total_purchased} purchased).`
+                    message: `Cannot add ${imeis.length} products. Only ${availableToAdd} items available from purchase.`
+                });
+                return;
+            }
+            if (availableToAdd === 0 && purchaseInfo.total_purchased > 0) {
+                showSnackbar({
+                    type: 'error',
+                    message: 'No items available from this purchase. All items have been added.'
                 });
                 return;
             }
         }
 
+        if (loanPrices.length === 0) {
+            showSnackbar({ type: 'error', message: 'Please add at least one company loan price' });
+            return;
+        }
+
         setLoading(true);
         try {
+            const payload = {
+                category_id: form.category_id,
+                sku: form.sku,
+                buying_price: Number(form.buying_price),
+                cash_selling_price: Number(form.cash_selling_price) || null,
+                loan_selling_price: loanPrices,
+                status: form.status,
+            };
+
             if (product) {
-                await update(product.product_id, {
-                    category_id: form.category_id,
-                    sku: form.sku,
-                    imei: imeis[0],
-                    buying_price: Number(form.buying_price),
-                    cash_selling_price: Number(form.cash_selling_price) || null,
-                    loan_selling_price: Number(form.loan_selling_price) || null,
-                    status: form.status,
-                });
+                payload.imei = imeis[0];
+                await update(product.product_id, payload);
                 showSnackbar({ type: 'success', message: 'Product updated' });
             } else {
-                await create({
-                    category_id: form.category_id,
-                    sku: form.sku,
-                    imeis: imeis.join('\n'),
-                    buying_price: Number(form.buying_price) || null,
-                    cash_selling_price: Number(form.cash_selling_price) || null,
-                    loan_selling_price: Number(form.loan_selling_price) || null,
-                    status: form.status,
-                });
+                payload.imeis = imeis.join('\n');
+                await create(payload);
                 showSnackbar({ type: 'success', message: `${imeis.length} product(s) created` });
             }
             onClose(true);
@@ -362,7 +516,6 @@ export default function ProductModal({ open, onClose, product }) {
 
                 <DialogContent>
                     <Box display="flex" flexDirection="column" gap={2} mt={1}>
-                        {/* Category */}
                         <FormControl fullWidth required disabled={loadingDropdowns} size="small">
                             <InputLabel>Category</InputLabel>
                             <Select
@@ -380,7 +533,6 @@ export default function ProductModal({ open, onClose, product }) {
                             </Select>
                         </FormControl>
 
-                        {/* SKU selection */}
                         {selectedCategory && availableSkus.length > 0 && (
                             <Box sx={{ p: 1, border: '1px solid #e0e0e0', borderRadius: 1 }}>
                                 <Typography variant="subtitle2" gutterBottom>Select SKU:</Typography>
@@ -399,10 +551,9 @@ export default function ProductModal({ open, onClose, product }) {
                             </Box>
                         )}
 
-                        {/* Purchase Info Alert */}
                         {purchaseInfo && purchaseInfo.purchase_exists && (
                             <Alert
-                                severity="info"
+                                severity={purchaseInfo.available_to_add === 0 ? 'error' : 'info'}
                                 icon={<InfoIcon />}
                                 action={
                                     <IconButton
@@ -418,7 +569,14 @@ export default function ProductModal({ open, onClose, product }) {
                                     <strong>Purchase Info:</strong> Unit Price: TSh {purchaseInfo.unit_price?.toLocaleString()} |
                                     Purchased: {purchaseInfo.total_purchased} |
                                     Added: {purchaseInfo.current_count} |
-                                    Available: <strong>{purchaseInfo.available_to_add}</strong>
+                                    Available: <strong style={{ color: purchaseInfo.available_to_add === 0 ? 'red' : 'green' }}>
+                                    {purchaseInfo.available_to_add}
+                                </strong>
+                                    {purchaseInfo.available_to_add === 0 && (
+                                        <span style={{ color: 'red', marginLeft: 8 }}>
+                                            ⚠️ No more items available
+                                        </span>
+                                    )}
                                 </Typography>
 
                                 <Collapse in={showPurchaseDetails}>
@@ -444,7 +602,6 @@ export default function ProductModal({ open, onClose, product }) {
                             </Alert>
                         )}
 
-                        {/* Buying Price with auto-fill indicator */}
                         <TextField
                             label="Buying Price (TSh)*"
                             name="buying_price"
@@ -482,49 +639,114 @@ export default function ProductModal({ open, onClose, product }) {
                             }}
                         />
 
-                        {/* Prices - responsive grid */}
-                        <Grid container spacing={2}>
-                            <Grid item xs={12} sm={6}>
+                        <TextField
+                            label="Cash Selling Price (TSh)"
+                            name="cash_selling_price"
+                            type="number"
+                            value={form.cash_selling_price}
+                            onChange={handleChange}
+                            fullWidth
+                            size="small"
+                            InputProps={{ startAdornment: <InputAdornment position="start">TSh</InputAdornment> }}
+                            inputProps={{ min: 0, step: 0.01 }}
+                            helperText="Leave blank if not applicable"
+                        />
+
+                        {/* Company Loan Prices */}
+                        <Box sx={{ mt: 1 }}>
+                            <Typography variant="subtitle2" gutterBottom>
+                                Company Loan Prices
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                                Set loan selling prices for specific companies
+                            </Typography>
+
+                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
+                                <FormControl size="small" sx={{ minWidth: 200, flex: 1 }}>
+                                    <InputLabel>Select Company</InputLabel>
+                                    <Select
+                                        value={selectedCompanyForPrice}
+                                        onChange={(e) => setSelectedCompanyForPrice(e.target.value)}
+                                        label="Select Company"
+                                    >
+                                        <MenuItem value="">Select a company</MenuItem>
+                                        {availableCompanies.map(company => (
+                                            <MenuItem key={company.id} value={company.id}>
+                                                {company.label}
+                                            </MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
                                 <TextField
-                                    label="Cash Selling Price (TSh)"
-                                    name="cash_selling_price"
-                                    type="number"
-                                    value={form.cash_selling_price}
-                                    onChange={handleChange}
-                                    fullWidth
                                     size="small"
-                                    InputProps={{ startAdornment: <InputAdornment position="start">TSh</InputAdornment> }}
-                                    inputProps={{ min: 0, step: 0.01 }}
-                                    helperText="Leave blank if not applicable"
-                                />
-                            </Grid>
-                            <Grid item xs={12} sm={6}>
-                                <TextField
-                                    label="Loan Selling Price (TSh)"
-                                    name="loan_selling_price"
+                                    label="Price (TSh)"
                                     type="number"
-                                    value={form.loan_selling_price}
-                                    onChange={handleChange}
-                                    fullWidth
-                                    size="small"
+                                    value={companyPriceValue}
+                                    onChange={(e) => setCompanyPriceValue(e.target.value)}
                                     InputProps={{ startAdornment: <InputAdornment position="start">TSh</InputAdornment> }}
+                                    sx={{ width: 150 }}
                                     inputProps={{ min: 0, step: 0.01 }}
-                                    helperText="Leave blank if not applicable"
                                 />
-                            </Grid>
-                        </Grid>
+                                <Button
+                                    variant="contained"
+                                    onClick={handleAddLoanPrice}
+                                    startIcon={<AddIcon />}
+                                    size="small"
+                                >
+                                    Add
+                                </Button>
+                            </Box>
+
+                            {loanPrices.length > 0 && (
+                                <TableContainer component={Paper} variant="outlined" sx={{ mt: 1 }}>
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                                                <TableCell sx={{ fontWeight: 600 }}>Company</TableCell>
+                                                <TableCell sx={{ fontWeight: 600 }} align="right">Price (TSh)</TableCell>
+                                                <TableCell sx={{ fontWeight: 600 }} align="right">Action</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {loanPrices.map((lp) => (
+                                                <TableRow key={lp.company_id}>
+                                                    <TableCell>{getCompanyName(lp.company_id)}</TableCell>
+                                                    <TableCell align="right">
+                                                        {parseFloat(lp.price).toLocaleString()}
+                                                    </TableCell>
+                                                    <TableCell align="right">
+                                                        <IconButton
+                                                            size="small"
+                                                            color="error"
+                                                            onClick={() => handleRemoveLoanPrice(lp.company_id)}
+                                                        >
+                                                            <DeleteIcon fontSize="small" />
+                                                        </IconButton>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                            )}
+                        </Box>
 
                         {/* IMEI entry */}
-                        <Typography variant="subtitle2">
+                        <Typography variant="subtitle2" sx={{ mt: 1 }}>
                             IMEIs — {imeis.length} added
+                            {purchaseInfo && purchaseInfo.purchase_exists && !product && (
+                                <Typography component="span" variant="caption" sx={{ ml: 1 }}>
+                                    (Max: {purchaseInfo.available_to_add})
+                                </Typography>
+                            )}
+                            {!canAddMoreImeis() && purchaseInfo && purchaseInfo.available_to_add > 0 && (
+                                <Typography component="span" variant="caption" color="error" sx={{ ml: 1 }}>
+                                    ⚠️ Limit reached
+                                </Typography>
+                            )}
                             {scanning && (
                                 <Typography component="span" variant="caption" color="success.main" sx={{ ml: 1 }}>
                                     ● Scanner ready
-                                </Typography>
-                            )}
-                            {purchaseInfo && purchaseInfo.purchase_exists && !product && (
-                                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                                    (Max: {purchaseInfo.available_to_add})
                                 </Typography>
                             )}
                         </Typography>
@@ -537,20 +759,32 @@ export default function ProductModal({ open, onClose, product }) {
                                 onChange={e => setManualImei(e.target.value)}
                                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleManualAdd())}
                                 sx={{ flex: 1 }}
+                                disabled={!canAddMoreImeis()}
                             />
-                            <IconButton onClick={handleManualAdd} color="primary" title="Add IMEI">
+                            <IconButton
+                                onClick={handleManualAdd}
+                                color="primary"
+                                title="Add IMEI"
+                                disabled={!canAddMoreImeis()}
+                            >
                                 <AddIcon />
                             </IconButton>
                             <IconButton
                                 onClick={scanning ? stopScanner : startScanner}
                                 color={scanning ? 'error' : 'primary'}
                                 title={scanning ? 'Stop scanner' : 'Scan barcode'}
+                                disabled={!canAddMoreImeis()}
                             >
                                 {scanning ? <StopIcon /> : <ScanIcon />}
                             </IconButton>
                         </Box>
 
-                        {/* Camera viewfinder */}
+                        {!canAddMoreImeis() && purchaseInfo && purchaseInfo.available_to_add > 0 && (
+                            <Alert severity="warning" sx={{ mt: 1 }}>
+                                You have reached the maximum number of IMEIs ({purchaseInfo.available_to_add}) available from this purchase.
+                            </Alert>
+                        )}
+
                         {scanning && (
                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                                 <div id={SCANNER_ID} style={{ width: '100%', maxWidth: 340 }} />
@@ -560,7 +794,6 @@ export default function ProductModal({ open, onClose, product }) {
                             </Box>
                         )}
 
-                        {/* IMEI table - responsive overflow */}
                         {imeis.length > 0 && (
                             <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
                                 <Table size="small">
@@ -594,7 +827,6 @@ export default function ProductModal({ open, onClose, product }) {
                             </TableContainer>
                         )}
 
-                        {/* Status */}
                         <FormControl fullWidth size="small">
                             <InputLabel>Status</InputLabel>
                             <Select name="status" value={form.status} label="Status" onChange={handleChange}>
@@ -609,7 +841,11 @@ export default function ProductModal({ open, onClose, product }) {
 
                 <DialogActions sx={{ p: { xs: 2, sm: 3 } }}>
                     <Button onClick={() => onClose(false)} disabled={loading}>Cancel</Button>
-                    <Button type="submit" variant="contained" disabled={loading || loadingDropdowns || loadingPurchaseInfo}>
+                    <Button
+                        type="submit"
+                        variant="contained"
+                        disabled={loading || loadingDropdowns || loadingPurchaseInfo || !canSubmit()}
+                    >
                         {loading ? <CircularProgress size={24} /> : product ? 'Update' : `Create ${imeis.length} Product(s)`}
                     </Button>
                 </DialogActions>

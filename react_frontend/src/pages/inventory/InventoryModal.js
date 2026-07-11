@@ -5,7 +5,7 @@ import {
     TextField, Button, Box, CircularProgress,
     FormControl, InputLabel, Select, MenuItem,
     Autocomplete, Chip, useMediaQuery, useTheme,
-    Alert // Add this
+    Alert
 } from '@mui/material';
 import { showSnackbar } from 'utils/snackbar';
 import { useInventory } from '@/hooks/useInventory';
@@ -21,7 +21,7 @@ export default function InventoryModal({ open, onClose, inventory }) {
     const [warehouses, setWarehouses] = useState([]);
     const [products, setProducts] = useState([]);
     const [loadingOptions, setLoadingOptions] = useState(false);
-    const [errors, setErrors] = useState({}); // Add error state
+    const [errors, setErrors] = useState({});
     const [form, setForm] = useState({
         product_ids: [],
         warehouse_id: '',
@@ -77,7 +77,6 @@ export default function InventoryModal({ open, onClose, inventory }) {
     const handleChange = (e) => {
         const { name, value } = e.target;
         setForm(prev => ({ ...prev, [name]: value }));
-        // Clear error for this field
         if (errors[name]) {
             setErrors(prev => ({ ...prev, [name]: null }));
         }
@@ -119,7 +118,6 @@ export default function InventoryModal({ open, onClose, inventory }) {
             onClose(true);
         } catch (err) {
             const errorMessage = err.response?.data?.message || err.message || 'Operation failed';
-            // Handle validation errors from backend
             if (err.response?.data?.errors) {
                 setErrors(err.response.data.errors);
                 showSnackbar({ type: 'error', message: 'Please check the form for errors' });

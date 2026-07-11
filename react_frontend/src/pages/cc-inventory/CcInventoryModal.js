@@ -1,4 +1,4 @@
-// src/pages/cc-inventory/CcInventoryModal.js (already responsive)
+// src/pages/cc-inventory/CcInventoryModal.js
 import React, { useState, useEffect } from 'react';
 import {
     Dialog, DialogTitle, DialogContent, DialogActions,

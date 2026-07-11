@@ -49,7 +49,6 @@ import Search from '../../pages/search';
 import Gallery from '../../pages/gallery';
 import Invoice from '../../pages/invoice';
 import Calendar from '../../pages/calendar';
-// BreadCrumbs import removed
 
 import { useLayoutState } from "context/LayoutContext";
 import { getSidebarStructure } from '../Sidebar/SidebarStructure';
@@ -80,7 +79,6 @@ import PurchaseReport from "pages/reports/PurchaseReport";
 import StockReport from "pages/reports/StockReport";
 import Invoices from "pages/invoices/Invoices";
 import InvoiceDetail from "pages/invoices/InvoiceDetail";
-// ✅ Correct import (default)
 import AnalyticsDashboard from "pages/dashboard/AnalyticsDashboard";
 import AgentAnalyticsDashboard from "pages/dashboard/components/AgentAnalyticsDashboard";
 import BranchOwnerStockReport from "pages/reports/BranchOwnerStockReport";
@@ -88,6 +86,12 @@ import BranchOwnerAnalyticsDashboard from "pages/dashboard/components/BranchOwne
 
 // AgentsList
 import AgentsList from "pages/agents/AgentsList";
+
+// 👇 Companies List
+import CompanyList from "pages/companies/CompanyList";
+
+// 👇 Returns List - ADD THIS IMPORT
+import ReturnsList from "pages/returns/ReturnsList";
 
 import { usePermission } from 'hooks/usePermission';
 
@@ -114,7 +118,6 @@ function Layout() {
             })}
         >
           <div className={classes.fakeToolbar} />
-          {/* BreadCrumbs removed */}
           <Routes>
             <Route path="profile" element={<Profile />} />
 
@@ -163,7 +166,8 @@ function Layout() {
             <Route path="extra/invoice" element={<Invoice />} />
             <Route path="extra/calendar" element={<Calendar />} />
 
-            {/* User management */}
+            {/* Settings */}
+            <Route path="settings/companies" element={<CompanyList />} />
             <Route path="settings/users" element={<UsersList />} />
             <Route path="settings/agents" element={<AgentsList />} />
             <Route path="settings/permissions" element={<PermissionsList />} />
@@ -188,6 +192,9 @@ function Layout() {
 
             {/* Sales & Analytics */}
             <Route path="sales" element={<AgentSales />} />
+
+            {/* 👇 RETURNS ROUTE */}
+            <Route path="returns" element={<ReturnsList />} />
 
             {/* Invoices */}
             <Route path="invoices" element={<Invoices />} />

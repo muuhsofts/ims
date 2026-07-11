@@ -1,11 +1,12 @@
 // src/pages/inventory/InventoryList.js
 import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Card, CardContent, Divider, useMediaQuery, useTheme, Tooltip } from '@mui/material';
-import { Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon, Refresh as RefreshIcon, Search as SearchIcon, Warehouse as WarehouseIcon, Inventory as InventoryIcon, Person as PersonIcon, AttachMoney as CashIcon } from '@mui/icons-material';
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography, CircularProgress, Card, CardContent, Divider, useMediaQuery, useTheme, Tooltip, Collapse } from '@mui/material';
+import { Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon, Refresh as RefreshIcon, Search as SearchIcon, Warehouse as WarehouseIcon, Inventory as InventoryIcon, Person as PersonIcon, AttachMoney as CashIcon, Business as BusinessIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
 import { useInventory } from '@/hooks/useInventory';
 import InventoryModal from './InventoryModal';
+import api from 'services/api';
 
 const headCells = [
     { id: 'warehouse', label: 'Warehouse' },
@@ -31,81 +32,13 @@ const formatPrice = (price) => {
     return `TSh ${parseFloat(price).toLocaleString()}`;
 };
 
-// Card component for mobile/tablet view
-const InventoryCard = ({ inventory, canEdit, onEdit }) => {
-    return (
-        <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
-            <CardContent sx={{ p: 2 }}>
-                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                    <Box display="flex" alignItems="center" gap={1}>
-                        <WarehouseIcon fontSize="small" color="primary" />
-                        <Typography variant="subtitle1" fontWeight="bold">
-                            {inventory.warehouse?.name || '—'}
-                        </Typography>
-                    </Box>
-                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); onEdit(inventory); }}>
-                        <MoreVertIcon />
-                    </IconButton>
-                </Box>
-                <Divider sx={{ my: 1 }} />
-                <Box display="flex" alignItems="center" gap={1} mb={1}>
-                    <InventoryIcon fontSize="small" color="action" />
-                    <Typography variant="body2">
-                        <strong>Quantity:</strong> {inventory.quantity ?? 0}
-                    </Typography>
-                </Box>
-                <Typography variant="body2" fontWeight="bold" gutterBottom>
-                    Products ({inventory.products?.length || 0}):
-                </Typography>
-                <Box sx={{ maxHeight: 120, overflowY: 'auto', bgcolor: 'action.hover', borderRadius: 1, p: 1, mb: 1 }}>
-                    {inventory.products && inventory.products.length > 0 ? (
-                        inventory.products.map((p, idx) => (
-                            <Box key={p.product_id} sx={{ py: 0.25 }}>
-                                <Typography variant="caption" display="block" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                                    {getProductLabel(p)}
-                                </Typography>
-                                {/* Show prices as a separate line with Cash icon only */}
-                                {(p.cash_selling_price || p.loan_selling_price) && (
-                                    <Box display="flex" gap={2} sx={{ ml: 1, mt: 0.25 }}>
-                                        {p.cash_selling_price && (
-                                            <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                <CashIcon fontSize="inherit" sx={{ fontSize: '0.7rem' }} />
-                                                Cash: {formatPrice(p.cash_selling_price)}
-                                            </Typography>
-                                        )}
-                                        {p.loan_selling_price && (
-                                            <Typography variant="caption" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                Loan: {formatPrice(p.loan_selling_price)}
-                                            </Typography>
-                                        )}
-                                    </Box>
-                                )}
-                            </Box>
-                        ))
-                    ) : (
-                        <Typography variant="caption">No products</Typography>
-                    )}
-                </Box>
-                <Box display="flex" alignItems="center" gap={1} mb={1}>
-                    <PersonIcon fontSize="small" color="action" />
-                    <Typography variant="body2">
-                        <strong>Created By:</strong> {inventory.created_by_user?.name || '-'}
-                    </Typography>
-                </Box>
-                <Typography variant="caption" color="text.secondary" display="block">
-                    Created: {new Date(inventory.created_at).toLocaleString()}
-                </Typography>
-                <Divider sx={{ my: 1.5 }} />
-                <Box display="flex" justifyContent="flex-end" gap={1}>
-                    {canEdit && (
-                        <Button size="small" variant="outlined" startIcon={<EditIcon />} onClick={() => onEdit(inventory)}>
-                            Edit
-                        </Button>
-                    )}
-                </Box>
-            </CardContent>
-        </Card>
-    );
+// ✅ Get loan prices array from product
+const getLoanPricesArray = (product) => {
+    if (!product.loan_selling_price) return [];
+    const prices = typeof product.loan_selling_price === 'string'
+        ? JSON.parse(product.loan_selling_price)
+        : product.loan_selling_price;
+    return Array.isArray(prices) ? prices : [];
 };
 
 export default function InventoryList() {
@@ -133,6 +66,8 @@ export default function InventoryList() {
         message: '',
         action: null,
     });
+    // ✅ State for company names cache
+    const [companyNames, setCompanyNames] = useState({});
 
     const fetchInventory = useCallback(() => {
         if (!canView) return;
@@ -147,6 +82,53 @@ export default function InventoryList() {
     useEffect(() => {
         fetchInventory();
     }, [fetchInventory]);
+
+    // ✅ Fetch company names for all unique company IDs in loan prices
+    const fetchCompanyNames = useCallback(async (companyIds) => {
+        const uniqueIds = [...new Set(companyIds.filter(id => id && !companyNames[id]))];
+        if (uniqueIds.length === 0) return;
+
+        try {
+            const res = await api.get('/v18/companies/dropdown');
+            if (res.data?.success) {
+                const companies = res.data.data || [];
+                const nameMap = {};
+                companies.forEach(company => {
+                    nameMap[company.id] = company.label || company.company_name || company.id;
+                });
+                setCompanyNames(prev => ({ ...prev, ...nameMap }));
+            }
+        } catch (err) {
+            console.error('Failed to fetch company names:', err);
+        }
+    }, [companyNames]);
+
+    // ✅ Extract all company IDs from inventory products and fetch names
+    useEffect(() => {
+        if (!data || data.length === 0) return;
+
+        const allCompanyIds = [];
+        data.forEach(inventory => {
+            if (inventory.products && inventory.products.length > 0) {
+                inventory.products.forEach(product => {
+                    if (product.loan_selling_price) {
+                        const prices = typeof product.loan_selling_price === 'string'
+                            ? JSON.parse(product.loan_selling_price)
+                            : product.loan_selling_price;
+                        if (Array.isArray(prices)) {
+                            prices.forEach(p => {
+                                if (p.company_id) allCompanyIds.push(p.company_id);
+                            });
+                        }
+                    }
+                });
+            }
+        });
+
+        if (allCompanyIds.length > 0) {
+            fetchCompanyNames(allCompanyIds);
+        }
+    }, [data, fetchCompanyNames]);
 
     const handleMenuOpen = (event, inventory) => {
         setSelectedInventory(inventory);
@@ -186,11 +168,173 @@ export default function InventoryList() {
         setModalOpen(true);
     };
 
+    // ✅ Get company name from cache
+    const getCompanyName = (companyId) => {
+        return companyNames[companyId] || companyId;
+    };
+
+    // ✅ Get loan prices with company names
+    const getLoanPricesWithNames = (product) => {
+        const prices = getLoanPricesArray(product);
+        return prices.map(p => ({
+            ...p,
+            company_name: getCompanyName(p.company_id)
+        }));
+    };
+
     if (!canView) {
         return <Typography sx={{ p: 2 }}>You do not have permission to view inventory.</Typography>;
     }
 
     const inventories = Array.isArray(data) ? data : [];
+
+    // ✅ Product Chip with Loan Prices - using company names
+    const ProductChip = ({ product }) => {
+        const loanPrices = getLoanPricesWithNames(product);
+        const hasLoanPrices = loanPrices.length > 0;
+
+        return (
+            <Tooltip
+                title={
+                    <Box sx={{ p: 1, maxWidth: 300 }}>
+                        <Typography variant="caption" display="block" fontWeight="bold">
+                            {getProductLabel(product)}
+                        </Typography>
+                        {product.cash_selling_price && (
+                            <Typography variant="caption" display="block" color="success.main">
+                                Cash: {formatPrice(product.cash_selling_price)}
+                            </Typography>
+                        )}
+                        {hasLoanPrices && (
+                            <>
+                                <Typography variant="caption" display="block" fontWeight="bold" sx={{ mt: 0.5 }}>
+                                    Loan Prices:
+                                </Typography>
+                                {loanPrices.map((lp, idx) => (
+                                    <Typography key={idx} variant="caption" display="block" sx={{ fontSize: '0.7rem' }}>
+                                        • {lp.company_name}: {formatPrice(lp.price)}
+                                    </Typography>
+                                ))}
+                            </>
+                        )}
+                    </Box>
+                }
+                arrow
+            >
+                <Chip
+                    label={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <span>{getProductLabel(product)}</span>
+                            {hasLoanPrices && (
+                                <BusinessIcon fontSize="small" sx={{ fontSize: '0.7rem', color: 'primary.main' }} />
+                            )}
+                        </Box>
+                    }
+                    size="small"
+                    sx={{
+                        m: 0.3,
+                        maxWidth: '100%',
+                        height: 'auto',
+                        whiteSpace: 'normal',
+                        cursor: 'pointer',
+                        '& .MuiChip-label': {
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.5,
+                            flexWrap: 'wrap'
+                        }
+                    }}
+                />
+            </Tooltip>
+        );
+    };
+
+    // ✅ Card component for mobile/tablet view with company names
+    const InventoryCard = ({ inventory, canEdit, onEdit }) => {
+        const [expanded, setExpanded] = useState(false);
+
+        return (
+            <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
+                <CardContent sx={{ p: 2 }}>
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                        <Box display="flex" alignItems="center" gap={1}>
+                            <WarehouseIcon fontSize="small" color="primary" />
+                            <Typography variant="subtitle1" fontWeight="bold">
+                                {inventory.warehouse?.name || '—'}
+                            </Typography>
+                        </Box>
+                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); onEdit(inventory); }}>
+                            <MoreVertIcon />
+                        </IconButton>
+                    </Box>
+                    <Divider sx={{ my: 1 }} />
+                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                        <InventoryIcon fontSize="small" color="action" />
+                        <Typography variant="body2">
+                            <strong>Quantity:</strong> {inventory.quantity ?? 0}
+                        </Typography>
+                    </Box>
+                    <Typography variant="body2" fontWeight="bold" gutterBottom>
+                        Products ({inventory.products?.length || 0}):
+                    </Typography>
+                    <Box sx={{ maxHeight: expanded ? 'none' : 120, overflowY: 'auto', bgcolor: 'action.hover', borderRadius: 1, p: 1, mb: 1 }}>
+                        {inventory.products && inventory.products.length > 0 ? (
+                            inventory.products.map((p, idx) => {
+                                const loanPrices = getLoanPricesWithNames(p);
+                                return (
+                                    <Box key={p.product_id} sx={{ py: 0.25 }}>
+                                        <Typography variant="caption" display="block" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                                            {getProductLabel(p)}
+                                        </Typography>
+                                        {/* Show prices with loan prices and company names */}
+                                        <Box display="flex" gap={2} sx={{ ml: 1, mt: 0.25, flexWrap: 'wrap' }}>
+                                            {p.cash_selling_price && (
+                                                <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                    <CashIcon fontSize="inherit" sx={{ fontSize: '0.7rem' }} />
+                                                    Cash: {formatPrice(p.cash_selling_price)}
+                                                </Typography>
+                                            )}
+                                            {/* ✅ Company Loan Prices with company names */}
+                                            {loanPrices.map((lp, idx) => (
+                                                <Typography key={idx} variant="caption" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                    <BusinessIcon fontSize="inherit" sx={{ fontSize: '0.7rem' }} />
+                                                    {lp.company_name}: {formatPrice(lp.price)}
+                                                </Typography>
+                                            ))}
+                                        </Box>
+                                    </Box>
+                                );
+                            })
+                        ) : (
+                            <Typography variant="caption">No products</Typography>
+                        )}
+                    </Box>
+                    {inventory.products?.length > 3 && (
+                        <Button size="small" onClick={() => setExpanded(!expanded)} sx={{ mb: 1 }}>
+                            {expanded ? 'Show Less' : 'Show More'}
+                        </Button>
+                    )}
+                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                        <PersonIcon fontSize="small" color="action" />
+                        <Typography variant="body2">
+                            <strong>Created By:</strong> {inventory.created_by_user?.name || '-'}
+                        </Typography>
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                        Created: {new Date(inventory.created_at).toLocaleString()}
+                    </Typography>
+                    <Divider sx={{ my: 1.5 }} />
+                    <Box display="flex" justifyContent="flex-end" gap={1}>
+                        {canEdit && (
+                            <Button size="small" variant="outlined" startIcon={<EditIcon />} onClick={() => onEdit(inventory)}>
+                                Edit
+                            </Button>
+                        )}
+                    </Box>
+                </CardContent>
+            </Card>
+        );
+    };
 
     return (
         <Box sx={{ width: '100%', p: { xs: 1, sm: 2, md: 3 }, m: 0 }}>
@@ -247,48 +391,10 @@ export default function InventoryList() {
                                             <TableCell>{inv.warehouse?.name || '-'}</TableCell>
                                             <TableCell>
                                                 {inv.products && inv.products.length > 0 ? (
-                                                    <Box>
-                                                        {inv.products.map(p => {
-                                                            // Build price string for tooltip
-                                                            const priceParts = [];
-                                                            if (p.cash_selling_price) {
-                                                                priceParts.push(`Cash: ${formatPrice(p.cash_selling_price)}`);
-                                                            }
-                                                            if (p.loan_selling_price) {
-                                                                priceParts.push(`Loan: ${formatPrice(p.loan_selling_price)}`);
-                                                            }
-                                                            const priceStr = priceParts.length > 0 ? ` | ${priceParts.join(' | ')}` : '';
-
-                                                            return (
-                                                                <Tooltip
-                                                                    key={p.product_id}
-                                                                    title={
-                                                                        <Box>
-                                                                            <Typography variant="caption" display="block">
-                                                                                {getProductLabel(p)}
-                                                                            </Typography>
-                                                                            {p.cash_selling_price && (
-                                                                                <Typography variant="caption" display="block" color="success.main">
-                                                                                    Cash: {formatPrice(p.cash_selling_price)}
-                                                                                </Typography>
-                                                                            )}
-                                                                            {p.loan_selling_price && (
-                                                                                <Typography variant="caption" display="block" color="primary.main">
-                                                                                    Loan: {formatPrice(p.loan_selling_price)}
-                                                                                </Typography>
-                                                                            )}
-                                                                        </Box>
-                                                                    }
-                                                                    arrow
-                                                                >
-                                                                    <Chip
-                                                                        label={getProductLabel(p)}
-                                                                        size="small"
-                                                                        sx={{ m: 0.3, maxWidth: '100%', height: 'auto', whiteSpace: 'normal', cursor: 'pointer' }}
-                                                                    />
-                                                                </Tooltip>
-                                                            );
-                                                        })}
+                                                    <Box sx={{ display: 'flex', flexWrap: 'wrap' }}>
+                                                        {inv.products.map(p => (
+                                                            <ProductChip key={p.product_id} product={p} />
+                                                        ))}
                                                     </Box>
                                                 ) : (
                                                     <Typography variant="caption">No products</Typography>

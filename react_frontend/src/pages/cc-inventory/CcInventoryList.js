@@ -6,7 +6,7 @@ import {
     TableCell, TableContainer, TableHead, TablePagination, TableRow,
     TextField, Typography, CircularProgress, LinearProgress, Card, CardContent,
     Divider, useMediaQuery, useTheme, Tooltip, FormControl, InputLabel, Select,
-    Badge, Stack
+    Badge, Stack, Collapse
 } from '@mui/material';
 import {
     Add as AddIcon, MoreVert as MoreVertIcon, Edit as EditIcon,
@@ -14,7 +14,8 @@ import {
     Receipt as ReceiptIcon, Store as StoreIcon, Inventory as InventoryIcon,
     AttachMoney as CashIcon, Pending as PendingIcon, CheckCircle as CheckCircleIcon,
     Cancel as CancelIcon, Delete as DeleteIcon, Schedule as ScheduleIcon,
-    Warehouse as WarehouseIcon
+    Warehouse as WarehouseIcon, Business as BusinessIcon,
+    ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { showSnackbar } from 'utils/snackbar';
@@ -36,7 +37,7 @@ const formatPrice = (price) => {
     return `TSh ${parseFloat(price).toLocaleString()}`;
 };
 
-// Helper for product label - WITHOUT prices to avoid duplication
+// Helper for product label
 const getProductLabel = (product) => {
     const categoryName = product.category_name || product.category?.category_name || 'N/A';
     const model = product.category?.model || 'N/A';
@@ -45,157 +46,10 @@ const getProductLabel = (product) => {
     return `${categoryName} | ${model} | SKU: ${sku} | IMEI: ${imei}`;
 };
 
-// Get full product label with prices for tooltips
-const getFullProductLabel = (product) => {
-    const base = getProductLabel(product);
-    const prices = [];
-    if (product.cash_selling_price) prices.push(`Cash: ${formatPrice(product.cash_selling_price)}`);
-    if (product.loan_selling_price) prices.push(`Loan: ${formatPrice(product.loan_selling_price)}`);
-    return prices.length > 0 ? `${base} | ${prices.join(' | ')}` : base;
-};
-
-// Card component for mobile
-const InventoryCard = ({ inventory, canEdit, canConfirmReceipt, isOwnedByUser, onEdit, onConfirmReceipt, onViewProducts, onDelete }) => {
-    const getStatusChip = (status) => {
-        if (!status || status === 'pending') {
-            return <Chip label="Pending" size="small" color="warning" icon={<PendingIcon />} />;
-        }
-        if (status === 'arrived') {
-            return <Chip label="Arrived" size="small" color="success" icon={<CheckCircleIcon />} />;
-        }
-        if (status === 'rejected') {
-            return <Chip label="Rejected" size="small" color="error" icon={<CancelIcon />} />;
-        }
-        return <Chip label={status} size="small" />;
-    };
-
-    const canConfirm = canConfirmReceipt && inventory.cc_inventory_status === 'pending' && isOwnedByUser;
-    const isPending = inventory.cc_inventory_status === 'pending';
-    const isArrived = inventory.cc_inventory_status === 'arrived';
-    const isRejected = inventory.cc_inventory_status === 'rejected';
-
-    return (
-        <Card sx={{
-            mb: 2,
-            borderRadius: 2,
-            overflow: 'hidden',
-            textAlign: 'center',
-            borderLeft: isArrived ? '4px solid #4caf50' : isPending ? '4px solid #ff9800' : isRejected ? '4px solid #f44336' : 'none',
-            opacity: isRejected ? 0.7 : 1,
-        }}>
-            <CardContent sx={{ p: 2 }}>
-                {/* Header: Center Name + Status + Transfer ID */}
-                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                    <Box display="flex" alignItems="center" gap={1}>
-                        <StoreIcon fontSize="small" color="primary" />
-                        <Typography variant="subtitle1" fontWeight="bold">
-                            {inventory.collection_center?.cc_name || '—'}
-                        </Typography>
-                    </Box>
-                    <Box display="flex" alignItems="center" gap={1}>
-                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                            #{inventory.cc_inventory_id?.slice(0, 8)}
-                        </Typography>
-                        {getStatusChip(inventory.cc_inventory_status)}
-                    </Box>
-                </Box>
-                <Divider sx={{ my: 1 }} />
-
-                {/* Source Warehouse */}
-                <Box display="flex" justifyContent="center" alignItems="center" gap={1} mb={1}>
-                    <WarehouseIcon fontSize="small" color="action" />
-                    <Typography variant="body2">
-                        <strong>Source:</strong> {inventory.source_warehouse_id || 'Multiple Warehouses'}
-                    </Typography>
-                </Box>
-
-                {/* Transfer Date */}
-                <Box display="flex" justifyContent="center" alignItems="center" gap={1} mb={1}>
-                    <ScheduleIcon fontSize="small" color="action" />
-                    <Typography variant="body2">
-                        <strong>Transfer Date:</strong> {new Date(inventory.created_at).toLocaleString()}
-                    </Typography>
-                </Box>
-
-                {/* Quantity */}
-                <Box display="flex" justifyContent="center" alignItems="center" gap={1} mb={1}>
-                    <InventoryIcon fontSize="small" color="action" />
-                    <Typography variant="body2">
-                        <strong>Quantity:</strong> {inventory.quantity ?? 0}
-                    </Typography>
-                </Box>
-
-                {/* Products list with prices as separate line */}
-                <Typography variant="body2" fontWeight="bold" gutterBottom>
-                    Products ({inventory.products?.length || 0}):
-                </Typography>
-                <Box sx={{ maxHeight: 150, overflowY: 'auto', bgcolor: 'action.hover', borderRadius: 1, p: 1, mb: 1 }}>
-                    {inventory.products && inventory.products.length > 0 ? (
-                        inventory.products.map((p) => (
-                            <Box key={p.product_id} sx={{ py: 0.25, borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
-                                <Typography variant="caption" display="block" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                                    {getProductLabel(p)}
-                                </Typography>
-                                {(p.cash_selling_price || p.loan_selling_price) && (
-                                    <Box display="flex" gap={2} sx={{ ml: 1, mt: 0.25 }}>
-                                        {p.cash_selling_price && (
-                                            <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                <CashIcon fontSize="inherit" sx={{ fontSize: '0.7rem' }} />
-                                                Cash: {formatPrice(p.cash_selling_price)}
-                                            </Typography>
-                                        )}
-                                        {p.loan_selling_price && (
-                                            <Typography variant="caption" color="primary.main">
-                                                Loan: {formatPrice(p.loan_selling_price)}
-                                            </Typography>
-                                        )}
-                                    </Box>
-                                )}
-                            </Box>
-                        ))
-                    ) : (
-                        <Typography variant="caption" color="text.secondary">No products</Typography>
-                    )}
-                </Box>
-
-                <Divider sx={{ my: 1.5 }} />
-
-                {/* Action buttons */}
-                <Box display="flex" flexDirection="column" gap={1}>
-                    {inventory.products && inventory.products.length > 0 && (
-                        <Button fullWidth variant="outlined" startIcon={<ViewIcon />} onClick={() => onViewProducts(inventory.products)}>
-                            View All Products
-                        </Button>
-                    )}
-                    {canConfirm && (
-                        <Button fullWidth variant="contained" color="success" startIcon={<ReceiptIcon />} onClick={() => onConfirmReceipt(inventory)}>
-                            Confirm Receipt
-                        </Button>
-                    )}
-                    {isPending && canEdit && (
-                        <Button fullWidth variant="outlined" startIcon={<EditIcon />} onClick={() => onEdit(inventory)}>
-                            Edit Transfer
-                        </Button>
-                    )}
-                    {isPending && canEdit && (
-                        <Button fullWidth variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => onDelete(inventory)}>
-                            Reject Transfer
-                        </Button>
-                    )}
-                    {isArrived && (
-                        <Button fullWidth variant="outlined" color="info" startIcon={<CheckCircleIcon />} disabled>
-                            Confirmed
-                        </Button>
-                    )}
-                    {isRejected && (
-                        <Button fullWidth variant="outlined" color="error" startIcon={<CancelIcon />} disabled>
-                            Rejected
-                        </Button>
-                    )}
-                </Box>
-            </CardContent>
-        </Card>
-    );
+// ✅ Get loan prices from product (already has company_name from API)
+const getLoanPrices = (product) => {
+    if (!product.loan_prices) return [];
+    return Array.isArray(product.loan_prices) ? product.loan_prices : [];
 };
 
 export default function CcInventoryList() {
@@ -355,7 +209,6 @@ export default function CcInventoryList() {
         return <Typography sx={{ p: 2 }}>You do not have permission to view collection center inventories.</Typography>;
     }
 
-    // Filter out inventories with zero products
     const rawInventories = Array.isArray(data) ? data : [];
     const inventories = rawInventories.filter(inv => (inv.quantity ?? 0) > 0);
 
@@ -374,10 +227,211 @@ export default function CcInventoryList() {
         return <Chip label={status} size="small" />;
     };
 
+    // ✅ Product Chip with Loan Prices - using loan_prices from API
+    const ProductChip = ({ product }) => {
+        const loanPrices = getLoanPrices(product);
+        const hasLoanPrices = loanPrices.length > 0;
+
+        const tooltipContent = (
+            <Box sx={{ p: 1, maxWidth: 300 }}>
+                <Typography variant="caption" display="block" fontWeight="bold">
+                    {getProductLabel(product)}
+                </Typography>
+                {product.cash_selling_price && (
+                    <Typography variant="caption" display="block" color="success.main">
+                        Cash: {formatPrice(product.cash_selling_price)}
+                    </Typography>
+                )}
+                {hasLoanPrices && (
+                    <>
+                        <Typography variant="caption" display="block" fontWeight="bold" sx={{ mt: 0.5 }}>
+                            Loan Prices:
+                        </Typography>
+                        {loanPrices.map((lp, idx) => (
+                            <Typography key={idx} variant="caption" display="block" sx={{ fontSize: '0.7rem' }}>
+                                • {lp.company_name}: {formatPrice(lp.price)}
+                            </Typography>
+                        ))}
+                    </>
+                )}
+            </Box>
+        );
+
+        return (
+            <Tooltip title={tooltipContent} arrow>
+                <Chip
+                    label={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <span>{getProductLabel(product)}</span>
+                            {hasLoanPrices && (
+                                <BusinessIcon fontSize="small" sx={{ fontSize: '0.7rem', color: 'primary.main' }} />
+                            )}
+                        </Box>
+                    }
+                    size="small"
+                    sx={{
+                        m: 0.3,
+                        maxWidth: '100%',
+                        height: 'auto',
+                        whiteSpace: 'normal',
+                        cursor: 'pointer',
+                        '& .MuiChip-label': {
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.5,
+                            flexWrap: 'wrap'
+                        }
+                    }}
+                />
+            </Tooltip>
+        );
+    };
+
+    // Card component for mobile
+    const InventoryCard = ({ inventory, canEdit, canConfirmReceipt, isOwnedByUser, onEdit, onConfirmReceipt, onViewProducts, onDelete }) => {
+        const getStatusChip = (status) => {
+            if (!status || status === 'pending') {
+                return <Chip label="Pending" size="small" color="warning" icon={<PendingIcon />} />;
+            }
+            if (status === 'arrived') {
+                return <Chip label="Arrived" size="small" color="success" icon={<CheckCircleIcon />} />;
+            }
+            if (status === 'rejected') {
+                return <Chip label="Rejected" size="small" color="error" icon={<CancelIcon />} />;
+            }
+            return <Chip label={status} size="small" />;
+        };
+
+        const canConfirm = canConfirmReceipt && inventory.cc_inventory_status === 'pending' && isOwnedByUser;
+        const isPending = inventory.cc_inventory_status === 'pending';
+        const isArrived = inventory.cc_inventory_status === 'arrived';
+        const isRejected = inventory.cc_inventory_status === 'rejected';
+
+        return (
+            <Card sx={{
+                mb: 2,
+                borderRadius: 2,
+                overflow: 'hidden',
+                textAlign: 'center',
+                borderLeft: isArrived ? '4px solid #4caf50' : isPending ? '4px solid #ff9800' : isRejected ? '4px solid #f44336' : 'none',
+                opacity: isRejected ? 0.7 : 1,
+            }}>
+                <CardContent sx={{ p: 2 }}>
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                        <Box display="flex" alignItems="center" gap={1}>
+                            <StoreIcon fontSize="small" color="primary" />
+                            <Typography variant="subtitle1" fontWeight="bold">
+                                {inventory.collection_center?.cc_name || '—'}
+                            </Typography>
+                        </Box>
+                        <Box display="flex" alignItems="center" gap={1}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                                #{inventory.cc_inventory_id?.slice(0, 8)}
+                            </Typography>
+                            {getStatusChip(inventory.cc_inventory_status)}
+                        </Box>
+                    </Box>
+                    <Divider sx={{ my: 1 }} />
+
+                    <Box display="flex" justifyContent="center" alignItems="center" gap={1} mb={1}>
+                        <WarehouseIcon fontSize="small" color="action" />
+                        <Typography variant="body2">
+                            <strong>Source:</strong> {inventory.source_warehouse_id || 'Multiple Warehouses'}
+                        </Typography>
+                    </Box>
+
+                    <Box display="flex" justifyContent="center" alignItems="center" gap={1} mb={1}>
+                        <ScheduleIcon fontSize="small" color="action" />
+                        <Typography variant="body2">
+                            <strong>Transfer Date:</strong> {new Date(inventory.created_at).toLocaleString()}
+                        </Typography>
+                    </Box>
+
+                    <Box display="flex" justifyContent="center" alignItems="center" gap={1} mb={1}>
+                        <InventoryIcon fontSize="small" color="action" />
+                        <Typography variant="body2">
+                            <strong>Quantity:</strong> {inventory.quantity ?? 0}
+                        </Typography>
+                    </Box>
+
+                    <Typography variant="body2" fontWeight="bold" gutterBottom>
+                        Products ({inventory.products?.length || 0}):
+                    </Typography>
+                    <Box sx={{ maxHeight: 150, overflowY: 'auto', bgcolor: 'action.hover', borderRadius: 1, p: 1, mb: 1 }}>
+                        {inventory.products && inventory.products.length > 0 ? (
+                            inventory.products.map((p) => {
+                                const loanPrices = getLoanPrices(p);
+                                return (
+                                    <Box key={p.product_id} sx={{ py: 0.25, borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+                                        <Typography variant="caption" display="block" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                                            {getProductLabel(p)}
+                                        </Typography>
+                                        {(p.cash_selling_price || loanPrices.length > 0) && (
+                                            <Box display="flex" gap={2} sx={{ ml: 1, mt: 0.25, flexWrap: 'wrap' }}>
+                                                {p.cash_selling_price && (
+                                                    <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                        <CashIcon fontSize="inherit" sx={{ fontSize: '0.7rem' }} />
+                                                        Cash: {formatPrice(p.cash_selling_price)}
+                                                    </Typography>
+                                                )}
+                                                {loanPrices.map((lp, idx) => (
+                                                    <Typography key={idx} variant="caption" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                        <BusinessIcon fontSize="inherit" sx={{ fontSize: '0.7rem' }} />
+                                                        {lp.company_name}: {formatPrice(lp.price)}
+                                                    </Typography>
+                                                ))}
+                                            </Box>
+                                        )}
+                                    </Box>
+                                );
+                            })
+                        ) : (
+                            <Typography variant="caption" color="text.secondary">No products</Typography>
+                        )}
+                    </Box>
+
+                    <Divider sx={{ my: 1.5 }} />
+
+                    <Box display="flex" flexDirection="column" gap={1}>
+                        {inventory.products && inventory.products.length > 0 && (
+                            <Button fullWidth variant="outlined" startIcon={<ViewIcon />} onClick={() => onViewProducts(inventory.products)}>
+                                View All Products
+                            </Button>
+                        )}
+                        {canConfirm && (
+                            <Button fullWidth variant="contained" color="success" startIcon={<ReceiptIcon />} onClick={() => onConfirmReceipt(inventory)}>
+                                Confirm Receipt
+                            </Button>
+                        )}
+                        {isPending && canEdit && (
+                            <Button fullWidth variant="outlined" startIcon={<EditIcon />} onClick={() => onEdit(inventory)}>
+                                Edit Transfer
+                            </Button>
+                        )}
+                        {isPending && canEdit && (
+                            <Button fullWidth variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => onDelete(inventory)}>
+                                Reject Transfer
+                            </Button>
+                        )}
+                        {isArrived && (
+                            <Button fullWidth variant="outlined" color="info" startIcon={<CheckCircleIcon />} disabled>
+                                Confirmed
+                            </Button>
+                        )}
+                        {isRejected && (
+                            <Button fullWidth variant="outlined" color="error" startIcon={<CancelIcon />} disabled>
+                                Rejected
+                            </Button>
+                        )}
+                    </Box>
+                </CardContent>
+            </Card>
+        );
+    };
+
     return (
         <Box sx={{ width: '100%', p: { xs: 1, sm: 2, md: 3 }, m: 0 }}>
             <Paper sx={{ width: '100%', borderRadius: { xs: 1, sm: 2 }, overflow: 'hidden', boxShadow: 1 }}>
-                {/* Header & Filters - Stats removed */}
                 <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: 1, borderColor: 'divider' }}>
                     <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} gap={2} mb={2}>
                         <Typography variant="h5" sx={{ fontSize: { xs: '1.5rem', sm: '1.75rem' } }}>
@@ -419,7 +473,6 @@ export default function CcInventoryList() {
                     </Box>
                 </Box>
 
-                {/* Table or Card View */}
                 {showTableView ? (
                     <TableContainer sx={{ overflowX: 'auto' }}>
                         <Table sx={{ minWidth: 900 }}>
@@ -457,23 +510,7 @@ export default function CcInventoryList() {
                                                     {inv.products && inv.products.length > 0 ? (
                                                         <>
                                                             {inv.products.slice(0, 3).map((p) => (
-                                                                <Tooltip
-                                                                    key={p.product_id}
-                                                                    title={
-                                                                        <Box>
-                                                                            <Typography variant="caption" display="block">
-                                                                                {getFullProductLabel(p)}
-                                                                            </Typography>
-                                                                        </Box>
-                                                                    }
-                                                                    arrow
-                                                                >
-                                                                    <Chip
-                                                                        label={getProductLabel(p)}
-                                                                        size="small"
-                                                                        sx={{ m: 0.2, maxWidth: 150, height: 'auto', whiteSpace: 'normal', cursor: 'pointer' }}
-                                                                    />
-                                                                </Tooltip>
+                                                                <ProductChip key={p.product_id} product={p} />
                                                             ))}
                                                             {inv.products.length > 3 && (
                                                                 <Chip
@@ -536,7 +573,6 @@ export default function CcInventoryList() {
                     </Box>
                 )}
 
-                {/* Pagination */}
                 <Box sx={{ borderTop: 1, borderColor: 'divider', py: { xs: 1, sm: 0 } }}>
                     <TablePagination
                         rowsPerPageOptions={[5, 10, 25, 50]}
@@ -554,7 +590,6 @@ export default function CcInventoryList() {
                 </Box>
             </Paper>
 
-            {/* Action Menu */}
             <Menu anchorEl={actionMenu} open={Boolean(actionMenu)} onClose={handleMenuClose}>
                 {selectedInventory?.cc_inventory_status === 'pending' && canConfirmReceipt && isOwnedByUser(selectedInventory) && (
                     <MenuItem onClick={() => handleConfirmReceiptClick(selectedInventory)}>
@@ -641,36 +676,43 @@ export default function CcInventoryList() {
                                     <TableCell><strong>SKU</strong></TableCell>
                                     <TableCell><strong>IMEI</strong></TableCell>
                                     <TableCell><strong>Cash Price</strong></TableCell>
-                                    <TableCell><strong>Loan Price</strong></TableCell>
+                                    <TableCell><strong>Loan Prices</strong></TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
-                                {selectedProducts.map((p) => (
-                                    <TableRow key={p.product_id}>
-                                        <TableCell>
-                                            {p.category_name || p.category?.category_name || 'N/A'}<br />
-                                            <Typography variant="caption" color="textSecondary">
-                                                {p.category?.model || 'N/A'}
-                                            </Typography>
-                                        </TableCell>
-                                        <TableCell>{p.sku || 'N/A'}</TableCell>
-                                        <TableCell><code style={{ fontSize: '0.75rem' }}>{p.imei}</code></TableCell>
-                                        <TableCell>
-                                            {p.cash_selling_price ? (
-                                                <Typography color="success.main" variant="body2">
-                                                    {formatPrice(p.cash_selling_price)}
+                                {selectedProducts.map((p) => {
+                                    const loanPrices = getLoanPrices(p);
+                                    return (
+                                        <TableRow key={p.product_id}>
+                                            <TableCell>
+                                                {p.category_name || p.category?.category_name || 'N/A'}<br />
+                                                <Typography variant="caption" color="textSecondary">
+                                                    {p.category?.model || 'N/A'}
                                                 </Typography>
-                                            ) : '-'}
-                                        </TableCell>
-                                        <TableCell>
-                                            {p.loan_selling_price ? (
-                                                <Typography color="primary.main" variant="body2">
-                                                    {formatPrice(p.loan_selling_price)}
-                                                </Typography>
-                                            ) : '-'}
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
+                                            </TableCell>
+                                            <TableCell>{p.sku || 'N/A'}</TableCell>
+                                            <TableCell><code style={{ fontSize: '0.75rem' }}>{p.imei}</code></TableCell>
+                                            <TableCell>
+                                                {p.cash_selling_price ? (
+                                                    <Typography color="success.main" variant="body2">
+                                                        {formatPrice(p.cash_selling_price)}
+                                                    </Typography>
+                                                ) : '-'}
+                                            </TableCell>
+                                            <TableCell>
+                                                {loanPrices.length > 0 ? (
+                                                    <Box>
+                                                        {loanPrices.map((lp, idx) => (
+                                                            <Typography key={idx} variant="caption" display="block" sx={{ fontSize: '0.7rem' }}>
+                                                                {lp.company_name}: {formatPrice(lp.price)}
+                                                            </Typography>
+                                                        ))}
+                                                    </Box>
+                                                ) : '-'}
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })}
                             </TableBody>
                         </Table>
                     )}
