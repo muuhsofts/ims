@@ -9,6 +9,7 @@ import {
     Grid,
     Card,
     CardContent,
+    Divider,
     Table,
     TableBody,
     TableCell,
@@ -18,15 +19,11 @@ import {
     Chip,
     TextField,
     InputAdornment,
-    ToggleButton,
-    ToggleButtonGroup,
     FormControl,
     InputLabel,
     Select,
     MenuItem,
     Alert,
-    Stack,
-    Collapse,
     IconButton,
     Tooltip,
     TablePagination,
@@ -34,37 +31,23 @@ import {
     ListItemIcon,
     ListItemText,
     LinearProgress,
+    Stack,
     useTheme,
-    alpha,
-    useMediaQuery,
-    Divider
+    useMediaQuery
 } from '@mui/material';
 import {
     Refresh as RefreshIcon,
     Search as SearchIcon,
-    AttachMoney as MoneyIcon,
     Inventory as InventoryIcon,
-    LocationOn as LocationIcon,
-    ExpandMore as ExpandMoreIcon,
-    ExpandLess as ExpandLessIcon,
-    CheckCircle as CheckCircleIcon,
-    Warning as WarningIcon,
-    Cancel as CancelIcon,
     FileDownload as FileDownloadIcon,
     TableChart as ExcelIcon,
     TextSnippet as CsvIcon,
-    Print as PrintIcon,
-    QrCode as SkuIcon,
-    Smartphone as ModelIcon,
-    Warehouse as WarehouseIcon,
-    TrendingUp as TrendingUpIcon,
-    TrendingDown as TrendingDownIcon,
-    FilterList as FilterIcon,
-    TableRows as TableRowsIcon,
     Clear as ClearIcon,
-    ProductionQuantityLimits as ProductIcon,
+    Warehouse as WarehouseIcon,
+    CheckCircle as CheckCircleIcon,
+    AttachMoney as MoneyIcon,
     ShoppingCart as ShoppingCartIcon,
-    Paid as PaidIcon
+    Business as CompanyIcon
 } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { useCurrentStock } from 'hooks/useSalesReport';
@@ -72,31 +55,11 @@ import { showSnackbar } from 'utils/snackbar';
 import * as XLSX from 'xlsx';
 import dayjs from 'dayjs';
 
-const formatNumber = (number) => number?.toLocaleString() || 0;
 const formatCurrency = (amount) => new Intl.NumberFormat('sw-TZ', { style: 'currency', currency: 'TZS', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount || 0);
 
-const getStockStatusIcon = (status) => {
-    switch (status) {
-        case 'in_stock': return <CheckCircleIcon sx={{ fontSize: 14 }} />;
-        case 'low_stock': return <WarningIcon sx={{ fontSize: 14 }} />;
-        case 'out_of_stock': return <CancelIcon sx={{ fontSize: 14 }} />;
-        case 'sold': return <CheckCircleIcon sx={{ fontSize: 14 }} />;
-        case 'transferred': return <InventoryIcon sx={{ fontSize: 14 }} />;
-        case 'received': return <CheckCircleIcon sx={{ fontSize: 14 }} />;
-        default: return <InventoryIcon sx={{ fontSize: 14 }} />;
-    }
-};
-
-const getStockStatusColor = (status) => {
-    switch (status) {
-        case 'in_stock': return 'success';
-        case 'low_stock': return 'warning';
-        case 'out_of_stock': return 'error';
-        case 'sold': return 'default';
-        case 'transferred': return 'info';
-        case 'received': return 'success';
-        default: return 'default';
-    }
+const formatLoanOptions = (loanPrices) => {
+    if (!loanPrices || loanPrices.length === 0) return '—';
+    return loanPrices.map(lp => `${lp.company_name}: ${formatCurrency(lp.price)}`).join('; ');
 };
 
 const getStockStatusLabel = (status) => {
@@ -111,27 +74,30 @@ const getStockStatusLabel = (status) => {
     return labels[status] || status;
 };
 
+const getStockStatusColor = (status) => {
+    switch (status) {
+        case 'in_stock': return 'success';
+        case 'low_stock': return 'warning';
+        case 'out_of_stock': return 'error';
+        case 'sold': return 'default';
+        case 'transferred': return 'info';
+        case 'received': return 'success';
+        default: return 'default';
+    }
+};
+
 export default function StockReport() {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-    const showTableView = useMediaQuery(theme.breakpoints.up('md'));
 
     const { hasPermission } = usePermission();
     const canView = hasPermission('reports.stock.view');
     const { data, loading, fetchData } = useCurrentStock();
     const [exportAnchorEl, setExportAnchorEl] = useState(null);
-    const [expandedCategories, setExpandedCategories] = useState({});
-    const [expandedWarehouses, setExpandedWarehouses] = useState({});
     const [warehouseFilter, setWarehouseFilter] = useState('all');
-    const [statusFilter, setStatusFilter] = useState('all');
-    const [viewMode, setViewMode] = useState('product');
     const [searchTerm, setSearchTerm] = useState('');
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(10);
-    const [sortBy, setSortBy] = useState('product');
-    const [sortOrder, setSortOrder] = useState('asc');
-    const [showFilters, setShowFilters] = useState(true);
-    const printRef = useRef();
 
     useEffect(() => {
         if (canView) fetchData();
@@ -159,22 +125,40 @@ export default function StockReport() {
         return Array.from(warehouses.values());
     };
 
-    const getWarehouseSummary = () => {
-        const warehouses = getUniqueWarehouses();
-        return warehouses.map(wh => {
-            const whProducts = (data?.all_products || []).filter(p => p.warehouse_id === wh.id);
-            const totalBuying = whProducts.reduce((sum, p) => sum + (p.buying_price * 1), 0);
-            const totalCash = whProducts.reduce((sum, p) => sum + (p.cash_selling_price * 1 || 0), 0);
-            const totalLoan = whProducts.reduce((sum, p) => sum + (p.loan_selling_price * 1 || 0), 0);
-            const totalProfitCash = totalCash - totalBuying;
-            const totalProfitLoan = totalLoan - totalBuying;
-            return { ...wh, productCount: whProducts.length, totalUnits: whProducts.length, totalBuying, totalCash, totalLoan, totalProfitCash, totalProfitLoan };
+    // Compute counts
+    const computeCounts = (products) => {
+        const total = products.length;
+        let inStock = 0;
+        products.forEach(p => {
+            if (p.stock_status === 'in_stock') inStock++;
         });
+        return { total, inStock };
+    };
+
+    // Compute financial summary
+    const computeFinancialSummary = (products) => {
+        let totalBuyingPrice = 0;
+        let totalCashPrice = 0;
+        const loanByCompany = {};
+
+        products.forEach(p => {
+            totalBuyingPrice += p.buying_price || 0;
+            totalCashPrice += p.cash_selling_price || 0;
+
+            if (p.loan_prices && Array.isArray(p.loan_prices)) {
+                p.loan_prices.forEach(lp => {
+                    const name = lp.company_name || 'Unknown';
+                    loanByCompany[name] = (loanByCompany[name] || 0) + (lp.price || 0);
+                });
+            }
+        });
+
+        return { totalBuyingPrice, totalCashPrice, loanByCompany };
     };
 
     const getExportData = () => {
         if (!data?.all_products) return [];
-        const filteredProducts = filterProductsByWarehouseAndStatusAndSearch(data.all_products);
+        const filteredProducts = filterProducts(data.all_products);
         return filteredProducts.map(product => ({
             'Warehouse': product.warehouse_name || 'Unknown',
             'Location': product.warehouse_location || 'Unknown',
@@ -185,9 +169,7 @@ export default function StockReport() {
             'Stock Status': getStockStatusLabel(product.stock_status),
             'Buying Price': formatCurrency(product.buying_price),
             'Cash Selling Price': formatCurrency(product.cash_selling_price),
-            'Loan Selling Price': formatCurrency(product.loan_selling_price),
-            'Cash Profit': formatCurrency((product.cash_selling_price || 0) - product.buying_price),
-            'Loan Profit': formatCurrency((product.loan_selling_price || 0) - product.buying_price)
+            'Loan Options': formatLoanOptions(product.loan_prices)
         }));
     };
 
@@ -232,15 +214,12 @@ export default function StockReport() {
     const handleExportClick = (event) => setExportAnchorEl(event.currentTarget);
     const handleExportClose = () => setExportAnchorEl(null);
 
-    const toggleCategoryExpand = (categoryId) => setExpandedCategories(prev => ({ ...prev, [categoryId]: !prev[categoryId] }));
-    const toggleWarehouseExpand = (warehouseId) => setExpandedWarehouses(prev => ({ ...prev, [warehouseId]: !prev[warehouseId] }));
     const handleSearchChange = (event) => { setSearchTerm(event.target.value); setPage(0); };
     const clearSearch = () => { setSearchTerm(''); setPage(0); };
 
-    const filterProductsByWarehouseAndStatusAndSearch = (products) => {
-        let filtered = products;
+    const filterProducts = (products) => {
+        let filtered = products || [];
         if (warehouseFilter !== 'all') filtered = filtered.filter(p => p.warehouse_id === warehouseFilter);
-        if (statusFilter !== 'all') filtered = filtered.filter(p => p.stock_status === statusFilter);
         if (searchTerm.trim() !== '') {
             const term = searchTerm.toLowerCase();
             filtered = filtered.filter(p =>
@@ -255,117 +234,27 @@ export default function StockReport() {
         return filtered;
     };
 
-    const sortProducts = (products) => {
-        if (sortBy === 'product') {
-            return [...products].sort((a, b) => {
-                const comp = (a.category_name || '').localeCompare(b.category_name || '');
-                return sortOrder === 'asc' ? comp : -comp;
-            });
-        } else if (sortBy === 'cash_price') {
-            return [...products].sort((a, b) => {
-                const comp = (a.cash_selling_price || 0) - (b.cash_selling_price || 0);
-                return sortOrder === 'asc' ? comp : -comp;
-            });
-        } else if (sortBy === 'loan_price') {
-            return [...products].sort((a, b) => {
-                const comp = (a.loan_selling_price || 0) - (b.loan_selling_price || 0);
-                return sortOrder === 'asc' ? comp : -comp;
-            });
-        } else if (sortBy === 'cash_profit') {
-            return [...products].sort((a, b) => {
-                const profitA = (a.cash_selling_price || 0) - a.buying_price;
-                const profitB = (b.cash_selling_price || 0) - b.buying_price;
-                return sortOrder === 'asc' ? profitA - profitB : profitB - profitA;
-            });
-        } else if (sortBy === 'loan_profit') {
-            return [...products].sort((a, b) => {
-                const profitA = (a.loan_selling_price || 0) - a.buying_price;
-                const profitB = (b.loan_selling_price || 0) - b.buying_price;
-                return sortOrder === 'asc' ? profitA - profitB : profitB - profitA;
-            });
-        }
-        return products;
-    };
-
     if (!canView) {
         return <Box sx={{ p: 2 }}><Alert severity="error">You do not have permission to view stock reports.</Alert></Box>;
     }
 
-    const summaryData = data?.summary || { total_unique_products: 0, total_units: 0, total_value: 0, average_unit_price: 0 };
-    const stockByCategory = data?.stock_by_category || [];
     const allProducts = data?.all_products || [];
     const warehouses = getUniqueWarehouses();
-    const warehouseSummary = getWarehouseSummary();
+    const filteredProducts = filterProducts(allProducts);
+    const paginatedProducts = filteredProducts.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+    const counts = computeCounts(filteredProducts);
+    const financialSummary = computeFinancialSummary(filteredProducts);
 
-    const filteredProducts = filterProductsByWarehouseAndStatusAndSearch(allProducts);
-    const sortedFilteredProducts = sortProducts(filteredProducts);
-    const totalBuying = filteredProducts.reduce((sum, p) => sum + (p.buying_price * 1), 0);
-    const totalCash = filteredProducts.reduce((sum, p) => sum + (p.cash_selling_price * 1 || 0), 0);
-    const totalLoan = filteredProducts.reduce((sum, p) => sum + (p.loan_selling_price * 1 || 0), 0);
-    const totalProfitCash = totalCash - totalBuying;
-    const totalProfitLoan = totalLoan - totalBuying;
-    const profitCashPercentage = totalBuying > 0 ? (totalProfitCash / totalBuying) * 100 : 0;
-    const profitLoanPercentage = totalBuying > 0 ? (totalProfitLoan / totalBuying) * 100 : 0;
-    const paginatedProducts = sortedFilteredProducts.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-
-    // Card component for mobile List View
-    const ProductCard = ({ product }) => {
-        const cashProfit = (product.cash_selling_price || 0) - product.buying_price;
-        const loanProfit = (product.loan_selling_price || 0) - product.buying_price;
-        return (
-            <Card sx={{ mb: 2, borderRadius: 2 }}>
-                <CardContent sx={{ p: 2 }}>
-                    <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
-                        <Box>
-                            <Typography variant="subtitle1" fontWeight="bold">{product.category_name}</Typography>
-                            <Typography variant="caption" color="text.secondary">{product.model} | {product.sku}</Typography>
-                        </Box>
-                        <Chip
-                            icon={getStockStatusIcon(product.stock_status)}
-                            label={getStockStatusLabel(product.stock_status)}
-                            size="small"
-                            color={getStockStatusColor(product.stock_status)}
-                        />
-                    </Box>
-                    <Divider sx={{ my: 1 }} />
-                    <Grid container spacing={1}>
-                        <Grid item xs={6}>
-                            <Typography variant="caption" color="text.secondary">Warehouse</Typography>
-                            <Typography variant="body2">{product.warehouse_name}</Typography>
-                        </Grid>
-                        <Grid item xs={6}>
-                            <Typography variant="caption" color="text.secondary">Location</Typography>
-                            <Typography variant="body2">{product.warehouse_location || 'N/A'}</Typography>
-                        </Grid>
-                        <Grid item xs={12}>
-                            <Typography variant="caption" color="text.secondary">IMEI</Typography>
-                            <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{product.imei}</Typography>
-                        </Grid>
-                        <Grid item xs={12}>
-                            <Typography variant="caption" color="text.secondary">Buying Price</Typography>
-                            <Typography variant="body2" color="error.main">{formatCurrency(product.buying_price)}</Typography>
-                        </Grid>
-                        <Grid item xs={6}>
-                            <Typography variant="caption" color="text.secondary">Cash Price</Typography>
-                            <Typography variant="body2" color="success.main">{formatCurrency(product.cash_selling_price || 0)}</Typography>
-                            <Typography variant="caption" color="text.secondary">Profit: {formatCurrency(cashProfit)}</Typography>
-                        </Grid>
-                        <Grid item xs={6}>
-                            <Typography variant="caption" color="text.secondary">Loan Price</Typography>
-                            <Typography variant="body2" color="info.main">{formatCurrency(product.loan_selling_price || 0)}</Typography>
-                            <Typography variant="caption" color="text.secondary">Profit: {formatCurrency(loanProfit)}</Typography>
-                        </Grid>
-                    </Grid>
-                </CardContent>
-            </Card>
-        );
-    };
+    const loanCompanyCards = Object.entries(financialSummary.loanByCompany).map(([company, total]) => ({
+        company,
+        total
+    }));
 
     return (
         <Box sx={{ p: { xs: 1, sm: 2 }, bgcolor: 'background.default', minHeight: '100vh' }}>
             <Paper sx={{ borderRadius: { xs: 1, sm: 2 }, overflow: 'hidden', bgcolor: 'background.paper' }}>
                 {/* Header */}
-                <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: 1, borderColor: 'divider' }} className="no-print">
+                <Box sx={{ p: { xs: 2, sm: 3 }, borderBottom: 1, borderColor: 'divider' }}>
                     <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
                         <Typography variant="h5" fontWeight="bold" sx={{ fontSize: { xs: '1.5rem', sm: '1.75rem' } }}>
                             <InventoryIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
@@ -393,154 +282,197 @@ export default function StockReport() {
                 {loading ? (
                     <Box sx={{ p: 5 }}><LinearProgress /><Typography sx={{ textAlign: 'center', mt: 2 }}>Loading stock data...</Typography></Box>
                 ) : data ? (
-                    <Box ref={printRef} sx={{ p: { xs: 2, sm: 3 } }}>
-                        <Typography variant="subtitle1" color="primary" gutterBottom>📊 Current Stock Snapshot - {dayjs().format('DD/MM/YYYY HH:mm:ss')}</Typography>
-
-                        {/* Summary Cards */}
+                    <Box sx={{ p: { xs: 2, sm: 3 } }}>
+                        {/* Combined Stock Summary Card */}
                         <Grid container spacing={2} sx={{ mb: 3 }}>
-                            <Grid item xs={6} sm={4} md={4}>
+                            <Grid item xs={12} sm={6} md={4}>
                                 <Card sx={{ bgcolor: 'background.paper', boxShadow: 1, borderRadius: 2 }}>
-                                    <CardContent sx={{ py: 1.5 }}><Box display="flex" justifyContent="space-between"><Box><Typography color="textSecondary" variant="caption">Unique Products</Typography><Typography variant="h5" fontWeight="bold">{summaryData.total_unique_products}</Typography></Box><InventoryIcon sx={{ fontSize: 32, color: 'primary.main', opacity: 0.7 }} /></Box></CardContent>
-                                </Card>
-                            </Grid>
-                            <Grid item xs={6} sm={4} md={4}>
-                                <Card sx={{ bgcolor: 'background.paper', boxShadow: 1, borderRadius: 2 }}>
-                                    <CardContent sx={{ py: 1.5 }}><Box display="flex" justifyContent="space-between"><Box><Typography color="textSecondary" variant="caption">Total Products</Typography><Typography variant="h5" fontWeight="bold">{summaryData.total_units}</Typography></Box><InventoryIcon sx={{ fontSize: 32, color: 'info.main', opacity: 0.7 }} /></Box></CardContent>
-                                </Card>
-                            </Grid>
-                            <Grid item xs={6} sm={4} md={4}>
-                                <Card sx={{ bgcolor: 'background.paper', boxShadow: 1, borderRadius: 2 }}>
-                                    <CardContent sx={{ py: 1.5 }}><Box display="flex" justifyContent="space-between"><Box><Typography color="textSecondary" variant="caption">Warehouses</Typography><Typography variant="h5" fontWeight="bold">{warehouses.length}</Typography></Box><WarehouseIcon sx={{ fontSize: 32, color: 'secondary.main', opacity: 0.7 }} /></Box></CardContent>
+                                    <CardContent>
+                                        <Box display="flex" justifyContent="space-around" alignItems="center">
+                                            <Box textAlign="center">
+                                                <Typography color="textSecondary" variant="caption">Total Stock</Typography>
+                                                <Typography variant="h5" fontWeight="bold">{counts.total}</Typography>
+                                            </Box>
+                                            <Divider orientation="vertical" flexItem sx={{ mx: 2 }} />
+                                            <Box textAlign="center">
+                                                <Typography color="textSecondary" variant="caption">In Stock</Typography>
+                                                <Typography variant="h5" fontWeight="bold" color="success.main">{counts.inStock}</Typography>
+                                            </Box>
+                                        </Box>
+                                    </CardContent>
                                 </Card>
                             </Grid>
                         </Grid>
 
-                        {/* Financial Summary with Cash & Loan */}
+                        {/* Financial Summary Cards */}
+                        <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 2 }}>💰 Financial Summary</Typography>
                         <Grid container spacing={2} sx={{ mb: 3 }}>
-                            <Grid item xs={12} md={4}>
-                                <Card sx={{ bgcolor: alpha(theme.palette.error.main, 0.1), borderLeft: 4, borderColor: 'error.main', borderRadius: 2 }}>
-                                    <CardContent><Box display="flex" justifyContent="space-between"><Box><Typography variant="caption" color="error.main">Total Buying Price</Typography><Typography variant="h5" fontWeight="bold">{formatCurrency(totalBuying)}</Typography></Box><ShoppingCartIcon sx={{ fontSize: 32, color: 'error.main', opacity: 0.7 }} /></Box></CardContent>
+                            <Grid item xs={12} sm={4}>
+                                <Card sx={{ bgcolor: '#f5f5f5', borderLeft: 4, borderColor: 'error.main', borderRadius: 2 }}>
+                                    <CardContent sx={{ py: 1.5 }}>
+                                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                                            <Box>
+                                                <Typography color="textSecondary" variant="caption">Total Buying Price</Typography>
+                                                <Typography variant="h5" fontWeight="bold" color="error.main">
+                                                    {formatCurrency(financialSummary.totalBuyingPrice)}
+                                                </Typography>
+                                            </Box>
+                                            <ShoppingCartIcon sx={{ fontSize: 28, color: 'error.main' }} />
+                                        </Box>
+                                    </CardContent>
                                 </Card>
                             </Grid>
-                            <Grid item xs={12} md={4}>
-                                <Card sx={{ bgcolor: alpha(theme.palette.success.main, 0.1), borderLeft: 4, borderColor: 'success.main', borderRadius: 2 }}>
-                                    <CardContent><Box display="flex" justifyContent="space-between"><Box><Typography variant="caption" color="success.main">Total Cash Selling Price</Typography><Typography variant="h5" fontWeight="bold">{formatCurrency(totalCash)}</Typography><Typography variant="caption">Profit: {formatCurrency(totalProfitCash)} ({profitCashPercentage.toFixed(2)}% margin)</Typography></Box><PaidIcon sx={{ fontSize: 32, color: 'success.main', opacity: 0.7 }} /></Box></CardContent>
+                            <Grid item xs={12} sm={4}>
+                                <Card sx={{ bgcolor: '#f5f5f5', borderLeft: 4, borderColor: 'success.main', borderRadius: 2 }}>
+                                    <CardContent sx={{ py: 1.5 }}>
+                                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                                            <Box>
+                                                <Typography color="textSecondary" variant="caption">Total Cash Selling Price</Typography>
+                                                <Typography variant="h5" fontWeight="bold" color="success.main">
+                                                    {formatCurrency(financialSummary.totalCashPrice)}
+                                                </Typography>
+                                            </Box>
+                                            <MoneyIcon sx={{ fontSize: 28, color: 'success.main' }} />
+                                        </Box>
+                                    </CardContent>
                                 </Card>
                             </Grid>
-                            <Grid item xs={12} md={4}>
-                                <Card sx={{ bgcolor: alpha(theme.palette.info.main, 0.1), borderLeft: 4, borderColor: 'info.main', borderRadius: 2 }}>
-                                    <CardContent><Box display="flex" justifyContent="space-between"><Box><Typography variant="caption" color="info.main">Total Loan Selling Price</Typography><Typography variant="h5" fontWeight="bold">{formatCurrency(totalLoan)}</Typography><Typography variant="caption">Profit: {formatCurrency(totalProfitLoan)} ({profitLoanPercentage.toFixed(2)}% margin)</Typography></Box><PaidIcon sx={{ fontSize: 32, color: 'info.main', opacity: 0.7 }} /></Box></CardContent>
-                                </Card>
-                            </Grid>
+                            {loanCompanyCards.length > 0 && (
+                                <Grid item xs={12} sm={4}>
+                                    <Card sx={{ bgcolor: '#f5f5f5', borderLeft: 4, borderColor: 'info.main', borderRadius: 2 }}>
+                                        <CardContent sx={{ py: 1.5 }}>
+                                            <Box display="flex" justifyContent="space-between" alignItems="center">
+                                                <Box>
+                                                    <Typography color="textSecondary" variant="caption">Total Loan Price</Typography>
+                                                    <Stack spacing={0.5}>
+                                                        {loanCompanyCards.map((item, idx) => (
+                                                            <Typography key={idx} variant="body2" fontWeight="bold" color="info.dark">
+                                                                {item.company}: {formatCurrency(item.total)}
+                                                            </Typography>
+                                                        ))}
+                                                    </Stack>
+                                                </Box>
+                                                <CompanyIcon sx={{ fontSize: 28, color: 'info.main' }} />
+                                            </Box>
+                                        </CardContent>
+                                    </Card>
+                                </Grid>
+                            )}
                         </Grid>
 
-                        {/* Filters */}
-                        <Card sx={{ mb: 3 }}>
-                            <CardContent>
-                                <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                                    <Typography variant="subtitle1" fontWeight="bold"><FilterIcon /> Filters & Search</Typography>
-                                    <IconButton size="small" onClick={() => setShowFilters(!showFilters)}><ExpandMoreIcon sx={{ transform: showFilters ? 'rotate(180deg)' : 'none' }} /></IconButton>
-                                </Box>
-                                <Collapse in={showFilters}>
-                                    <Grid container spacing={2}>
-                                        <Grid item xs={12} md={3}>
-                                            <FormControl fullWidth size="small"><InputLabel>🏢 Warehouse</InputLabel><Select value={warehouseFilter} onChange={(e) => setWarehouseFilter(e.target.value)}><MenuItem value="all">All Warehouses</MenuItem>{warehouses.map(wh => <MenuItem key={wh.id} value={wh.id}><WarehouseIcon fontSize="small" /> {wh.name}</MenuItem>)}</Select></FormControl>
-                                        </Grid>
-                                        <Grid item xs={12} md={3}>
-                                            <FormControl fullWidth size="small"><InputLabel>📦 Stock Status</InputLabel><Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><MenuItem value="all">All Status</MenuItem><MenuItem value="in_stock">✅ In Stock</MenuItem><MenuItem value="sold">💰 Sold</MenuItem><MenuItem value="low_stock">⚠️ Low Stock</MenuItem><MenuItem value="out_of_stock">❌ Out of Stock</MenuItem><MenuItem value="transferred">🚚 Transferred</MenuItem><MenuItem value="received">📥 Received</MenuItem></Select></FormControl>
-                                        </Grid>
-                                        <Grid item xs={12} md={3}>
-                                            <TextField fullWidth size="small" placeholder="🔍 Search by IMEI, Product, Model, SKU..." value={searchTerm} onChange={handleSearchChange} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>, endAdornment: searchTerm && <IconButton size="small" onClick={clearSearch}><ClearIcon /></IconButton> }} />
-                                        </Grid>
-                                        <Grid item xs={12} md={3}>
-                                            <ToggleButtonGroup value={viewMode} exclusive onChange={(e, val) => val && setViewMode(val)} size="small" fullWidth>
-                                                <ToggleButton value="product"><ProductIcon sx={{ mr: 0.5 }} />Product</ToggleButton>
-                                                <ToggleButton value="warehouse"><WarehouseIcon sx={{ mr: 0.5 }} />Warehouse</ToggleButton>
-                                                <ToggleButton value="list"><TableRowsIcon sx={{ mr: 0.5 }} />List</ToggleButton>
-                                            </ToggleButtonGroup>
-                                        </Grid>
-                                    </Grid>
-                                    {viewMode === 'list' && (
-                                        <Box display="flex" justifyContent="flex-end" alignItems="center" gap={2} mt={2}>
-                                            <FormControl size="small" sx={{ minWidth: 120 }}><InputLabel>Sort By</InputLabel><Select value={sortBy} onChange={(e) => setSortBy(e.target.value)}><MenuItem value="product">📦 Product</MenuItem><MenuItem value="cash_price">💰 Cash Price</MenuItem><MenuItem value="loan_price">💰 Loan Price</MenuItem><MenuItem value="cash_profit">📈 Cash Profit</MenuItem><MenuItem value="loan_profit">📈 Loan Profit</MenuItem></Select></FormControl>
-                                            <Tooltip title={sortOrder === 'asc' ? 'Sort Ascending' : 'Sort Descending'}><IconButton size="small" onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}>{sortOrder === 'asc' ? <TrendingUpIcon /> : <TrendingDownIcon />}</IconButton></Tooltip>
-                                        </Box>
-                                    )}
-                                </Collapse>
-                            </CardContent>
-                        </Card>
-
-                        {searchTerm && <Alert severity="info" icon={<SearchIcon />} sx={{ mb: 2 }}>Found {filteredProducts.length} product(s) matching "{searchTerm}"</Alert>}
-
-                        {/* Product View (already collapsible cards, now show cash & loan) */}
-                        {viewMode === 'product' && stockByCategory.map((category, idx) => {
-                            let products = filterProductsByWarehouseAndStatusAndSearch(category.products || []);
-                            if (products.length === 0) return null;
-                            const isExpanded = expandedCategories[category.category_name];
-                            return (
-                                <Card key={idx} sx={{ mb: 2, overflow: 'hidden' }}>
-                                    <Box sx={{ p: 2, bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#f5f5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} onClick={() => toggleCategoryExpand(category.category_name)}>
-                                        <Box display="flex" alignItems="center" gap={2}><ProductIcon sx={{ color: 'primary.main' }} /><Box><Typography variant="h6" fontWeight="bold">{category.category_name}</Typography><Stack direction="row" spacing={1}>{category.model && <Chip icon={<ModelIcon />} label={category.model} size="small" variant="outlined" />}{category.sku && <Chip icon={<SkuIcon />} label={category.sku} size="small" variant="outlined" />}</Stack></Box></Box>
-                                        <Box textAlign="right"><Typography variant="body2" fontWeight="bold">{products.length} Products</Typography><Typography variant="caption">Cash: {formatCurrency(products.reduce((sum, p) => sum + (p.cash_selling_price || 0), 0))}</Typography></Box>
-                                        <IconButton size="small">{isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}</IconButton>
-                                    </Box>
-                                    <Collapse in={isExpanded}>
-                                        <Box sx={{ overflowX: 'auto' }}>
-                                            <Table size="small">
-                                                <TableHead><TableRow sx={{ bgcolor: '#e3f2fd' }}><TableCell><b>Warehouse</b></TableCell><TableCell><b>Location</b></TableCell><TableCell><b>IMEI</b></TableCell><TableCell><b>Status</b></TableCell><TableCell align="right"><b>Buying</b></TableCell><TableCell align="right"><b>Cash Price</b></TableCell><TableCell align="right"><b>Loan Price</b></TableCell><TableCell align="right"><b>Cash Profit</b></TableCell><TableCell align="right"><b>Loan Profit</b></TableCell></TableRow></TableHead>
-                                                <TableBody>{products.map((p, i) => (<TableRow key={i} hover><TableCell><Chip icon={<WarehouseIcon />} label={p.warehouse_name} size="small" variant="outlined" /></TableCell><TableCell><LocationIcon sx={{ fontSize: 14 }} /> {p.warehouse_location || 'N/A'}</TableCell><TableCell sx={{ fontFamily: 'monospace' }}>{p.imei}</TableCell><TableCell><Chip icon={getStockStatusIcon(p.stock_status)} label={getStockStatusLabel(p.stock_status)} size="small" color={getStockStatusColor(p.stock_status)} /></TableCell><TableCell align="right">{formatCurrency(p.buying_price)}</TableCell><TableCell align="right">{formatCurrency(p.cash_selling_price || 0)}</TableCell><TableCell align="right">{formatCurrency(p.loan_selling_price || 0)}</TableCell><TableCell align="right" sx={{ color: (p.cash_selling_price || 0) - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency((p.cash_selling_price || 0) - p.buying_price)}</TableCell><TableCell align="right" sx={{ color: (p.loan_selling_price || 0) - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency((p.loan_selling_price || 0) - p.buying_price)}</TableCell></TableRow>))}</TableBody>
-                                            </Table>
-                                        </Box>
-                                    </Collapse>
-                                </Card>
-                            );
-                        })}
-
-                        {/* Warehouse View */}
-                        {viewMode === 'warehouse' && warehouseSummary.map((wh, idx) => {
-                            let products = filterProductsByWarehouseAndStatusAndSearch(allProducts.filter(p => p.warehouse_id === wh.id));
-                            if (products.length === 0) return null;
-                            const isExpanded = expandedWarehouses[wh.name];
-                            return (
-                                <Card key={idx} sx={{ mb: 2, overflow: 'hidden' }}>
-                                    <Box sx={{ p: 2, bgcolor: theme.palette.mode === 'dark' ? 'action.hover' : '#f5f5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} onClick={() => toggleWarehouseExpand(wh.name)}>
-                                        <Box display="flex" alignItems="center" gap={2}><WarehouseIcon sx={{ color: 'primary.main' }} /><Box><Typography variant="h6" fontWeight="bold">{wh.name}</Typography><Typography variant="caption"><LocationIcon sx={{ fontSize: 12 }} /> {wh.location || 'N/A'}</Typography></Box></Box>
-                                        <Box textAlign="right"><Typography variant="body2" fontWeight="bold">{products.length} Products</Typography><Typography variant="caption">Cash: {formatCurrency(products.reduce((sum, p) => sum + (p.cash_selling_price || 0), 0))}</Typography></Box>
-                                        <IconButton size="small">{isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}</IconButton>
-                                    </Box>
-                                    <Collapse in={isExpanded}>
-                                        <Box sx={{ overflowX: 'auto' }}>
-                                            <Table size="small">
-                                                <TableHead><TableRow sx={{ bgcolor: '#e3f2fd' }}><TableCell><b>Product</b></TableCell><TableCell><b>Model</b></TableCell><TableCell><b>SKU</b></TableCell><TableCell><b>IMEI</b></TableCell><TableCell><b>Status</b></TableCell><TableCell align="right"><b>Buying</b></TableCell><TableCell align="right"><b>Cash</b></TableCell><TableCell align="right"><b>Loan</b></TableCell><TableCell align="right"><b>Cash Profit</b></TableCell><TableCell align="right"><b>Loan Profit</b></TableCell></TableRow></TableHead>
-                                                <TableBody>{products.map((p, i) => (<TableRow key={i} hover><TableCell>{p.category_name}</TableCell><TableCell>{p.model}</TableCell><TableCell><Chip label={p.sku} size="small" variant="outlined" /></TableCell><TableCell sx={{ fontFamily: 'monospace' }}>{p.imei}</TableCell><TableCell><Chip icon={getStockStatusIcon(p.stock_status)} label={getStockStatusLabel(p.stock_status)} size="small" color={getStockStatusColor(p.stock_status)} /></TableCell><TableCell align="right">{formatCurrency(p.buying_price)}</TableCell><TableCell align="right">{formatCurrency(p.cash_selling_price || 0)}</TableCell><TableCell align="right">{formatCurrency(p.loan_selling_price || 0)}</TableCell><TableCell align="right" sx={{ color: (p.cash_selling_price || 0) - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency((p.cash_selling_price || 0) - p.buying_price)}</TableCell><TableCell align="right" sx={{ color: (p.loan_selling_price || 0) - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency((p.loan_selling_price || 0) - p.buying_price)}</TableCell></TableRow>))}</TableBody>
-                                            </Table>
-                                        </Box>
-                                    </Collapse>
-                                </Card>
-                            );
-                        })}
-
-                        {/* List View - Responsive: Table on desktop, Cards on mobile */}
-                        {viewMode === 'list' && (
-                            <>
-                                {paginatedProducts.length === 0 ? <Alert severity="warning">No products found matching your criteria.</Alert> : (
-                                    showTableView ? (
-                                        <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
-                                            <Table size="small" sx={{ minWidth: 1600 }}>
-                                                <TableHead><TableRow sx={{ bgcolor: '#e3f2fd' }}><TableCell><b>Warehouse</b></TableCell><TableCell><b>Location</b></TableCell><TableCell><b>Product</b></TableCell><TableCell><b>Model</b></TableCell><TableCell><b>SKU</b></TableCell><TableCell><b>IMEI</b></TableCell><TableCell><b>Status</b></TableCell><TableCell align="right"><b>Buying</b></TableCell><TableCell align="right"><b>Cash Price</b></TableCell><TableCell align="right"><b>Loan Price</b></TableCell><TableCell align="right"><b>Cash Profit</b></TableCell><TableCell align="right"><b>Loan Profit</b></TableCell></TableRow></TableHead>
-                                                <TableBody>{paginatedProducts.map((p, i) => (<TableRow key={i} hover><TableCell sx={{ whiteSpace: 'nowrap' }}>{p.warehouse_name}</TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{p.warehouse_location || 'N/A'}</TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{p.category_name}</TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{p.model}</TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{p.sku}</TableCell><TableCell sx={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{p.imei}</TableCell><TableCell><Chip icon={getStockStatusIcon(p.stock_status)} label={getStockStatusLabel(p.stock_status)} size="small" color={getStockStatusColor(p.stock_status)} /></TableCell><TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatCurrency(p.buying_price)}</TableCell><TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatCurrency(p.cash_selling_price || 0)}</TableCell><TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatCurrency(p.loan_selling_price || 0)}</TableCell><TableCell align="right" sx={{ whiteSpace: 'nowrap', color: (p.cash_selling_price || 0) - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency((p.cash_selling_price || 0) - p.buying_price)}</TableCell><TableCell align="right" sx={{ whiteSpace: 'nowrap', color: (p.loan_selling_price || 0) - p.buying_price >= 0 ? 'success.main' : 'error.main' }}>{formatCurrency((p.loan_selling_price || 0) - p.buying_price)}</TableCell></TableRow>))}</TableBody>
-                                            </Table>
-                                        </TableContainer>
-                                    ) : (
-                                        <Box>{paginatedProducts.map((p, idx) => <ProductCard key={idx} product={p} />)}</Box>
+                        {/* Search & Warehouse Filter */}
+                        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2, mb: 3 }}>
+                            <TextField
+                                size="small"
+                                placeholder="🔍 Search by IMEI, Product, Model, SKU..."
+                                value={searchTerm}
+                                onChange={handleSearchChange}
+                                sx={{ flex: 1 }}
+                                InputProps={{
+                                    startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>,
+                                    endAdornment: searchTerm && (
+                                        <InputAdornment position="end">
+                                            <IconButton size="small" onClick={clearSearch}><ClearIcon /></IconButton>
+                                        </InputAdornment>
                                     )
-                                )}
-                                <TablePagination component="div" count={filteredProducts.length} page={page} onPageChange={(e, p) => setPage(p)} rowsPerPage={rowsPerPage} onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }} rowsPerPageOptions={[5, 10, 25, 50, 100]} sx={{ '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': { fontSize: { xs: '0.75rem', sm: '0.875rem' } } }} />
+                                }}
+                            />
+                            <FormControl size="small" sx={{ minWidth: 150 }}>
+                                <InputLabel>Warehouse</InputLabel>
+                                <Select value={warehouseFilter} onChange={(e) => setWarehouseFilter(e.target.value)}>
+                                    <MenuItem value="all">All Warehouses</MenuItem>
+                                    {warehouses.map(wh => (
+                                        <MenuItem key={wh.id} value={wh.id}>
+                                            <WarehouseIcon fontSize="small" sx={{ mr: 0.5 }} /> {wh.name}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        </Box>
+
+                        {searchTerm && (
+                            <Alert severity="info" icon={<SearchIcon />} sx={{ mb: 2 }}>
+                                Found {filteredProducts.length} product(s) matching "{searchTerm}"
+                            </Alert>
+                        )}
+
+                        {/* Table */}
+                        {filteredProducts.length === 0 ? (
+                            <Alert severity="warning">No products found matching your criteria.</Alert>
+                        ) : (
+                            <>
+                                <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
+                                    <Table size="small" sx={{ minWidth: 1300 }}>
+                                        <TableHead>
+                                            <TableRow sx={{ bgcolor: '#e3f2fd' }}>
+                                                <TableCell><b>Product</b></TableCell>
+                                                <TableCell><b>Model</b></TableCell>
+                                                <TableCell><b>SKU</b></TableCell>
+                                                <TableCell><b>IMEI</b></TableCell>
+                                                <TableCell><b>Warehouse</b></TableCell>
+                                                <TableCell><b>Location</b></TableCell>
+                                                <TableCell><b>Status</b></TableCell>
+                                                <TableCell align="right"><b>Buying</b></TableCell>
+                                                <TableCell align="right"><b>Cash</b></TableCell>
+                                                <TableCell><b>Loan Options</b></TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {paginatedProducts.map((p, i) => {
+                                                const loanOptions = p.loan_prices || [];
+                                                return (
+                                                    <TableRow key={i} hover>
+                                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{p.category_name || 'Unknown'}</TableCell>
+                                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{p.model || 'N/A'}</TableCell>
+                                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{p.sku || 'N/A'}</TableCell>
+                                                        <TableCell sx={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{p.imei || 'N/A'}</TableCell>
+                                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{p.warehouse_name || 'Unknown'}</TableCell>
+                                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{p.warehouse_location || 'N/A'}</TableCell>
+                                                        <TableCell>
+                                                            <Chip
+                                                                label={getStockStatusLabel(p.stock_status)}
+                                                                size="small"
+                                                                color={getStockStatusColor(p.stock_status)}
+                                                            />
+                                                        </TableCell>
+                                                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatCurrency(p.buying_price)}</TableCell>
+                                                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatCurrency(p.cash_selling_price || 0)}</TableCell>
+                                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                                            <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: '4px', overflowX: 'auto', maxWidth: '300px' }}>
+                                                                {loanOptions.map((lp, idx) => (
+                                                                    <Chip key={idx} label={`${lp.company_name}: ${formatCurrency(lp.price)}`} size="small" variant="outlined" />
+                                                                ))}
+                                                                {loanOptions.length === 0 && <Typography variant="caption">—</Typography>}
+                                                            </Box>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                );
+                                            })}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                                <TablePagination
+                                    component="div"
+                                    count={filteredProducts.length}
+                                    page={page}
+                                    onPageChange={(e, p) => setPage(p)}
+                                    rowsPerPage={rowsPerPage}
+                                    onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+                                    rowsPerPageOptions={[5, 10, 25, 50, 100]}
+                                    sx={{
+                                        '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
+                                            fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                                        }
+                                    }}
+                                />
                             </>
                         )}
                     </Box>
                 ) : (
-                    <Box sx={{ p: 5, textAlign: 'center' }}><InventoryIcon sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} /><Typography color="textSecondary">Click "Refresh" to load stock data</Typography></Box>
+                    <Box sx={{ p: 5, textAlign: 'center' }}>
+                        <InventoryIcon sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
+                        <Typography color="textSecondary">Click "Refresh" to load stock data</Typography>
+                    </Box>
                 )}
             </Paper>
         </Box>

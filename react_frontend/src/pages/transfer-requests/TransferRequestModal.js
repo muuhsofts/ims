@@ -23,7 +23,7 @@ export default function TransferRequestModal({ open, onClose }) {
     const [loadingCategories, setLoadingCategories] = useState(false);
 
     const [items, setItems] = useState([
-        { category_id: '', category_name: '', model: '', skus: [], description: '', quantity: 1 }
+        { category_id: '', category_name: '', model: '', skus: [], description: '', quantity: '' }
     ]);
     const [notes, setNotes] = useState('');
 
@@ -47,13 +47,13 @@ export default function TransferRequestModal({ open, onClose }) {
 
     useEffect(() => {
         if (open) {
-            setItems([{ category_id: '', category_name: '', model: '', skus: [], description: '', quantity: 1 }]);
+            setItems([{ category_id: '', category_name: '', model: '', skus: [], description: '', quantity: '' }]);
             setNotes('');
         }
     }, [open]);
 
     const addItem = () => {
-        setItems(prev => [...prev, { category_id: '', category_name: '', model: '', skus: [], description: '', quantity: 1 }]);
+        setItems(prev => [...prev, { category_id: '', category_name: '', model: '', skus: [], description: '', quantity: '' }]);
     };
 
     const removeItem = (index) => {
@@ -102,14 +102,31 @@ export default function TransferRequestModal({ open, onClose }) {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
+        // Filter out items without category and SKUs
         const validItems = items.filter(item => item.category_id && item.skus.length > 0);
+
         if (validItems.length === 0) {
             showSnackbar({ type: 'error', message: 'Add at least one item with a category and at least one SKU' });
             return;
         }
 
+        // Process quantities: if empty or invalid, set to 1
+        const processedItems = validItems.map(item => {
+            let quantity = item.quantity;
+            if (quantity === '' || quantity === null || quantity === undefined || isNaN(quantity) || quantity < 0) {
+                quantity = 1;
+            } else {
+                quantity = Number(quantity);
+                if (quantity < 0) quantity = 1;
+            }
+            return {
+                ...item,
+                quantity: quantity || 1
+            };
+        });
+
         const payload = {
-            requested_items: validItems.map(item => ({
+            requested_items: processedItems.map(item => ({
                 category_id: item.category_id,
                 category_name: item.category_name,
                 model: item.model || undefined,
@@ -191,14 +208,16 @@ export default function TransferRequestModal({ open, onClose }) {
                                             variant="outlined"
                                         />
 
+                                        {/* Quantity - fully flexible, no default */}
                                         <TextField
                                             label="Quantity"
                                             type="number"
                                             value={item.quantity}
-                                            onChange={(e) => handleItemChange(idx, 'quantity', parseInt(e.target.value) || 1)}
+                                            onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
                                             fullWidth
                                             size="small"
-                                            inputProps={{ min: 1 }}
+                                            inputProps={{ min: 0, step: 1 }}
+                                            helperText="Enter any number (0, 5, 200). Leave empty for default 1."
                                         />
 
                                         <Box>

@@ -57,7 +57,8 @@ import {
     FileDownload as FileDownloadIcon,
     TableChart as ExcelIcon,
     TextSnippet as CsvIcon,
-    AccountBalanceWallet as ProfitIcon
+    AccountBalanceWallet as ProfitIcon,
+    Business as CompanyIcon
 } from '@mui/icons-material';
 import { usePermission } from '@/hooks/usePermission';
 import { reportService } from 'services/report.service';
@@ -111,7 +112,6 @@ const getProductImei = (sale) => sale.product?.imei || 'N/A';
 const getProductColor = (sale) => sale.product?.color || 'N/A';
 const getProductBuyingPrice = (sale) => sale.product?.buying_price || 0;
 const getProductCashPrice = (sale) => sale.product?.cash_selling_price || 0;
-const getProductLoanPrice = (sale) => sale.product?.loan_selling_price || 0;
 const getCustomerName = (sale) => sale.customer?.customer_name || 'Walk-in Customer';
 const getCustomerPhone = (sale) => sale.customer?.msisdn || sale.customer?.customer_phone || 'N/A';
 const getAgentName = (sale) => sale.agent?.name || 'Unknown';
@@ -123,10 +123,26 @@ const getCollectionCenterInfo = (sale) => sale.collection_center ? {
     id: sale.collection_center.cc_id
 } : null;
 
+// ✅ get product loan options (from product table)
+const getProductLoanOptions = (sale) => {
+    if (sale.product?.loan_prices && Array.isArray(sale.product.loan_prices)) {
+        return sale.product.loan_prices;
+    }
+    return [];
+};
+
+// ✅ Get sale's company (if loan)
+const getSaleCompanyName = (sale) => sale.company_name || null;
+
 // Consistent price formatter
 const formatPrice = (value) => {
     if (value === null || value === undefined || isNaN(value)) return '—';
     return `TSh ${Number(value).toLocaleString()}`;
+};
+
+// Format loan options as a string for export
+const formatLoanOptionsString = (loanPrices) => {
+    return loanPrices.map(lp => `${lp.company_name}: ${formatPrice(lp.price)}`).join('; ');
 };
 
 export default function SalesReport() {
@@ -158,27 +174,31 @@ export default function SalesReport() {
 
     const [searchTerm, setSearchTerm] = useState('');
 
+    // ✅ Export data: Color column removed
     const getExportData = () => {
         const salesToExport = filteredSales.length > 0 ? filteredSales : (data?.sales || []);
-        return salesToExport.map(sale => ({
-            'Customer Name': getCustomerName(sale),
-            'Customer Phone': getCustomerPhone(sale),
-            'Product Name': getProductName(sale),
-            'Model': getProductModel(sale),
-            'SKU': getProductSku(sale),
-            'IMEI': getProductImei(sale),
-            'Color': getProductColor(sale),
-            'Buying Price (TSh)': parseFloat(getProductBuyingPrice(sale)).toLocaleString(),
-            'Cash Price (TSh)': parseFloat(getProductCashPrice(sale)).toLocaleString(),
-            'Loan Price (TSh)': parseFloat(getProductLoanPrice(sale)).toLocaleString(),
-            'Actual Sold Amount (TSh)': parseFloat(sale.total_amount).toLocaleString(),
-            'Payment Method': sale.payment_method,
-            'Agent': getAgentName(sale),
-            'Collection Center': getCollectionCenterName(sale),
-            'Collection Center Location': getCollectionCenterLocation(sale),
-            'Date': formatDate(sale.created_at),
-            'Status': sale.status
-        }));
+        return salesToExport.map(sale => {
+            const loanOptions = getProductLoanOptions(sale);
+            return {
+                'Customer Name': getCustomerName(sale),
+                'Customer Phone': getCustomerPhone(sale),
+                'Product Name': getProductName(sale),
+                'Model': getProductModel(sale),
+                'SKU': getProductSku(sale),
+                'IMEI': getProductImei(sale),
+                'Buying Price (TSh)': parseFloat(getProductBuyingPrice(sale)).toLocaleString(),
+                'Cash Price (TSh)': parseFloat(getProductCashPrice(sale)).toLocaleString(),
+                'Loan Options': formatLoanOptionsString(loanOptions),
+                'Selected Company': getSaleCompanyName(sale) || '—',
+                'Actual Sold Amount (TSh)': parseFloat(sale.total_amount).toLocaleString(),
+                'Payment Method': sale.payment_method,
+                'Agent': getAgentName(sale),
+                'Collection Center': getCollectionCenterName(sale),
+                'Collection Center Location': getCollectionCenterLocation(sale),
+                'Date': formatDate(sale.created_at),
+                'Status': sale.status
+            };
+        });
     };
 
     const exportToExcel = () => {
@@ -335,6 +355,7 @@ export default function SalesReport() {
             getCustomerPhone(sale).toLowerCase().includes(term) ||
             getAgentName(sale).toLowerCase().includes(term) ||
             getCollectionCenterName(sale).toLowerCase().includes(term) ||
+            getSaleCompanyName(sale)?.toLowerCase().includes(term) ||
             sale.payment_method?.toLowerCase().includes(term) ||
             getProductName(sale).toLowerCase().includes(term) ||
             getProductImei(sale).includes(term)
@@ -363,13 +384,15 @@ export default function SalesReport() {
     const currentYear = new Date().getFullYear();
     const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
-    // Card component for mobile/tablet (simplified without expandable details)
+    // Card component for mobile/tablet (loan options horizontally scrollable)
     const SaleCard = ({ sale }) => {
         const productName = getProductName(sale);
         const productModel = getProductModel(sale);
         const productSku = getProductSku(sale);
         const productImei = getProductImei(sale);
         const collectionCenter = getCollectionCenterInfo(sale);
+        const companyName = getSaleCompanyName(sale);
+        const loanOptions = getProductLoanOptions(sale);
 
         return (
             <Card sx={{ mb: 2, borderRadius: 2, overflow: 'hidden' }}>
@@ -429,10 +452,23 @@ export default function SalesReport() {
                             <Typography variant="body2" color="success.main">{formatPrice(getProductCashPrice(sale))}</Typography>
                         </Grid>
                         <Grid item xs={4}>
-                            <Typography variant="caption" color="text.secondary">Loan</Typography>
-                            <Typography variant="body2" color="info.main">{formatPrice(getProductLoanPrice(sale))}</Typography>
+                            <Typography variant="caption" color="text.secondary">Loan Options</Typography>
+                            {/* Horizontal scroll container for loan options */}
+                            <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: '4px', overflowX: 'auto', maxWidth: '200px' }}>
+                                {loanOptions.map((lp, idx) => (
+                                    <Chip key={idx} label={`${lp.company_name}: ${formatPrice(lp.price)}`} size="small" variant="outlined" />
+                                ))}
+                                {loanOptions.length === 0 && <Typography variant="body2">—</Typography>}
+                            </Box>
                         </Grid>
                     </Grid>
+
+                    {companyName && (
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                            <Typography variant="caption" color="text.secondary">Selected Company</Typography>
+                            <Typography variant="body2">{companyName}</Typography>
+                        </Box>
+                    )}
 
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
                         <Typography variant="caption" color="text.secondary">Agent</Typography>
@@ -737,7 +773,7 @@ export default function SalesReport() {
 
                             {/* Search */}
                             <TextField
-                                placeholder="🔍 Search by customer, phone, agent, collection center, product, IMEI, or payment method..."
+                                placeholder="🔍 Search by customer, phone, agent, collection center, company, product, IMEI, or payment method..."
                                 size="small"
                                 fullWidth
                                 value={searchTerm}
@@ -773,9 +809,9 @@ export default function SalesReport() {
                                     </Box>
 
                                     {showTableView ? (
-                                        // Desktop Table View - horizontally scrollable, no expandable rows
+                                        // Desktop Table View – Loan Options horizontally scrollable
                                         <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
-                                            <Table size="small" sx={{ minWidth: 2000 }}>
+                                            <Table size="small" sx={{ minWidth: 2200 }}>
                                                 <TableHead>
                                                     <TableRow sx={{ bgcolor: 'action.hover' }}>
                                                         <TableCell width={180}><b>Customer</b></TableCell>
@@ -785,9 +821,10 @@ export default function SalesReport() {
                                                         <TableCell width={150}><b>IMEI</b></TableCell>
                                                         <TableCell width={120} align="right"><b>Buying Price</b></TableCell>
                                                         <TableCell width={120} align="right"><b>Cash Price</b></TableCell>
-                                                        <TableCell width={120} align="right"><b>Loan Price</b></TableCell>
+                                                        <TableCell width={200}><b>Loan Options</b></TableCell>
                                                         <TableCell width={130} align="right"><b>Actual Sold Amount</b></TableCell>
                                                         <TableCell width={110}><b>Payment</b></TableCell>
+                                                        <TableCell width={140}><b>Selected Company</b></TableCell>
                                                         <TableCell width={140}><b>Agent</b></TableCell>
                                                         <TableCell width={160}><b>Collection Center</b></TableCell>
                                                         <TableCell width={120}><b>Date</b></TableCell>
@@ -802,6 +839,8 @@ export default function SalesReport() {
                                                         const productImei = getProductImei(sale);
                                                         const collectionCenter = getCollectionCenterInfo(sale);
                                                         const modelSku = `${productModel}${productSku !== 'N/A' ? ` (${productSku})` : ''}`;
+                                                        const companyName = getSaleCompanyName(sale);
+                                                        const loanOptions = getProductLoanOptions(sale);
                                                         return (
                                                             <TableRow key={sale.sale_id} hover>
                                                                 <TableCell sx={{ whiteSpace: 'nowrap' }}>{getCustomerName(sale)}</TableCell>
@@ -811,12 +850,23 @@ export default function SalesReport() {
                                                                 <TableCell sx={{ whiteSpace: 'nowrap', fontFamily: 'monospace' }}>{productImei}</TableCell>
                                                                 <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatPrice(getProductBuyingPrice(sale))}</TableCell>
                                                                 <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatPrice(getProductCashPrice(sale))}</TableCell>
-                                                                <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatPrice(getProductLoanPrice(sale))}</TableCell>
+                                                                <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                                                    {/* Horizontal scroll container for loan options */}
+                                                                    <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: '4px', overflowX: 'auto', maxWidth: '300px' }}>
+                                                                        {loanOptions.map((lp, idx) => (
+                                                                            <Chip key={idx} label={`${lp.company_name}: ${formatPrice(lp.price)}`} size="small" variant="outlined" />
+                                                                        ))}
+                                                                        {loanOptions.length === 0 && <Typography variant="caption">—</Typography>}
+                                                                    </Box>
+                                                                </TableCell>
                                                                 <TableCell align="right" sx={{ whiteSpace: 'nowrap', fontWeight: 'bold', color: 'success.main' }}>
                                                                     {formatPrice(sale.total_amount)}
                                                                 </TableCell>
                                                                 <TableCell sx={{ whiteSpace: 'nowrap' }}>
                                                                     <Chip label={sale.payment_method} size="small" color={paymentMethodColors[sale.payment_method] || 'default'} />
+                                                                </TableCell>
+                                                                <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                                                    {companyName || '—'}
                                                                 </TableCell>
                                                                 <TableCell sx={{ whiteSpace: 'nowrap' }}>{getAgentName(sale)}</TableCell>
                                                                 <TableCell sx={{ whiteSpace: 'nowrap' }}>{collectionCenter?.name || 'N/A'}</TableCell>

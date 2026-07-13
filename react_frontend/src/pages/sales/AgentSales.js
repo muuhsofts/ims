@@ -5,9 +5,9 @@ import {
     TableRow, TextField, Typography, CircularProgress, MenuItem,
     Autocomplete, Stack, IconButton, Tooltip, InputAdornment, Tabs, Tab,
     TablePagination, Grid, Card, CardContent, Divider, useMediaQuery, useTheme,
-    Switch, FormControlLabel
+    Switch, FormControlLabel, Select, FormControl, InputLabel
 } from '@mui/material';
-import { Refresh as RefreshIcon, Sell as SellIcon, Search as SearchIcon, Print as PrintIcon, Phone as PhoneIcon, Person as PersonIcon, Receipt as ReceiptIcon, Discount as DiscountIcon } from '@mui/icons-material';
+import { Refresh as RefreshIcon, Sell as SellIcon, Search as SearchIcon, Print as PrintIcon, Phone as PhoneIcon, Person as PersonIcon, Receipt as ReceiptIcon, Discount as DiscountIcon, Business as CompanyIcon } from '@mui/icons-material';
 import { useAgentSales } from 'hooks/useAgentSales';
 import { useCustomers } from 'hooks/useCustomers';
 import { usePermission } from '@/hooks/usePermission';
@@ -70,6 +70,7 @@ const headCellsSales = [
     { id: 'product', label: 'Product' },
     { id: 'total_amount', label: 'Amount' },
     { id: 'payment_method', label: 'Payment' },
+    { id: 'company', label: 'Company' },
     { id: 'status', label: 'Status' },
     { id: 'receipt', label: 'Invoice' },
 ];
@@ -120,6 +121,7 @@ const printReceipt = (receipt, sale) => {
                 <div class="row"><strong>IMEI:</strong> <span>${sale.product?.imei || '—'}</span></div>
                 <div class="row"><strong>Amount:</strong> <span>${formatPrice(receipt.total_amount)}</span></div>
                 <div class="row"><strong>Payment:</strong> <span>${receipt.payment_method}</span></div>
+                ${sale.company_name ? `<div class="row"><strong>Company:</strong> <span>${sale.company_name}</span></div>` : ''}
                 <div class="row"><strong>Status:</strong> <span>${receipt.payment_status}</span></div>
                 ${sale.notes ? `<div class="row"><strong>Notes:</strong> <span>${sale.notes}</span></div>` : ''}
                 <div class="total row"><strong>TOTAL PAID:</strong> <span>${formatPrice(receipt.total_amount)}</span></div>
@@ -140,7 +142,7 @@ export default function AgentSales() {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'md'));
-    const showTable = useMediaQuery(theme.breakpoints.up('md')); // Table on medium and up
+    const showTable = useMediaQuery(theme.breakpoints.up('md'));
 
     const { stock, loadingStock, fetchStock, createSale, saleLoading } = useAgentSales();
     const { data: customers, loading: customersLoading, fetchMyCustomers } = useCustomers();
@@ -154,8 +156,9 @@ export default function AgentSales() {
         payment_method: 'cash',
         total_amount: 0,
         notes: '',
+        company_id: '', // for loan
     });
-    const [applyDiscount, setApplyDiscount] = useState(false); // toggle for manual discount
+    const [applyDiscount, setApplyDiscount] = useState(false);
     const [customerSearch, setCustomerSearch] = useState('');
     const [productFilter, setProductFilter] = useState('');
     const [tabValue, setTabValue] = useState(0);
@@ -172,30 +175,32 @@ export default function AgentSales() {
         }
     }, [openDialog, customerSearch, fetchMyCustomers]);
 
-    // Update total_amount when payment method changes or selected product changes
+    // Update total_amount when payment method changes, company changes, or product changes
     useEffect(() => {
         if (selectedProduct) {
-            const price = saleForm.payment_method === 'cash'
-                ? selectedProduct.cash_selling_price
-                : selectedProduct.loan_selling_price;
-            // Only update if discount is not applied (i.e., auto mode) or if discount toggle is off
+            let price = 0;
+            if (saleForm.payment_method === 'cash') {
+                price = selectedProduct.cash_selling_price || 0;
+            } else if (saleForm.payment_method === 'loan') {
+                // Find selected company price
+                const loanPrices = selectedProduct.loan_prices || [];
+                const selected = loanPrices.find(lp => lp.company_id === saleForm.company_id);
+                if (selected) {
+                    price = selected.price || 0;
+                } else if (loanPrices.length > 0) {
+                    // Default to first if none selected
+                    price = loanPrices[0].price || 0;
+                }
+            }
             if (!applyDiscount) {
-                setSaleForm(prev => ({
-                    ...prev,
-                    total_amount: price !== null && price !== undefined ? price : 0
-                }));
+                setSaleForm(prev => ({ ...prev, total_amount: price }));
             } else {
-                // If discount is on, we keep the user's entered amount, but we might want to set a default
-                // Only set if total_amount is 0 or null (initial state)
                 if (!saleForm.total_amount || saleForm.total_amount === 0) {
-                    setSaleForm(prev => ({
-                        ...prev,
-                        total_amount: price !== null && price !== undefined ? price : 0
-                    }));
+                    setSaleForm(prev => ({ ...prev, total_amount: price }));
                 }
             }
         }
-    }, [saleForm.payment_method, selectedProduct, applyDiscount]);
+    }, [saleForm.payment_method, saleForm.company_id, selectedProduct, applyDiscount]);
 
     const filteredStock = stock.filter(item => {
         if (!productFilter) return true;
@@ -212,15 +217,21 @@ export default function AgentSales() {
 
     const handleOpenDialog = (product) => {
         setSelectedProduct(product);
-        // Default to cash price if available, else loan, else 0
-        const defaultPrice = product.cash_selling_price ?? product.loan_selling_price ?? 0;
+        // Default to cash price if available, else first loan price, else 0
+        let defaultPrice = product.cash_selling_price || 0;
+        let defaultCompany = '';
+        if (!defaultPrice && product.loan_prices && product.loan_prices.length > 0) {
+            defaultPrice = product.loan_prices[0].price || 0;
+            defaultCompany = product.loan_prices[0].company_id || '';
+        }
         setSaleForm({
             customer_id: '',
             payment_method: 'cash',
             total_amount: defaultPrice,
             notes: '',
+            company_id: defaultCompany,
         });
-        setApplyDiscount(false); // reset discount toggle
+        setApplyDiscount(false);
         setOpenDialog(true);
     };
 
@@ -232,6 +243,7 @@ export default function AgentSales() {
             payment_method: 'cash',
             total_amount: 0,
             notes: '',
+            company_id: '',
         });
         setApplyDiscount(false);
         setCustomerSearch('');
@@ -249,26 +261,23 @@ export default function AgentSales() {
         const checked = event.target.checked;
         setApplyDiscount(checked);
         if (checked) {
-            // Force payment method to cash
             setSaleForm(prev => ({ ...prev, payment_method: 'cash' }));
-            // Optionally set total amount to current cash price as starting point
             if (selectedProduct) {
-                const cashPrice = selectedProduct.cash_selling_price;
-                setSaleForm(prev => ({
-                    ...prev,
-                    total_amount: cashPrice !== null && cashPrice !== undefined ? cashPrice : 0
-                }));
+                const cashPrice = selectedProduct.cash_selling_price || 0;
+                setSaleForm(prev => ({ ...prev, total_amount: cashPrice }));
             }
         } else {
             // Revert to standard price based on payment method
             if (selectedProduct) {
-                const price = saleForm.payment_method === 'cash'
-                    ? selectedProduct.cash_selling_price
-                    : selectedProduct.loan_selling_price;
-                setSaleForm(prev => ({
-                    ...prev,
-                    total_amount: price !== null && price !== undefined ? price : 0
-                }));
+                let price = 0;
+                if (saleForm.payment_method === 'cash') {
+                    price = selectedProduct.cash_selling_price || 0;
+                } else if (saleForm.payment_method === 'loan') {
+                    const loanPrices = selectedProduct.loan_prices || [];
+                    const selected = loanPrices.find(lp => lp.company_id === saleForm.company_id);
+                    price = selected ? selected.price : (loanPrices.length > 0 ? loanPrices[0].price : 0);
+                }
+                setSaleForm(prev => ({ ...prev, total_amount: price }));
             }
         }
     };
@@ -280,7 +289,6 @@ export default function AgentSales() {
         }
         if (!selectedProduct) return;
 
-        // Prepare payload
         const payload = {
             product_id: selectedProduct.product_id,
             customer_id: saleForm.customer_id,
@@ -288,11 +296,19 @@ export default function AgentSales() {
             notes: saleForm.notes,
         };
 
-        // If discount is applied, send the total_amount (which may be different from standard)
+        // If loan, include company_id
+        if (saleForm.payment_method === 'loan') {
+            if (!saleForm.company_id) {
+                showSnackbar({ type: 'error', message: 'Please select a loan company' });
+                return;
+            }
+            payload.company_id = saleForm.company_id;
+        }
+
+        // If discount is applied, send the total_amount
         if (applyDiscount) {
-            const cashPrice = selectedProduct.cash_selling_price;
-            // Validate that discount price is not higher than cash price
-            if (cashPrice !== null && cashPrice !== undefined && parseFloat(saleForm.total_amount) > cashPrice) {
+            const cashPrice = selectedProduct.cash_selling_price || 0;
+            if (parseFloat(saleForm.total_amount) > cashPrice) {
                 showSnackbar({ type: 'error', message: 'Discount price cannot exceed the standard cash selling price.' });
                 return;
             }
@@ -314,11 +330,13 @@ export default function AgentSales() {
         if (newValue === 1) fetchSales();
     };
 
-    // Check if the selected payment method is available for this product
     const isPaymentMethodAvailable = (method) => {
         if (!selectedProduct) return false;
         if (method === 'cash') return selectedProduct.cash_selling_price !== null && selectedProduct.cash_selling_price !== undefined;
-        if (method === 'loan') return selectedProduct.loan_selling_price !== null && selectedProduct.loan_selling_price !== undefined;
+        if (method === 'loan') {
+            const loanPrices = selectedProduct.loan_prices || [];
+            return loanPrices.length > 0;
+        }
         return false;
     };
 
@@ -326,77 +344,97 @@ export default function AgentSales() {
         return <Typography sx={{ p: 2 }}>You do not have permission to sell products.</Typography>;
     }
 
-    // Product Card for mobile/tablet POS view
-    const ProductCard = ({ item }) => (
-        <Card sx={{ mb: 2, borderRadius: 2 }}>
-            <CardContent sx={{ p: 2 }}>
-                <Box display="flex" justifyContent="space-between" alignItems="flex-start">
-                    <Typography variant="subtitle1" fontWeight="bold">{item.product_name || '—'}</Typography>
-                    <Chip label={`Qty: ${item.available_quantity}`} color="success" size="small" />
-                </Box>
-                <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block', my: 0.5 }}>IMEI: {item.imei || '—'}</Typography>
-                <Divider sx={{ my: 1 }} />
-                <Grid container spacing={1}>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Category</Typography><Typography variant="body2">{safeValue(item.category_name)}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Model</Typography><Typography variant="body2">{safeValue(item.model)}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">SKU</Typography><Typography variant="body2">{safeValue(item.sku)}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Cash Price</Typography><Typography variant="body2" fontWeight="bold">{formatPrice(item.cash_selling_price)}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Loan Price</Typography><Typography variant="body2" fontWeight="bold">{formatPrice(item.loan_selling_price)}</Typography></Grid>
-                </Grid>
-                <Box mt={1}>
-                    <Button fullWidth variant="contained" startIcon={<SellIcon />} onClick={() => handleOpenDialog(item)} size="small">
-                        Sale
-                    </Button>
-                </Box>
-            </CardContent>
-        </Card>
-    );
+    // Product Card for mobile/tablet POS view (shows loan options)
+    const ProductCard = ({ item }) => {
+        const loanPrices = item.loan_prices || [];
+        return (
+            <Card sx={{ mb: 2, borderRadius: 2 }}>
+                <CardContent sx={{ p: 2 }}>
+                    <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                        <Typography variant="subtitle1" fontWeight="bold">{item.product_name || '—'}</Typography>
+                        <Chip label={`Qty: ${item.available_quantity}`} color="success" size="small" />
+                    </Box>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block', my: 0.5 }}>IMEI: {item.imei || '—'}</Typography>
+                    <Divider sx={{ my: 1 }} />
+                    <Grid container spacing={1}>
+                        <Grid item xs={6}><Typography variant="caption" color="text.secondary">Category</Typography><Typography variant="body2">{safeValue(item.category_name)}</Typography></Grid>
+                        <Grid item xs={6}><Typography variant="caption" color="text.secondary">Model</Typography><Typography variant="body2">{safeValue(item.model)}</Typography></Grid>
+                        <Grid item xs={6}><Typography variant="caption" color="text.secondary">SKU</Typography><Typography variant="body2">{safeValue(item.sku)}</Typography></Grid>
+                        <Grid item xs={6}><Typography variant="caption" color="text.secondary">Cash Price</Typography><Typography variant="body2" fontWeight="bold">{formatPrice(item.cash_selling_price)}</Typography></Grid>
+                        <Grid item xs={12}>
+                            <Typography variant="caption" color="text.secondary">Loan Options</Typography>
+                            <Stack direction="row" spacing={1} flexWrap="wrap">
+                                {loanPrices.map((lp, idx) => (
+                                    <Chip key={idx} label={`${lp.company_name}: ${formatPrice(lp.price)}`} size="small" variant="outlined" />
+                                ))}
+                                {loanPrices.length === 0 && <Typography variant="body2" color="text.secondary">No loan options</Typography>}
+                            </Stack>
+                        </Grid>
+                    </Grid>
+                    <Box mt={1}>
+                        <Button fullWidth variant="contained" startIcon={<SellIcon />} onClick={() => handleOpenDialog(item)} size="small">
+                            Sale
+                        </Button>
+                    </Box>
+                </CardContent>
+            </Card>
+        );
+    };
 
-    // Sale Card for mobile/tablet Sales History
-    const SaleCard = ({ sale }) => (
-        <Card sx={{ mb: 2, borderRadius: 2 }}>
-            <CardContent sx={{ p: 2 }}>
-                <Box display="flex" justifyContent="space-between" alignItems="flex-start">
-                    <Typography variant="caption" color="text.secondary">{new Date(sale.created_at).toLocaleString()}</Typography>
-                    <Chip label={sale.status} color={sale.status === 'completed' ? 'success' : 'default'} size="small" />
-                </Box>
-                <Divider sx={{ my: 1 }} />
-                <Box display="flex" alignItems="center" gap={1} mb={1}>
-                    <PersonIcon fontSize="small" color="action" />
-                    <Typography variant="body2"><strong>{sale.customer?.customer_name || '—'}</strong></Typography>
-                </Box>
-                {sale.customer?.msisdn && (
+    // Sale Card for mobile/tablet Sales History (shows company if loan)
+    const SaleCard = ({ sale }) => {
+        const companyName = sale.payment_method === 'loan' && sale.company_name ? sale.company_name : null;
+        return (
+            <Card sx={{ mb: 2, borderRadius: 2 }}>
+                <CardContent sx={{ p: 2 }}>
+                    <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                        <Typography variant="caption" color="text.secondary">{new Date(sale.created_at).toLocaleString()}</Typography>
+                        <Chip label={sale.status} color={sale.status === 'completed' ? 'success' : 'default'} size="small" />
+                    </Box>
+                    <Divider sx={{ my: 1 }} />
                     <Box display="flex" alignItems="center" gap={1} mb={1}>
-                        <PhoneIcon fontSize="small" color="action" />
-                        <Typography variant="body2">{sale.customer.msisdn}</Typography>
+                        <PersonIcon fontSize="small" color="action" />
+                        <Typography variant="body2"><strong>{sale.customer?.customer_name || '—'}</strong></Typography>
                     </Box>
-                )}
-                <Box display="flex" alignItems="center" gap={1} mb={1}>
-                    <ReceiptIcon fontSize="small" color="action" />
-                    <Typography variant="body2">{sale.product?.product_name || '—'}</Typography>
-                </Box>
-                <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block', mb: 1 }}>IMEI: {sale.product?.imei || '—'}</Typography>
-                <Divider sx={{ my: 1 }} />
-                <Box display="flex" justifyContent="space-between" alignItems="center">
-                    <Box>
-                        <Typography variant="caption" color="text.secondary">Amount</Typography>
-                        <Typography variant="body2" fontWeight="bold">{formatPrice(sale.total_amount)}</Typography>
-                    </Box>
-                    <Box>
-                        <Typography variant="caption" color="text.secondary">Payment</Typography>
-                        <Chip label={sale.payment_method} size="small" />
-                    </Box>
-                    {sale.receipt ? (
-                        <IconButton size="small" onClick={() => printReceipt(sale.receipt, sale)}>
-                            <PrintIcon />
-                        </IconButton>
-                    ) : (
-                        <Typography variant="caption" color="text.secondary">No receipt</Typography>
+                    {sale.customer?.msisdn && (
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                            <PhoneIcon fontSize="small" color="action" />
+                            <Typography variant="body2">{sale.customer.msisdn}</Typography>
+                        </Box>
                     )}
-                </Box>
-            </CardContent>
-        </Card>
-    );
+                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                        <ReceiptIcon fontSize="small" color="action" />
+                        <Typography variant="body2">{sale.product?.product_name || '—'}</Typography>
+                    </Box>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block', mb: 1 }}>IMEI: {sale.product?.imei || '—'}</Typography>
+                    {companyName && (
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                            <CompanyIcon fontSize="small" color="action" />
+                            <Typography variant="body2">{companyName}</Typography>
+                        </Box>
+                    )}
+                    <Divider sx={{ my: 1 }} />
+                    <Box display="flex" justifyContent="space-between" alignItems="center">
+                        <Box>
+                            <Typography variant="caption" color="text.secondary">Amount</Typography>
+                            <Typography variant="body2" fontWeight="bold">{formatPrice(sale.total_amount)}</Typography>
+                        </Box>
+                        <Box>
+                            <Typography variant="caption" color="text.secondary">Payment</Typography>
+                            <Chip label={sale.payment_method} size="small" />
+                        </Box>
+                        {sale.receipt ? (
+                            <IconButton size="small" onClick={() => printReceipt(sale.receipt, sale)}>
+                                <PrintIcon />
+                            </IconButton>
+                        ) : (
+                            <Typography variant="caption" color="text.secondary">No receipt</Typography>
+                        )}
+                    </Box>
+                </CardContent>
+            </Card>
+        );
+    };
 
     return (
         <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
@@ -444,7 +482,7 @@ export default function AgentSales() {
                                             <TableCell>Model</TableCell>
                                             <TableCell>SKU</TableCell>
                                             <TableCell>Cash Price</TableCell>
-                                            <TableCell>Loan Price</TableCell>
+                                            <TableCell>Loan Options</TableCell>
                                             <TableCell align="center">Qty</TableCell>
                                             <TableCell align="center">Actions</TableCell>
                                         </TableRow>
@@ -457,25 +495,35 @@ export default function AgentSales() {
                                                 {productFilter ? 'No products match your filter.' : 'No available stock. Please ask admin to assign products.'}
                                             </TableCell></TableRow>
                                         ) : (
-                                            filteredStock.map((item, idx) => (
-                                                <TableRow key={idx} hover>
-                                                    <TableCell><Typography variant="body2" fontWeight={500}>{item.product_name || '—'}</Typography></TableCell>
-                                                    <TableCell><Typography variant="body2" fontFamily="monospace">{item.imei || '—'}</Typography></TableCell>
-                                                    <TableCell>{safeValue(item.category_name)}</TableCell>
-                                                    <TableCell>{safeValue(item.model)}</TableCell>
-                                                    <TableCell>{safeValue(item.sku)}</TableCell>
-                                                    <TableCell>{formatPrice(item.cash_selling_price)}</TableCell>
-                                                    <TableCell>{formatPrice(item.loan_selling_price)}</TableCell>
-                                                    <TableCell align="center"><Chip label={item.available_quantity} color="success" size="small" /></TableCell>
-                                                    <TableCell align="center">
-                                                        <Tooltip title="Sell this product">
-                                                            <IconButton color="primary" onClick={() => handleOpenDialog(item)}>
-                                                                <SellIcon />
-                                                            </IconButton>
-                                                        </Tooltip>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))
+                                            filteredStock.map((item, idx) => {
+                                                const loanPrices = item.loan_prices || [];
+                                                return (
+                                                    <TableRow key={idx} hover>
+                                                        <TableCell><Typography variant="body2" fontWeight={500}>{item.product_name || '—'}</Typography></TableCell>
+                                                        <TableCell><Typography variant="body2" fontFamily="monospace">{item.imei || '—'}</Typography></TableCell>
+                                                        <TableCell>{safeValue(item.category_name)}</TableCell>
+                                                        <TableCell>{safeValue(item.model)}</TableCell>
+                                                        <TableCell>{safeValue(item.sku)}</TableCell>
+                                                        <TableCell>{formatPrice(item.cash_selling_price)}</TableCell>
+                                                        <TableCell>
+                                                            <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                                                                {loanPrices.map((lp, i) => (
+                                                                    <Chip key={i} label={`${lp.company_name}: ${formatPrice(lp.price)}`} size="small" variant="outlined" />
+                                                                ))}
+                                                                {loanPrices.length === 0 && <Typography variant="caption">—</Typography>}
+                                                            </Stack>
+                                                        </TableCell>
+                                                        <TableCell align="center"><Chip label={item.available_quantity} color="success" size="small" /></TableCell>
+                                                        <TableCell align="center">
+                                                            <Tooltip title="Sell this product">
+                                                                <IconButton color="primary" onClick={() => handleOpenDialog(item)}>
+                                                                    <SellIcon />
+                                                                </IconButton>
+                                                            </Tooltip>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                );
+                                            })
                                         )}
                                     </TableBody>
                                 </Table>
@@ -519,39 +567,43 @@ export default function AgentSales() {
                                         </TableHead>
                                         <TableBody>
                                             {salesLoading ? (
-                                                <TableRow><TableCell colSpan={7} align="center"><CircularProgress size={28} /></TableCell></TableRow>
+                                                <TableRow><TableCell colSpan={8} align="center"><CircularProgress size={28} /></TableCell></TableRow>
                                             ) : unauthorized ? (
-                                                <TableRow><TableCell colSpan={7} align="center"><Typography color="error">You are not authorized to view sales history. Only sales agents can access this page.</Typography></TableCell></TableRow>
+                                                <TableRow><TableCell colSpan={8} align="center"><Typography color="error">You are not authorized to view sales history. Only sales agents can access this page.</Typography></TableCell></TableRow>
                                             ) : sales.length === 0 ? (
-                                                <TableRow><TableCell colSpan={7} align="center">No sales found</TableCell></TableRow>
+                                                <TableRow><TableCell colSpan={8} align="center">No sales found</TableCell></TableRow>
                                             ) : (
-                                                sales.map((sale) => (
-                                                    <TableRow key={sale.sale_id || sale.id} hover>
-                                                        <TableCell>{new Date(sale.created_at).toLocaleString()}</TableCell>
-                                                        <TableCell>
-                                                            {sale.customer?.customer_name || '—'}<br />
-                                                            <small>{sale.customer?.msisdn || ''}</small>
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            {sale.product?.product_name || '—'}<br />
-                                                            <small>IMEI: {sale.product?.imei || '—'}</small>
-                                                        </TableCell>
-                                                        <TableCell>{formatPrice(sale.total_amount)}</TableCell>
-                                                        <TableCell><Chip label={sale.payment_method} size="small" /></TableCell>
-                                                        <TableCell><Chip label={sale.status} color={sale.status === 'completed' ? 'success' : 'default'} size="small" /></TableCell>
-                                                        <TableCell>
-                                                            {sale.receipt ? (
-                                                                <Tooltip title="Print Receipt">
-                                                                    <IconButton size="small" onClick={() => printReceipt(sale.receipt, sale)}>
-                                                                        <PrintIcon />
-                                                                    </IconButton>
-                                                                </Tooltip>
-                                                            ) : (
-                                                                <Typography variant="caption" color="text.secondary">No receipt</Typography>
-                                                            )}
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))
+                                                sales.map((sale) => {
+                                                    const companyName = sale.payment_method === 'loan' && sale.company_name ? sale.company_name : '—';
+                                                    return (
+                                                        <TableRow key={sale.sale_id || sale.id} hover>
+                                                            <TableCell>{new Date(sale.created_at).toLocaleString()}</TableCell>
+                                                            <TableCell>
+                                                                {sale.customer?.customer_name || '—'}<br />
+                                                                <small>{sale.customer?.msisdn || ''}</small>
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                {sale.product?.product_name || '—'}<br />
+                                                                <small>IMEI: {sale.product?.imei || '—'}</small>
+                                                            </TableCell>
+                                                            <TableCell>{formatPrice(sale.total_amount)}</TableCell>
+                                                            <TableCell><Chip label={sale.payment_method} size="small" /></TableCell>
+                                                            <TableCell>{companyName}</TableCell>
+                                                            <TableCell><Chip label={sale.status} color={sale.status === 'completed' ? 'success' : 'default'} size="small" /></TableCell>
+                                                            <TableCell>
+                                                                {sale.receipt ? (
+                                                                    <Tooltip title="Print Receipt">
+                                                                        <IconButton size="small" onClick={() => printReceipt(sale.receipt, sale)}>
+                                                                            <PrintIcon />
+                                                                        </IconButton>
+                                                                    </Tooltip>
+                                                                ) : (
+                                                                    <Typography variant="caption" color="text.secondary">No receipt</Typography>
+                                                                )}
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                })
                                             )}
                                         </TableBody>
                                     </Table>
@@ -605,7 +657,7 @@ export default function AgentSales() {
                 )}
             </Paper>
 
-            {/* Sale Dialog – updated with discount toggle that forces cash payment */}
+            {/* Sale Dialog with company selector for loan */}
             <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
                 <DialogTitle>Complete Sale</DialogTitle>
                 <DialogContent>
@@ -620,7 +672,12 @@ export default function AgentSales() {
                                     <Typography variant="body2"><strong>Category:</strong> {safeValue(selectedProduct.category_name)}</Typography>
                                     <Typography variant="body2"><strong>Model:</strong> {safeValue(selectedProduct.model)}</Typography>
                                     <Typography variant="body2"><strong>Cash Price:</strong> {formatPrice(selectedProduct.cash_selling_price)}</Typography>
-                                    <Typography variant="body2"><strong>Loan Price:</strong> {formatPrice(selectedProduct.loan_selling_price)}</Typography>
+                                    <Typography variant="body2"><strong>Loan Options:</strong></Typography>
+                                    <Stack direction="row" spacing={1} flexWrap="wrap">
+                                        {(selectedProduct.loan_prices || []).map((lp, idx) => (
+                                            <Chip key={idx} label={`${lp.company_name}: ${formatPrice(lp.price)}`} size="small" variant="outlined" />
+                                        ))}
+                                    </Stack>
                                 </Box>
                             </>
                         )}
@@ -652,16 +709,34 @@ export default function AgentSales() {
                             value={saleForm.payment_method}
                             onChange={handleSaleFormChange}
                             fullWidth
-                            disabled={applyDiscount} // disabled when discount is on
+                            disabled={applyDiscount}
                             helperText={applyDiscount ? 'Discount sales must be cash payments' : ''}
                         >
                             <MenuItem value="cash" disabled={!isPaymentMethodAvailable('cash')}>
                                 Cash {!isPaymentMethodAvailable('cash') && '(price not set)'}
                             </MenuItem>
                             <MenuItem value="loan" disabled={!isPaymentMethodAvailable('loan') || applyDiscount}>
-                                Loan {(!isPaymentMethodAvailable('loan') || applyDiscount) && (applyDiscount ? '(not allowed with discount)' : '(price not set)')}
+                                Loan {(!isPaymentMethodAvailable('loan') || applyDiscount) && (applyDiscount ? '(not allowed with discount)' : '(no loan options)')}
                             </MenuItem>
                         </TextField>
+
+                        {saleForm.payment_method === 'loan' && (
+                            <FormControl fullWidth>
+                                <InputLabel>Loan Company</InputLabel>
+                                <Select
+                                    name="company_id"
+                                    value={saleForm.company_id}
+                                    onChange={handleSaleFormChange}
+                                    label="Loan Company"
+                                >
+                                    {(selectedProduct?.loan_prices || []).map((lp) => (
+                                        <MenuItem key={lp.company_id} value={lp.company_id}>
+                                            {lp.company_name} - {formatPrice(lp.price)}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        )}
 
                         <TextField
                             label="Total Amount (TZS)"
@@ -671,11 +746,11 @@ export default function AgentSales() {
                             onChange={handleSaleFormChange}
                             fullWidth
                             required
-                            disabled={!applyDiscount} // editable only when discount is enabled
+                            disabled={!applyDiscount}
                             InputProps={{
                                 readOnly: !applyDiscount,
                             }}
-                            helperText={applyDiscount ? 'Enter discounted price (must be ≤ cash price)' : 'Amount is auto-calculated based on payment method.'}
+                            helperText={applyDiscount ? 'Enter discounted price (must be ≤ cash price)' : 'Amount is auto-calculated based on payment method and company.'}
                         />
 
                         <TextField
@@ -703,4 +778,3 @@ export default function AgentSales() {
         </Box>
     );
 }
-
