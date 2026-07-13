@@ -152,12 +152,32 @@ class CollectionCenterInventoryController extends BaseApiController
             $grouped[$info['inventory_id']][] = $pid;
         }
 
+        // --- FIX: Build structured requested_items instead of raw product IDs ---
+        $structuredItems = [];
+        foreach ($productIds as $pid) {
+            $product = Product::with('category')->find($pid);
+            if ($product && $product->category) {
+                $structuredItems[] = [
+                    'category_id'   => $product->category->category_id,
+                    'category_name' => $product->category->category_name,
+                    'model'         => $product->category->model ?? null,
+                    'skus'          => [$product->sku],
+                    'quantity'      => 1,
+                    'description'   => null,
+                ];
+            } else {
+                // Fallback: if product not found, store just the ID as a string
+                $structuredItems[] = $pid;
+            }
+        }
+        // ---------------------------------------------------------------------
+
         if (is_null($requestId)) {
             $transferRequest = \App\Models\TransferRequest::create([
                 'request_id' => (string) Str::uuid(),
                 'requester_id' => $performedBy,
                 'cc_id' => $toCcId,
-                'requested_items' => $productIds,
+                'requested_items' => $structuredItems,   // ✅ now structured objects
                 'total_quantity' => count($productIds),
                 'received_quantity' => 0,
                 'status' => 'completed',
