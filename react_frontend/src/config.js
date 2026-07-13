@@ -1,5 +1,5 @@
 // src/config.js
-const baseURLApi = "http://localhost:8000/api";
+const baseURLApi = "https://imaratech.co.tz/api";
 const redirectUrl = typeof window !== "undefined" ?
     window.location.origin :
     "https://yourdomain.com";
