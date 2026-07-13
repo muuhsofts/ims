@@ -21,9 +21,6 @@ class AgentSalesController extends BaseApiController
 
     /**
      * 1. View agent inventory – returns FULL product details with company loan prices
-     *    - ADMIN/MANAGER: all agents
-     *    - SALES_AGENT: own stock only
-     * Permission: agent.stock.view
      */
     public function availableStock(Request $request)
     {
@@ -42,7 +39,6 @@ class AgentSalesController extends BaseApiController
             $results = [];
 
             foreach ($inventories as $inventory) {
-                // New structure: product_ids array
                 if (!empty($inventory->product_ids) && is_array($inventory->product_ids)) {
                     $productCounts = array_count_values($inventory->product_ids);
                     foreach ($productCounts as $productId => $qty) {
@@ -50,9 +46,7 @@ class AgentSalesController extends BaseApiController
                         if (!$product || $product->stock_status === 'sold') continue;
                         $results[] = $this->formatInventoryItem($inventory, $product, $qty);
                     }
-                }
-                // Legacy structure: single product_id
-                else {
+                } else {
                     $available = $inventory->quantity_received - $inventory->quantity_sold;
                     if ($available <= 0) continue;
                     $product = Product::with('category')->find($inventory->product_id);
@@ -69,11 +63,10 @@ class AgentSalesController extends BaseApiController
     }
 
     /**
-     * Format a single inventory entry with full product details and company loan prices
+     * Format a single inventory entry with product details and loan prices
      */
     private function formatInventoryItem($inventory, $product, $quantity)
     {
-        // ✅ Process loan prices with company names
         $loanPrices = [];
         if (!empty($product->loan_selling_price)) {
             $prices = is_array($product->loan_selling_price) 
@@ -107,7 +100,7 @@ class AgentSalesController extends BaseApiController
             'color'             => $product->color ?? null,
             'buying_price'      => (float) $product->buying_price,
             'cash_selling_price' => (float) $product->cash_selling_price,
-            'loan_prices'       => $loanPrices, // ✅ Array with company_name and price
+            'loan_prices'       => $loanPrices,
             'stock_status'      => $product->stock_status,
             'quantity_received' => $inventory->quantity_received,
             'quantity_sold'     => $inventory->quantity_sold,
@@ -116,7 +109,7 @@ class AgentSalesController extends BaseApiController
     }
 
     /**
-     * Format loan prices for response
+     * Helper to format loan prices
      */
     private function formatLoanPrices($product)
     {
@@ -143,8 +136,7 @@ class AgentSalesController extends BaseApiController
     }
 
     /**
-     * 2. Scan product by IMEI – check availability in agent inventory with loan prices
-     * Permission: agent.product.scan
+     * 2. Scan product by IMEI
      */
     public function scanProduct(Request $request)
     {
@@ -165,7 +157,6 @@ class AgentSalesController extends BaseApiController
                 ->first();
 
             if (!$inventory) {
-                // Also check the new product_ids array
                 $inventory = AgentInventory::where('user_id', $authUser->id)
                     ->whereJsonContains('product_ids', $product->product_id)
                     ->first();
@@ -175,7 +166,6 @@ class AgentSalesController extends BaseApiController
                 return $this->badRequest('Product not found in your inventory');
             }
 
-            // Determine available quantity
             $available = 0;
             if (!empty($inventory->product_ids) && is_array($inventory->product_ids)) {
                 $available = array_count_values($inventory->product_ids)[$product->product_id] ?? 0;
@@ -187,9 +177,6 @@ class AgentSalesController extends BaseApiController
                 return $this->badRequest('Product not available in your inventory');
             }
 
-            // ✅ Get loan prices with company names
-            $loanPrices = $this->formatLoanPrices($product);
-
             return $this->successResponse([
                 'product_id'         => $product->product_id,
                 'product_name'       => $product->product_name,
@@ -199,7 +186,7 @@ class AgentSalesController extends BaseApiController
                 'sku'                => $product->sku,
                 'color'              => $product->color,
                 'cash_selling_price' => (float) $product->cash_selling_price,
-                'loan_prices'        => $loanPrices, // ✅ Array with company_name and price
+                'loan_prices'        => $this->formatLoanPrices($product),
                 'available_quantity' => $available,
             ], 'Product found – ready for sale');
 
@@ -211,9 +198,7 @@ class AgentSalesController extends BaseApiController
     }
 
     /**
-     * 3. Sell a product – updates inventory (both new/old structures), creates sale and receipt
-     *    Supports company-specific loan prices
-     * Permission: agent.sale.create
+     * 3. Sell a product – updates inventory, creates sale and receipt, stores company_id
      */
     public function saleProduct(Request $request)
     {
@@ -230,14 +215,13 @@ class AgentSalesController extends BaseApiController
                 'product_id'     => 'required|string|exists:products,product_id',
                 'customer_id'    => 'required|string|exists:customers,customer_id',
                 'payment_method' => 'required|in:cash,loan',
-                'company_id'     => 'nullable|string|exists:companies,id', // ✅ For loan price selection
+                'company_id'     => 'nullable|string|exists:companies,id',
                 'total_amount'   => 'nullable|numeric|min:0',
                 'notes'          => 'nullable|string',
             ]);
 
             DB::beginTransaction();
 
-            // Find inventory row (either via product_id or product_ids array)
             $inventory = AgentInventory::where('user_id', $authUser->id)
                 ->where('product_id', $validated['product_id'])
                 ->first();
@@ -252,13 +236,12 @@ class AgentSalesController extends BaseApiController
                 return $this->badRequest('Product not in your inventory');
             }
 
-            // Fetch the product
             $product = Product::find($validated['product_id']);
             if (!$product) {
                 return $this->badRequest('Product not found');
             }
 
-            // Determine the total amount
+            // Determine total amount
             if (isset($validated['total_amount']) && !is_null($validated['total_amount'])) {
                 $totalAmount = $validated['total_amount'];
             } else {
@@ -268,14 +251,10 @@ class AgentSalesController extends BaseApiController
                     }
                     $totalAmount = $product->cash_selling_price;
                 } else { // loan
-                    // ✅ Get loan price for specific company or default
                     $loanPrice = null;
                     if ($validated['company_id']) {
-                        // Try to get company-specific loan price
                         $loanPrice = $product->getLoanPriceForCompany($validated['company_id']);
                     }
-                    
-                    // Fallback to first loan price or null
                     if ($loanPrice === null && !empty($product->loan_selling_price)) {
                         $prices = is_array($product->loan_selling_price) 
                             ? $product->loan_selling_price 
@@ -284,7 +263,6 @@ class AgentSalesController extends BaseApiController
                             $loanPrice = $prices[0]['price'] ?? null;
                         }
                     }
-                    
                     if (is_null($loanPrice)) {
                         return $this->badRequest('Loan selling price is not set for this product.');
                     }
@@ -292,19 +270,17 @@ class AgentSalesController extends BaseApiController
                 }
             }
 
-            // Handle new structure (product_ids array)
+            // Update inventory
             if (!empty($inventory->product_ids) && is_array($inventory->product_ids)) {
                 $productIds = $inventory->product_ids;
                 $index = array_search($validated['product_id'], $productIds);
                 if ($index === false) {
-                    return $this->badRequest('Product not available in your inventory (not in product_ids array)');
+                    return $this->badRequest('Product not available in your inventory');
                 }
                 array_splice($productIds, $index, 1);
                 $inventory->product_ids = $productIds;
                 $inventory->save();
-            }
-            // Legacy structure
-            else {
+            } else {
                 $available = $inventory->quantity_received - $inventory->quantity_sold;
                 if ($available < 1) {
                     return $this->badRequest('Product no longer available');
@@ -313,18 +289,19 @@ class AgentSalesController extends BaseApiController
                 $inventory->save();
             }
 
-            // Create sale
+            // Create sale with company_id
             $sale = Sale::create([
                 'agent_id'       => $authUser->id,
                 'customer_id'    => $validated['customer_id'],
                 'product_id'     => $validated['product_id'],
                 'total_amount'   => $totalAmount,
                 'payment_method' => $validated['payment_method'],
+                'company_id'     => $validated['company_id'] ?? null,
                 'status'         => 'completed',
                 'notes'          => $validated['notes'] ?? null,
             ]);
 
-            // Mark product as sold in products table
+            // Mark product as sold
             if ($product->stock_status !== 'sold') {
                 $product->stock_status = 'sold';
                 $product->save();
@@ -352,7 +329,7 @@ class AgentSalesController extends BaseApiController
             $this->logAudit('sell_product', 'sale', $sale->sale_id, "Sold product {$validated['product_id']} for {$totalAmount}");
 
             return $this->created([
-                'sale'    => $sale->load('agent', 'customer', 'product'),
+                'sale'    => $sale->load('agent', 'customer', 'product', 'company'),
                 'receipt' => $receipt
             ], 'Sale completed successfully');
 
@@ -365,8 +342,7 @@ class AgentSalesController extends BaseApiController
     }
 
     /**
-     * 4. Return damaged product – adjust inventory (both structures)
-     * Permission: agent.return.create
+     * 4. Return damaged product
      */
     public function returnDamaged(Request $request)
     {
@@ -401,7 +377,6 @@ class AgentSalesController extends BaseApiController
 
             DB::beginTransaction();
 
-            // New structure: we need to add the product back to the product_ids array.
             if (!empty($inventory->product_ids) && is_array($inventory->product_ids)) {
                 $productIds = $inventory->product_ids;
                 for ($i = 0; $i < $validated['quantity']; $i++) {
@@ -409,9 +384,7 @@ class AgentSalesController extends BaseApiController
                 }
                 $inventory->product_ids = $productIds;
                 $inventory->save();
-            }
-            // Legacy structure: reduce quantity_sold (return means unsold)
-            else {
+            } else {
                 if ($inventory->quantity_sold < $validated['quantity']) {
                     return $this->badRequest('Cannot return more than sold quantity');
                 }
@@ -434,8 +407,7 @@ class AgentSalesController extends BaseApiController
     }
 
     /**
-     * 5. List the logged-in agent's sales (with product & customer details)
-     * Permission: agent.sales.view
+     * 5. List logged-in agent's sales
      */
     public function mySales(Request $request)
     {
@@ -448,12 +420,11 @@ class AgentSalesController extends BaseApiController
                 return $this->forbidden('Only sales agents can view their sales');
             }
 
-            $sales = Sale::with(['customer', 'product.category', 'receipt'])
+            $sales = Sale::with(['customer', 'product.category', 'receipt', 'company'])
                 ->where('agent_id', $authUser->id)
                 ->orderBy('created_at', 'desc')
                 ->paginate($request->get('per_page', 20));
 
-            // Add product details and loan prices to each sale
             $sales->getCollection()->transform(function ($sale) {
                 $product = $sale->product;
                 if ($product) {
@@ -463,8 +434,9 @@ class AgentSalesController extends BaseApiController
                     $sale->category_name = $product->category->category_name ?? null;
                     $sale->model = $product->category->model ?? null;
                     $sale->cash_selling_price = (float) $product->cash_selling_price;
-                    $sale->loan_prices = $this->formatLoanPrices($product); // ✅ Company loan prices
+                    $sale->loan_prices = $this->formatLoanPrices($product);
                 }
+                $sale->company_name = $sale->company ? $sale->company->company_name : null;
                 return $sale;
             });
 
@@ -476,8 +448,7 @@ class AgentSalesController extends BaseApiController
     }
 
     /**
-     * 6. Show a single sale (agent or admin/manager)
-     * Permission: agent.sale.view
+     * 6. Show a single sale
      */
     public function showSale($id)
     {
@@ -485,14 +456,13 @@ class AgentSalesController extends BaseApiController
         if ($perm) return $perm;
 
         try {
-            $sale = Sale::with(['customer', 'product.category', 'receipt'])->findOrFail($id);
+            $sale = Sale::with(['customer', 'product.category', 'receipt', 'company'])->findOrFail($id);
             $authUser = request()->user();
 
             if ($sale->agent_id !== $authUser->id && !$authUser->hasAnyRole(['ADMINISTRATOR', 'MANAGER'])) {
                 return $this->forbidden('Unauthorized');
             }
 
-            // Enrich with product details and loan prices
             $product = $sale->product;
             if ($product) {
                 $sale->product_name = $product->product_name;
@@ -501,8 +471,9 @@ class AgentSalesController extends BaseApiController
                 $sale->category_name = $product->category->category_name ?? null;
                 $sale->model = $product->category->model ?? null;
                 $sale->cash_selling_price = (float) $product->cash_selling_price;
-                $sale->loan_prices = $this->formatLoanPrices($product); // ✅ Company loan prices
+                $sale->loan_prices = $this->formatLoanPrices($product);
             }
+            $sale->company_name = $sale->company ? $sale->company->company_name : null;
 
             return $this->successResponse($sale, 'Sale details with full product info');
 

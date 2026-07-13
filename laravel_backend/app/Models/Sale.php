@@ -12,8 +12,15 @@ class Sale extends Model
     protected $primaryKey = 'sale_id';
 
     protected $fillable = [
-        'sale_id', 'agent_id', 'customer_id', 'product_id',
-        'total_amount', 'payment_method', 'status', 'notes'
+        'sale_id',
+        'agent_id',
+        'customer_id',
+        'product_id',
+        'total_amount',
+        'payment_method',
+        'company_id',   // ✅ new
+        'status',
+        'notes'
     ];
 
     protected $casts = [
@@ -47,7 +54,12 @@ class Sale extends Model
         return $this->belongsTo(Product::class, 'product_id', 'product_id');
     }
 
-    // ✅ Add this relationship
+    // ✅ Relationship to Company
+    public function company()
+    {
+        return $this->belongsTo(Company::class, 'company_id', 'id');
+    }
+
     public function receipt()
     {
         return $this->hasOne(Receipt::class, 'order_id', 'sale_id');
