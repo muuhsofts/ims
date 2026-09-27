@@ -19,10 +19,6 @@ class Company extends Model
     protected $keyType = 'string';
     protected $primaryKey = 'id';
 
-    // ---------------------------------------------------------------------
-    // FILLABLE
-    // ---------------------------------------------------------------------
-
     protected $fillable = [
         'id',
         'company_name',
@@ -33,22 +29,12 @@ class Company extends Model
         'created_by',
     ];
 
-    // ---------------------------------------------------------------------
-    // CASTS
-    // ---------------------------------------------------------------------
-
     protected $casts = [
         'status'     => 'string',
         'deleted_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
-
-    // ---------------------------------------------------------------------
-    // APPENDED (optional — remove if you don't want them in JSON)
-    // ---------------------------------------------------------------------
-
-    // protected $appends = ['status_label', 'formatted_address'];
 
     // ---------------------------------------------------------------------
     // BOOT — auto UUID
@@ -69,9 +55,6 @@ class Company extends Model
     // RELATIONSHIPS
     // ---------------------------------------------------------------------
 
-    /**
-     * User who created this company.
-     */
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by', 'id');
@@ -91,9 +74,6 @@ class Company extends Model
         return $query->where('status', 'inactive');
     }
 
-    /**
-     * Search by name, address, phone, or email.
-     */
     public function scopeSearch($query, string $search)
     {
         return $query->where(function ($q) use ($search) {
@@ -104,9 +84,6 @@ class Company extends Model
         });
     }
 
-    /**
-     * Only select id + name, ordered — for dropdowns.
-     */
     public function scopeDropdown($query)
     {
         return $query->active()
@@ -141,9 +118,6 @@ class Company extends Model
     // HELPERS — id + name
     // ---------------------------------------------------------------------
 
-    /**
-     * Single company as { id, name }.
-     */
     public function toDropdownArray(): array
     {
         return [
@@ -154,7 +128,6 @@ class Company extends Model
 
     /**
      * All active companies as [id => name] map.
-     * Useful for ->pluck() style access.
      */
     public static function getDropdownList(): array
     {
@@ -166,7 +139,6 @@ class Company extends Model
 
     /**
      * All active companies as [{ id, name }] array.
-     * Useful for frontend dropdowns.
      */
     public static function getDropdownOptions(): array
     {
@@ -182,7 +154,8 @@ class Company extends Model
 
     /**
      * Lookup map for enriching other models (no N+1).
-     * Pass an array of company IDs; get back [id => name].
+     * Uses withTrashed() so soft-deleted companies still resolve names
+     * for historical records (e.g., past loan prices on products).
      */
     public static function nameMapFor(array $ids): array
     {
@@ -190,7 +163,8 @@ class Company extends Model
             return [];
         }
 
-        return static::whereIn('id', array_unique($ids))
+        return static::withTrashed()
+            ->whereIn('id', array_unique($ids))
             ->pluck('company_name', 'id')
             ->toArray();
     }

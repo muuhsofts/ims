@@ -5,30 +5,30 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\BaseApiController;
 use App\Models\Product;
+use App\Models\ProductCategory;
 use App\Models\Inventory;
 use App\Models\Purchase;
+use App\Models\CollectionCenterInventory;
 use App\Traits\Auditable;
 use Illuminate\Http\Request;
-use App\Models\CollectionCenterInventory;
-use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class ProductController extends BaseApiController
 {
     use Auditable;
 
-    /**
-     * List products with filters
-     * Permission: products.view
-     */
+    // =====================================================================
+    // LIST / SHOW
+    // =====================================================================
+
     public function index(Request $request)
     {
-        $perm = $this->checkPermission('products.view');
-        if ($perm) return $perm;
+        if ($perm = $this->checkPermission('products.view')) return $perm;
 
         try {
             $query = Product::with('category');
+
             if ($request->filled('category_id')) {
                 $query->where('category_id', $request->category_id);
             }
@@ -42,23 +42,21 @@ class ProductController extends BaseApiController
                       ->orWhere('sku', 'LIKE', "%{$search}%");
                 });
             }
+
             $products = $query->orderBy('created_at', 'desc')
                              ->paginate($request->get('per_page', 15));
+
             $this->logAudit('view_products', 'product', null, 'Viewed products list');
+
             return $this->successResponse($products, 'Products retrieved');
         } catch (\Exception $e) {
             return $this->serverError('Failed to fetch products');
         }
     }
 
-    /**
-     * Show single product
-     * Permission: products.view
-     */
     public function show($id)
     {
-        $perm = $this->checkPermission('products.view');
-        if ($perm) return $perm;
+        if ($perm = $this->checkPermission('products.view')) return $perm;
 
         try {
             $product = Product::with('category')->findOrFail($id);
@@ -69,66 +67,40 @@ class ProductController extends BaseApiController
         }
     }
 
-    /**
-     * Get buying price from purchase history for a category and SKU
-     */
-    private function getBuyingPriceFromPurchase($categoryId, $sku)
-    {
-        $purchase = Purchase::where('category_id', $categoryId)
-            ->where('status', 'completed')
-            ->whereJsonContains('selected_skus', $sku)
-            ->orderBy('created_at', 'desc')
-            ->first();
+    // =====================================================================
+    // CREATE / UPDATE
+    // =====================================================================
 
-        return $purchase ? $purchase->unit_price : null;
-    }
-
-    /**
-     * Get total purchased quantity for a category and SKU
-     */
-    private function getTotalPurchasedQuantity($categoryId, $sku)
-    {
-        $total = Purchase::where('category_id', $categoryId)
-            ->where('status', 'completed')
-            ->whereJsonContains('selected_skus', $sku)
-            ->sum('quantity_ordered');
-
-        return $total;
-    }
-
-    /**
-     * Bulk create products with company loan prices
-     * Permission: products.create
-     */
     public function store(Request $request)
     {
-        $perm = $this->checkPermission('products.create');
-        if ($perm) return $perm;
+        if ($perm = $this->checkPermission('products.create')) return $perm;
 
         try {
             $request->validate([
-                'category_id' => 'required|string|exists:product_categories,category_id',
-                'sku' => 'required|string|max:255',
-                'imeis' => 'required|string',
-                'buying_price' => 'sometimes|numeric|min:0|nullable',
-                'cash_selling_price' => 'sometimes|numeric|min:0|nullable',
-                'loan_selling_price' => 'required|array|min:1',
-                'loan_selling_price.*.company_id' => 'required|string|exists:companies,id',
-                'loan_selling_price.*.price' => 'required|numeric|min:0',
-                'status' => 'sometimes|in:active,inactive,sold,damaged',
+                'category_id'                       => 'required|string|exists:product_categories,category_id',
+                'sku'                               => 'required|string|max:255',
+                'imeis'                             => 'required|string',
+                'buying_price'                      => 'sometimes|numeric|min:0|nullable',
+                'cash_selling_price'                => 'sometimes|numeric|min:0|nullable',
+                'loan_selling_price'                => 'required|array|min:1',
+                'loan_selling_price.*.company_id'   => 'required|string|exists:companies,id',
+                'loan_selling_price.*.price'        => 'required|numeric|min:0',
+                'status'                            => 'sometimes|in:active,inactive,sold,damaged',
             ]);
 
-            $category = \App\Models\ProductCategory::find($request->category_id);
+            $category = ProductCategory::find($request->category_id);
             if (!$category) {
                 return $this->validationError(['category_id' => ['Category not found']]);
             }
+
             $validSkus = $category->sku ?? [];
             if (!in_array($request->sku, $validSkus)) {
                 return $this->validationError(['sku' => ["SKU '{$request->sku}' is not valid for this category"]]);
             }
 
             $imeis = preg_split('/[\s,]+/', trim($request->imeis));
-            $imeis = array_filter($imeis, fn($imei) => !empty($imei));
+            $imeis = array_filter($imeis, fn ($imei) => !empty($imei));
+
             if (empty($imeis)) {
                 return $this->validationError(['imeis' => ['At least one IMEI is required']]);
             }
@@ -143,57 +115,47 @@ class ProductController extends BaseApiController
                 return $this->validationError(['imeis' => ['IMEIs already exist: ' . implode(', ', $existing)]]);
             }
 
+            // Buying price
             $buyingPrice = $request->buying_price;
-            if (empty($buyingPrice) || $buyingPrice === null) {
-                $purchasePrice = $this->getBuyingPriceFromPurchase($request->category_id, $request->sku);
-                if ($purchasePrice !== null) {
-                    $buyingPrice = $purchasePrice;
-                } else {
+            if (empty($buyingPrice)) {
+                $buyingPrice = $this->getBuyingPriceFromPurchase($request->category_id, $request->sku);
+                if ($buyingPrice === null) {
                     return $this->validationError(['buying_price' => ['No purchase record found for this category and SKU. Please enter buying price manually.']]);
                 }
             }
 
-            $totalPurchased = $this->getTotalPurchasedQuantity($request->category_id, $request->sku);
-            $existingProducts = Product::where('category_id', $request->category_id)
+            // Purchase quantity guard
+            $totalPurchased    = $this->getTotalPurchasedQuantity($request->category_id, $request->sku);
+            $existingProducts  = Product::where('category_id', $request->category_id)
                 ->where('sku', $request->sku)
                 ->count();
-            
             $newTotal = $existingProducts + count($uniqueImeis);
+
             if ($totalPurchased > 0 && $newTotal > $totalPurchased) {
                 return $this->validationError([
                     'imeis' => [
-                        "Cannot add " . count($uniqueImeis) . " products. Only " . ($totalPurchased - $existingProducts) . " more items available from purchase (Total purchased: {$totalPurchased}, Already added: {$existingProducts})."
+                        "Cannot add " . count($uniqueImeis) . " products. Only " .
+                        ($totalPurchased - $existingProducts) .
+                        " more items available from purchase (Total purchased: {$totalPurchased}, Already added: {$existingProducts})."
                     ]
                 ]);
             }
 
-            // Format loan prices
-            $loanPrices = [];
-            if ($request->has('loan_selling_price') && is_array($request->loan_selling_price)) {
-                foreach ($request->loan_selling_price as $lp) {
-                    if (isset($lp['company_id']) && isset($lp['price'])) {
-                        $loanPrices[] = [
-                            'company_id' => $lp['company_id'],
-                            'price' => (float) $lp['price']
-                        ];
-                    }
-                }
-            }
+            $loanPrices = $this->formatLoanPrices($request->loan_selling_price);
 
             DB::beginTransaction();
             $created = [];
             foreach ($uniqueImeis as $imei) {
-                $product = Product::create([
-                    'category_id' => $request->category_id,
-                    'sku' => $request->sku,
-                    'imei' => $imei,
-                    'buying_price' => $buyingPrice,
+                $created[] = Product::create([
+                    'category_id'        => $request->category_id,
+                    'sku'                => $request->sku,
+                    'imei'               => $imei,
+                    'buying_price'       => $buyingPrice,
                     'cash_selling_price' => $request->cash_selling_price ?? null,
                     'loan_selling_price' => $loanPrices,
-                    'status' => $request->input('status', 'active'),
-                    'stock_status' => 'in_stock',
+                    'status'             => $request->input('status', 'active'),
+                    'stock_status'       => 'in_stock',
                 ]);
-                $created[] = $product;
             }
             DB::commit();
 
@@ -210,50 +172,43 @@ class ProductController extends BaseApiController
         }
     }
 
-    /**
-     * Update a single product with company loan prices
-     * Permission: products.edit
-     */
     public function update(Request $request, $id)
     {
-        $perm = $this->checkPermission('products.edit');
-        if ($perm) return $perm;
+        if ($perm = $this->checkPermission('products.edit')) return $perm;
 
         try {
             $product = Product::findOrFail($id);
 
             $request->validate([
-                'category_id' => 'sometimes|string|exists:product_categories,category_id',
-                'sku' => 'nullable|string|max:255',
-                'imei' => 'nullable|string|max:255|unique:products,imei,' . $product->product_id . ',product_id',
-                'buying_price' => 'sometimes|numeric|min:0',
-                'cash_selling_price' => 'sometimes|numeric|min:0|nullable',
-                'loan_selling_price' => 'sometimes|array|min:1',
-                'loan_selling_price.*.company_id' => 'required|string|exists:companies,id',
-                'loan_selling_price.*.price' => 'required|numeric|min:0',
-                'status' => 'sometimes|in:active,inactive,sold,damaged',
+                'category_id'                       => 'sometimes|string|exists:product_categories,category_id',
+                'sku'                               => 'nullable|string|max:255',
+                'imei'                              => 'nullable|string|max:255|unique:products,imei,' . $product->product_id . ',product_id',
+                'buying_price'                      => 'sometimes|numeric|min:0',
+                'cash_selling_price'                => 'sometimes|numeric|min:0|nullable',
+                'loan_selling_price'                => 'sometimes|array|min:1',
+                'loan_selling_price.*.company_id'   => 'required|string|exists:companies,id',
+                'loan_selling_price.*.price'        => 'required|numeric|min:0',
+                'status'                            => 'sometimes|in:active,inactive,sold,damaged',
             ]);
 
-            $data = $request->only(['category_id', 'sku', 'imei', 'buying_price', 'cash_selling_price', 'status']);
+            $data = $request->only([
+                'category_id', 'sku', 'imei',
+                'buying_price', 'cash_selling_price', 'status',
+            ]);
 
-            if ($request->has('loan_selling_price') && is_array($request->loan_selling_price)) {
-                $loanPrices = [];
-                foreach ($request->loan_selling_price as $lp) {
-                    if (isset($lp['company_id']) && isset($lp['price'])) {
-                        $loanPrices[] = [
-                            'company_id' => $lp['company_id'],
-                            'price' => (float) $lp['price']
-                        ];
-                    }
-                }
+            if ($request->has('loan_selling_price')) {
+                $loanPrices = $this->formatLoanPrices($request->loan_selling_price);
                 $data['loan_selling_price'] = !empty($loanPrices) ? $loanPrices : null;
             }
 
-            if (($request->has('category_id') && $request->category_id != $product->category_id) ||
-                ($request->has('sku') && $request->sku != $product->sku)) {
+            // Validate SKU against category if either changed
+            if (($request->filled('category_id') && $request->category_id != $product->category_id) ||
+                ($request->filled('sku') && $request->sku != $product->sku)) {
+
                 $catId = $request->category_id ?? $product->category_id;
-                $sku = $request->sku ?? $product->sku;
-                $category = \App\Models\ProductCategory::find($catId);
+                $sku   = $request->sku ?? $product->sku;
+
+                $category = ProductCategory::find($catId);
                 if (!$category) {
                     return $this->validationError(['category_id' => ['Category not found']]);
                 }
@@ -276,19 +231,19 @@ class ProductController extends BaseApiController
         }
     }
 
-    /**
-     * Soft delete a product
-     * Permission: products.delete
-     */
+    // =====================================================================
+    // DELETE / RESTORE
+    // =====================================================================
+
     public function destroy($id, Request $request)
     {
-        $perm = $this->checkPermission('products.delete');
-        if ($perm) return $perm;
+        if ($perm = $this->checkPermission('products.delete')) return $perm;
 
         try {
             $product = Product::findOrFail($id);
             $imei = $product->imei;
             $product->delete();
+
             $this->logAudit('delete_product', 'product', $id, "Soft-deleted product IMEI: {$imei}");
             return $this->successResponse(null, 'Product deleted (soft delete)');
         } catch (\Exception $e) {
@@ -296,18 +251,14 @@ class ProductController extends BaseApiController
         }
     }
 
-    /**
-     * Restore soft-deleted product
-     * Permission: products.restore
-     */
     public function restore($id, Request $request)
     {
-        $perm = $this->checkPermission('products.restore');
-        if ($perm) return $perm;
+        if ($perm = $this->checkPermission('products.restore')) return $perm;
 
         try {
             $product = Product::withTrashed()->findOrFail($id);
             $product->restore();
+
             $this->logAudit('restore_product', 'product', $id, "Restored product IMEI: {$product->imei}");
             return $this->successResponse($product->load('category'), 'Product restored');
         } catch (\Exception $e) {
@@ -315,18 +266,14 @@ class ProductController extends BaseApiController
         }
     }
 
-    /**
-     * Force delete product permanently
-     * Permission: products.force_delete
-     */
     public function forceDelete($id, Request $request)
     {
-        $perm = $this->checkPermission('products.force_delete');
-        if ($perm) return $perm;
+        if ($perm = $this->checkPermission('products.force_delete')) return $perm;
 
         try {
             $product = Product::withTrashed()->findOrFail($id);
             $product->forceDelete();
+
             $this->logAudit('force_delete_product', 'product', $id, "Permanently deleted product ID: {$id}");
             return $this->successResponse(null, 'Product permanently deleted');
         } catch (\Exception $e) {
@@ -334,79 +281,58 @@ class ProductController extends BaseApiController
         }
     }
 
-    /**
-     * Change product status
-     * Permission: products.change_status
-     */
     public function changeStatus(Request $request, $id)
     {
-        $perm = $this->checkPermission('products.change_status');
-        if ($perm) return $perm;
+        if ($perm = $this->checkPermission('products.change_status')) return $perm;
 
         try {
             $request->validate([
                 'status' => 'required|in:active,inactive,sold,damaged',
             ]);
-            $product = Product::findOrFail($id);
+
+            $product   = Product::findOrFail($id);
             $oldStatus = $product->status;
             $product->setStatus($request->status);
+
             $this->logAudit('change_product_status', 'product', $product->product_id,
                 "Changed status from {$oldStatus} to {$request->status} for product IMEI: {$product->imei}");
+
             return $this->successResponse($product, 'Product status updated');
         } catch (\Exception $e) {
             return $this->serverError('Failed to change product status');
         }
     }
 
-    // -------------------------------------------------------------------------
-    // SCANNER ENDPOINTS
-    // -------------------------------------------------------------------------
+    // =====================================================================
+    // SCANNER
+    // =====================================================================
 
     public function scanByImei($imei)
     {
-        $perm = $this->checkPermission('products.scan');
-        if ($perm) return $perm;
+        if ($perm = $this->checkPermission('products.scan')) return $perm;
 
-        try {
-            $product = Product::with('category')->where('imei', $imei)->first();
-            if (!$product) {
-                return $this->notFound('Product with this IMEI not found');
-            }
-            $this->logAudit('scan_imei', 'product', $product->product_id, "Scanned IMEI: {$imei}");
-            return $this->successResponse($product, 'Product found');
-        } catch (\Exception $e) {
-            return $this->serverError('Failed to scan IMEI');
-        }
+        return $this->findByImeiResponse($imei);
     }
 
     public function scanImeiPost(Request $request)
     {
-        $perm = $this->checkPermission('products.scan');
-        if ($perm) return $perm;
+        if ($perm = $this->checkPermission('products.scan')) return $perm;
 
         try {
             $request->validate(['imei' => 'required|string']);
-            $imei = $request->imei;
-            $product = Product::with('category')->where('imei', $imei)->first();
-            if (!$product) {
-                return $this->notFound('Product with this IMEI not found');
-            }
-            $this->logAudit('scan_imei', 'product', $product->product_id, "Scanned IMEI: {$imei}");
-            return $this->successResponse($product, 'Product found');
+            return $this->findByImeiResponse($request->imei);
         } catch (ValidationException $e) {
             return $this->validationError($e->errors());
-        } catch (\Exception $e) {
-            return $this->serverError('Failed to scan IMEI');
         }
     }
 
     public function assignImei(Request $request, $id)
     {
-        $perm = $this->checkPermission('products.assign_imei');
-        if ($perm) return $perm;
+        if ($perm = $this->checkPermission('products.assign_imei')) return $perm;
 
         try {
             $product = Product::findOrFail($id);
+
             $request->validate([
                 'imei' => 'required|string|max:255|unique:products,imei,' . $product->product_id . ',product_id',
             ]);
@@ -415,7 +341,9 @@ class ProductController extends BaseApiController
             $product->imei = $request->imei;
             $product->save();
 
-            $this->logAudit('assign_imei', 'product', $product->product_id, "Assigned IMEI: {$oldImei} → {$product->imei}");
+            $this->logAudit('assign_imei', 'product', $product->product_id,
+                "Assigned IMEI: {$oldImei} → {$product->imei}");
+
             return $this->successResponse($product, 'IMEI assigned successfully');
         } catch (ValidationException $e) {
             return $this->validationError($e->errors());
@@ -424,20 +352,20 @@ class ProductController extends BaseApiController
         }
     }
 
-    // -------------------------------------------------------------------------
-    // DROPDOWN ENDPOINTS
-    // -------------------------------------------------------------------------
+    // =====================================================================
+    // DROPDOWNS
+    // =====================================================================
 
     public function getPurchaseInfo(Request $request)
     {
         try {
             $request->validate([
                 'category_id' => 'required|string|exists:product_categories,category_id',
-                'sku' => 'required|string',
+                'sku'         => 'required|string',
             ]);
 
             $categoryId = $request->category_id;
-            $sku = $request->sku;
+            $sku        = $request->sku;
 
             $latestPurchase = Purchase::where('category_id', $categoryId)
                 ->where('status', 'completed')
@@ -459,22 +387,20 @@ class ProductController extends BaseApiController
                 ->whereJsonContains('selected_skus', $sku)
                 ->orderBy('created_at', 'desc')
                 ->get()
-                ->map(function ($purchase) {
-                    return [
-                        'purchase_id' => $purchase->purchase_id,
-                        'quantity_ordered' => $purchase->quantity_ordered,
-                        'unit_price' => $purchase->unit_price,
-                        'created_at' => $purchase->created_at,
-                    ];
-                });
+                ->map(fn ($p) => [
+                    'purchase_id'      => $p->purchase_id,
+                    'quantity_ordered' => $p->quantity_ordered,
+                    'unit_price'       => $p->unit_price,
+                    'created_at'       => $p->created_at,
+                ]);
 
             return $this->successResponse([
-                'unit_price' => $latestPurchase?->unit_price,
-                'total_purchased' => $totalPurchased,
-                'current_count' => $currentCount,
-                'available_to_add' => max(0, $totalPurchased - $currentCount),
-                'purchase_exists' => $latestPurchase !== null,
-                'purchases' => $purchases,
+                'unit_price'        => $latestPurchase?->unit_price,
+                'total_purchased'   => $totalPurchased,
+                'current_count'     => $currentCount,
+                'available_to_add'  => max(0, $totalPurchased - $currentCount),
+                'purchase_exists'   => $latestPurchase !== null,
+                'purchases'         => $purchases,
             ], 'Purchase info retrieved successfully');
         } catch (ValidationException $e) {
             return $this->validationError($e->errors());
@@ -485,46 +411,33 @@ class ProductController extends BaseApiController
 
     public function Productdropdown(Request $request)
     {
-        $perm = $this->checkPermission('products.view');
-        if ($perm) return $perm;
+        if ($perm = $this->checkPermission('products.view')) return $perm;
 
         try {
-            $warehouseProductIds = Inventory::pluck('product_ids')
-                ->filter()
-                ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
-                ->unique()
-                ->values()
-                ->toArray();
+            $excludedIds = $this->excludedProductIds();
 
-            $ccProductIds = CollectionCenterInventory::pluck('product_ids')
-                ->filter()
-                ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
-                ->unique()
-                ->values()
-                ->toArray();
-
-            $excludedIds = array_unique(array_merge($warehouseProductIds, $ccProductIds));
-
-            $products = Product::select('product_id', 'imei', 'sku', 'category_id', 'stock_status',
-                'cash_selling_price', 'loan_selling_price')
-                ->with(['category' => fn($q) => $q->select('category_id', 'category_name', 'model')])
+            $products = Product::select(
+                    'product_id', 'imei', 'sku', 'category_id',
+                    'stock_status', 'cash_selling_price', 'loan_selling_price'
+                )
+                ->with(['category' => fn ($q) => $q->select('category_id', 'category_name', 'model')])
                 ->where('status', 'active')
                 ->where('stock_status', 'in_stock')
                 ->whereNull('deleted_at')
-                ->when(!empty($excludedIds), fn($q) => $q->whereNotIn('product_id', $excludedIds))
-                ->when($request->filled('category_id'), fn($q) => $q->where('category_id', $request->category_id))
+                ->when(!empty($excludedIds), fn ($q) => $q->whereNotIn('product_id', $excludedIds))
+                ->when($request->filled('category_id'), fn ($q) => $q->where('category_id', $request->category_id))
                 ->when($request->filled('search'), function ($q) use ($request) {
                     $s = $request->search;
-                    $q->where(fn($q) => $q->where('imei', 'LIKE', "%{$s}%")
+                    $q->where(fn ($q) => $q->where('imei', 'LIKE', "%{$s}%")
                                           ->orWhere('sku', 'LIKE', "%{$s}%"));
                 })
                 ->orderBy('imei')
                 ->get()
-                ->map(fn($p) => [
-                    'id' => $p->product_id,
-                    'label' => ($p->category?->category_name ?? 'No Category') . ' | ' .
-                               ($p->category?->model ?? 'No Model') . ' | ' .
-                               ($p->sku ?? 'No SKU') . ' | IMEI: ' . ($p->imei ?? ''),
+                ->map(fn ($p) => [
+                    'id'                 => $p->product_id,
+                    'label'              => ($p->category?->category_name ?? 'No Category') . ' | ' .
+                                            ($p->category?->model ?? 'No Model') . ' | ' .
+                                            ($p->sku ?? 'No SKU') . ' | IMEI: ' . ($p->imei ?? ''),
                     'cash_selling_price' => $p->cash_selling_price,
                     'loan_selling_price' => $p->loan_selling_price,
                 ]);
@@ -541,20 +454,17 @@ class ProductController extends BaseApiController
             return $this->forbidden();
         }
 
-        $warehouseProductIds = Inventory::pluck('product_ids')
+        $warehouseIds = Inventory::pluck('product_ids')
             ->filter()
-            ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
-            ->unique()
-            ->values()
-            ->toArray();
+            ->flatMap(fn ($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
+            ->unique()->values()->toArray();
 
-        $ccProductIds = CollectionCenterInventory::pluck('product_ids')
+        $ccIds = CollectionCenterInventory::pluck('product_ids')
             ->filter()
-            ->flatMap(fn($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
-            ->unique()
-            ->toArray();
+            ->flatMap(fn ($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
+            ->unique()->toArray();
 
-        $availableIds = array_diff($warehouseProductIds, $ccProductIds);
+        $availableIds = array_diff($warehouseIds, $ccIds);
 
         if (empty($availableIds)) {
             return $this->successResponse([], 'No products available to move');
@@ -564,13 +474,86 @@ class ProductController extends BaseApiController
             ->where('stock_status', 'in_stock')
             ->with('category')
             ->get()
-            ->map(fn($p) => [
-                'id' => $p->product_id,
-                'label' => "Cate: {$p->category?->category_name}, Model: {$p->category?->model}, SKU: {$p->sku} | IMEI: {$p->imei}",
+            ->map(fn ($p) => [
+                'id'                 => $p->product_id,
+                'label'              => "Cate: {$p->category?->category_name}, " .
+                                        "Model: {$p->category?->model}, " .
+                                        "SKU: {$p->sku} | IMEI: {$p->imei}",
                 'cash_selling_price' => $p->cash_selling_price,
                 'loan_selling_price' => $p->loan_selling_price,
             ]);
 
         return $this->successResponse($products);
+    }
+
+    // =====================================================================
+    // PRIVATE HELPERS
+    // =====================================================================
+
+    private function getBuyingPriceFromPurchase(string $categoryId, string $sku): ?float
+    {
+        $purchase = Purchase::where('category_id', $categoryId)
+            ->where('status', 'completed')
+            ->whereJsonContains('selected_skus', $sku)
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        return $purchase ? (float) $purchase->unit_price : null;
+    }
+
+    private function getTotalPurchasedQuantity(string $categoryId, string $sku): int
+    {
+        return (int) Purchase::where('category_id', $categoryId)
+            ->where('status', 'completed')
+            ->whereJsonContains('selected_skus', $sku)
+            ->sum('quantity_ordered');
+    }
+
+    private function formatLoanPrices($prices): array
+    {
+        if (!is_array($prices)) {
+            return [];
+        }
+
+        $formatted = [];
+        foreach ($prices as $lp) {
+            if (isset($lp['company_id'], $lp['price'])) {
+                $formatted[] = [
+                    'company_id' => $lp['company_id'],
+                    'price'      => (float) $lp['price'],
+                ];
+            }
+        }
+        return $formatted;
+    }
+
+    private function excludedProductIds(): array
+    {
+        $warehouseIds = Inventory::pluck('product_ids')
+            ->filter()
+            ->flatMap(fn ($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
+            ->unique()->values()->toArray();
+
+        $ccIds = CollectionCenterInventory::pluck('product_ids')
+            ->filter()
+            ->flatMap(fn ($ids) => is_array($ids) ? $ids : json_decode($ids, true) ?? [])
+            ->unique()->toArray();
+
+        return array_unique(array_merge($warehouseIds, $ccIds));
+    }
+
+    private function findByImeiResponse(string $imei)
+    {
+        try {
+            $product = Product::with('category')->where('imei', $imei)->first();
+            if (!$product) {
+                return $this->notFound('Product with this IMEI not found');
+            }
+
+            $this->logAudit('scan_imei', 'product', $product->product_id, "Scanned IMEI: {$imei}");
+            return $this->successResponse($product, 'Product found');
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to scan IMEI');
+        }
     }
 }

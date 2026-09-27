@@ -23,7 +23,6 @@ class Product extends Model
     // CONSTANTS
     // ---------------------------------------------------------------------
 
-    // Status
     const STATUS_ACTIVE          = 'active';
     const STATUS_INACTIVE        = 'inactive';
     const STATUS_SOLD            = 'sold';
@@ -31,7 +30,6 @@ class Product extends Model
     const STATUS_RETURN_PENDING  = 'return_pending';
     const STATUS_RETURNED        = 'returned';
 
-    // Stock status
     const STOCK_IN_STOCK        = 'in_stock';
     const STOCK_TRANSFERRED     = 'transferred';
     const STOCK_RECEIVED        = 'received';
@@ -40,7 +38,6 @@ class Product extends Model
     const STOCK_PENDING_RETURN  = 'pending_return';
     const STOCK_RETURNED        = 'returned';
 
-    // Condition
     const CONDITION_GOOD      = 'good';
     const CONDITION_DAMAGED   = 'damaged';
     const CONDITION_DEFECTIVE = 'defective';
@@ -67,8 +64,8 @@ class Product extends Model
         'buying_price'       => 'decimal:2',
         'cash_selling_price' => 'decimal:2',
         'discounted_price'   => 'decimal:2',
-        // NOTE: loan_selling_price cast is intentionally NOT set here.
-        // The custom accessor/mutator below handles array <-> JSON + company_name.
+        // loan_selling_price is intentionally NOT cast — the custom
+        // accessor/mutator below handles array <-> JSON + company_name.
         'deleted_at'         => 'datetime',
         'created_at'         => 'datetime',
         'updated_at'         => 'datetime',
@@ -101,7 +98,7 @@ class Product extends Model
     }
 
     // ---------------------------------------------------------------------
-    // MUTATOR — store clean {company_id, price} array
+    // MUTATOR
     // ---------------------------------------------------------------------
 
     /**
@@ -115,7 +112,6 @@ class Product extends Model
             return;
         }
 
-        // Accept a JSON string
         if (is_string($value)) {
             $decoded = json_decode($value, true);
             $value = is_array($decoded) ? $decoded : [];
@@ -136,12 +132,12 @@ class Product extends Model
     }
 
     // ---------------------------------------------------------------------
-    // ACCESSOR — return enriched loan prices with company_name
+    // ACCESSOR — enriched loan_selling_price
     // ---------------------------------------------------------------------
 
     /**
      * Returns loan_selling_price enriched with company_name.
-     * Uses one query (whereIn) — no N+1 per row.
+     * One whereIn query — no N+1 per row.
      */
     public function getLoanSellingPriceAttribute($value): array
     {
@@ -161,7 +157,7 @@ class Product extends Model
     }
 
     /**
-     * Internal: decode raw loan_selling_price from attributes.
+     * Internal: decode raw loan_selling_price.
      */
     private function decodeLoanPrices($value = null): array
     {
@@ -280,10 +276,6 @@ class Product extends Model
     // PRICING HELPERS
     // ---------------------------------------------------------------------
 
-    /**
-     * Get the loan price for a specific company, or null if not set.
-     * Reads raw attributes directly — does NOT hit the DB.
-     */
     public function getLoanPriceForCompany(string $companyId): ?float
     {
         foreach ($this->decodeLoanPrices() as $item) {
@@ -294,9 +286,6 @@ class Product extends Model
         return null;
     }
 
-    /**
-     * Resolve the selling price for a given payment type and optional company.
-     */
     public function getSellingPrice(string $type = 'cash', ?string $companyId = null): ?float
     {
         if ($type === 'loan') {
