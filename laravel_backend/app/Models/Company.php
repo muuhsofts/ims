@@ -1,18 +1,27 @@
 <?php
+// app/Models/Company.php
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
 class Company extends Model
 {
-    use SoftDeletes;
+    use HasFactory, SoftDeletes;
+
+    protected $table = 'companies';
 
     public $incrementing = false;
     protected $keyType = 'string';
     protected $primaryKey = 'id';
+
+    // ---------------------------------------------------------------------
+    // FILLABLE
+    // ---------------------------------------------------------------------
 
     protected $fillable = [
         'id',
@@ -21,90 +30,168 @@ class Company extends Model
         'phone',
         'email',
         'status',
-        'created_by'
+        'created_by',
     ];
 
+    // ---------------------------------------------------------------------
+    // CASTS
+    // ---------------------------------------------------------------------
+
     protected $casts = [
-        'status' => 'string',
+        'status'     => 'string',
         'deleted_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
 
-    protected static function boot()
+    // ---------------------------------------------------------------------
+    // APPENDED (optional — remove if you don't want them in JSON)
+    // ---------------------------------------------------------------------
+
+    // protected $appends = ['status_label', 'formatted_address'];
+
+    // ---------------------------------------------------------------------
+    // BOOT — auto UUID
+    // ---------------------------------------------------------------------
+
+    protected static function boot(): void
     {
         parent::boot();
-        static::creating(function ($model) {
-            if (empty($model->id)) {
-                $model->id = (string) Str::uuid();
+
+        static::creating(function (self $model) {
+            if (empty($model->{$model->getKeyName()})) {
+                $model->{$model->getKeyName()} = (string) Str::uuid();
             }
         });
     }
 
-    // ========== RELATIONSHIPS ==========
-    
+    // ---------------------------------------------------------------------
+    // RELATIONSHIPS
+    // ---------------------------------------------------------------------
+
     /**
-     * Get the user who created this company
+     * User who created this company.
      */
-    public function creator()
+    public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by', 'id');
     }
 
-    // ========== SCOPES ==========
-    
-    /**
-     * Scope a query to only include active companies
-     */
+    // ---------------------------------------------------------------------
+    // SCOPES
+    // ---------------------------------------------------------------------
+
     public function scopeActive($query)
     {
         return $query->where('status', 'active');
     }
 
-    /**
-     * Scope a query to only include inactive companies
-     */
     public function scopeInactive($query)
     {
         return $query->where('status', 'inactive');
     }
 
     /**
-     * Scope a query to search by company name
+     * Search by name, address, phone, or email.
      */
-    public function scopeSearch($query, $search)
+    public function scopeSearch($query, string $search)
     {
-        return $query->where('company_name', 'LIKE', "%{$search}%")
-                     ->orWhere('address', 'LIKE', "%{$search}%")
-                     ->orWhere('phone', 'LIKE', "%{$search}%")
-                     ->orWhere('email', 'LIKE', "%{$search}%");
+        return $query->where(function ($q) use ($search) {
+            $q->where('company_name', 'LIKE', "%{$search}%")
+              ->orWhere('address', 'LIKE', "%{$search}%")
+              ->orWhere('phone', 'LIKE', "%{$search}%")
+              ->orWhere('email', 'LIKE', "%{$search}%");
+        });
     }
 
-    // ========== ACCESSORS ==========
-    
     /**
-     * Get formatted address
+     * Only select id + name, ordered — for dropdowns.
      */
-    public function getFormattedAddressAttribute()
+    public function scopeDropdown($query)
+    {
+        return $query->active()
+                     ->select('id', 'company_name')
+                     ->orderBy('company_name');
+    }
+
+    // ---------------------------------------------------------------------
+    // ACCESSORS
+    // ---------------------------------------------------------------------
+
+    public function getFormattedAddressAttribute(): string
     {
         return $this->address ?? 'N/A';
     }
 
-    /**
-     * Get company status label
-     */
-    public function getStatusLabelAttribute()
+    public function getStatusLabelAttribute(): string
     {
-        return ucfirst($this->status);
+        return ucfirst($this->status ?? '');
     }
 
-    // ========== MUTATORS ==========
-    
-    /**
-     * Set the company name and ensure it's properly formatted
-     */
-    public function setCompanyNameAttribute($value)
+    // ---------------------------------------------------------------------
+    // MUTATORS
+    // ---------------------------------------------------------------------
+
+    public function setCompanyNameAttribute($value): void
     {
-        $this->attributes['company_name'] = trim($value);
+        $this->attributes['company_name'] = trim((string) $value);
+    }
+
+    // ---------------------------------------------------------------------
+    // HELPERS — id + name
+    // ---------------------------------------------------------------------
+
+    /**
+     * Single company as { id, name }.
+     */
+    public function toDropdownArray(): array
+    {
+        return [
+            'id'   => $this->id,
+            'name' => $this->company_name,
+        ];
+    }
+
+    /**
+     * All active companies as [id => name] map.
+     * Useful for ->pluck() style access.
+     */
+    public static function getDropdownList(): array
+    {
+        return static::active()
+            ->orderBy('company_name')
+            ->pluck('company_name', 'id')
+            ->toArray();
+    }
+
+    /**
+     * All active companies as [{ id, name }] array.
+     * Useful for frontend dropdowns.
+     */
+    public static function getDropdownOptions(): array
+    {
+        return static::active()
+            ->orderBy('company_name')
+            ->get(['id', 'company_name'])
+            ->map(fn ($c) => [
+                'id'   => $c->id,
+                'name' => $c->company_name,
+            ])
+            ->toArray();
+    }
+
+    /**
+     * Lookup map for enriching other models (no N+1).
+     * Pass an array of company IDs; get back [id => name].
+     */
+    public static function nameMapFor(array $ids): array
+    {
+        if (empty($ids)) {
+            return [];
+        }
+
+        return static::whereIn('id', array_unique($ids))
+            ->pluck('company_name', 'id')
+            ->toArray();
     }
 }

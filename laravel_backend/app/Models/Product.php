@@ -5,6 +5,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
@@ -17,6 +18,36 @@ class Product extends Model
     public $incrementing = false;
     protected $keyType = 'string';
     protected $primaryKey = 'product_id';
+
+    // ---------------------------------------------------------------------
+    // CONSTANTS
+    // ---------------------------------------------------------------------
+
+    // Status
+    const STATUS_ACTIVE          = 'active';
+    const STATUS_INACTIVE        = 'inactive';
+    const STATUS_SOLD            = 'sold';
+    const STATUS_DAMAGED         = 'damaged';
+    const STATUS_RETURN_PENDING  = 'return_pending';
+    const STATUS_RETURNED        = 'returned';
+
+    // Stock status
+    const STOCK_IN_STOCK        = 'in_stock';
+    const STOCK_TRANSFERRED     = 'transferred';
+    const STOCK_RECEIVED        = 'received';
+    const STOCK_SOLD            = 'sold';
+    const STOCK_DAMAGED         = 'damaged';
+    const STOCK_PENDING_RETURN  = 'pending_return';
+    const STOCK_RETURNED        = 'returned';
+
+    // Condition
+    const CONDITION_GOOD      = 'good';
+    const CONDITION_DAMAGED   = 'damaged';
+    const CONDITION_DEFECTIVE = 'defective';
+
+    // ---------------------------------------------------------------------
+    // ATTRIBUTES
+    // ---------------------------------------------------------------------
 
     protected $fillable = [
         'category_id',
@@ -33,146 +64,240 @@ class Product extends Model
     ];
 
     protected $casts = [
-        'buying_price' => 'decimal:2',
+        'buying_price'       => 'decimal:2',
         'cash_selling_price' => 'decimal:2',
-        'loan_selling_price' => 'array',
-        'discounted_price' => 'decimal:2',
-        'deleted_at' => 'datetime',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
+        'discounted_price'   => 'decimal:2',
+        // NOTE: loan_selling_price cast is intentionally NOT set here.
+        // The custom accessor/mutator below handles array <-> JSON + company_name.
+        'deleted_at'         => 'datetime',
+        'created_at'         => 'datetime',
+        'updated_at'         => 'datetime',
     ];
 
     protected $appends = ['product_name', 'category_name'];
 
-    // Status constants
-    const STATUS_ACTIVE = 'active';
-    const STATUS_INACTIVE = 'inactive';
-    const STATUS_SOLD = 'sold';
-    const STATUS_DAMAGED = 'damaged';
-    const STATUS_RETURN_PENDING = 'return_pending';
-    const STATUS_RETURNED = 'returned';
+    // ---------------------------------------------------------------------
+    // BOOT
+    // ---------------------------------------------------------------------
 
-    // Stock status constants
-    const STOCK_IN_STOCK = 'in_stock';
-    const STOCK_TRANSFERRED = 'transferred';
-    const STOCK_RECEIVED = 'received';
-    const STOCK_SOLD = 'sold';
-    const STOCK_DAMAGED = 'damaged';
-    const STOCK_PENDING_RETURN = 'pending_return';
-    const STOCK_RETURNED = 'returned';
-
-    // Condition constants
-    const CONDITION_GOOD = 'good';
-    const CONDITION_DAMAGED = 'damaged';
-    const CONDITION_DEFECTIVE = 'defective';
-
-    protected static function boot()
+    protected static function boot(): void
     {
         parent::boot();
 
-        static::creating(function ($model) {
+        static::creating(function (self $model) {
             if (empty($model->{$model->getKeyName()})) {
                 $model->{$model->getKeyName()} = (string) Str::uuid();
             }
         });
     }
 
-    public function category()
+    // ---------------------------------------------------------------------
+    // RELATIONSHIPS
+    // ---------------------------------------------------------------------
+
+    public function category(): BelongsTo
     {
         return $this->belongsTo(ProductCategory::class, 'category_id', 'category_id');
     }
 
+    // ---------------------------------------------------------------------
+    // MUTATOR — store clean {company_id, price} array
+    // ---------------------------------------------------------------------
+
     /**
-     * Get loan price for a specific company ID
+     * Normalize incoming loan_selling_price to a clean array of
+     * {company_id, price} pairs. Stored as JSON string in DB.
      */
-    public function getLoanPriceForCompany($companyId)
+    public function setLoanSellingPriceAttribute($value): void
     {
-        if (empty($this->loan_selling_price)) {
-            return null;
+        if (empty($value)) {
+            $this->attributes['loan_selling_price'] = null;
+            return;
         }
-        
-        $prices = is_array($this->loan_selling_price) ? $this->loan_selling_price : json_decode($this->loan_selling_price, true);
-        foreach ($prices as $item) {
-            if (isset($item['company_id']) && $item['company_id'] === $companyId) {
-                return $item['price'];
+
+        // Accept a JSON string
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            $value = is_array($decoded) ? $decoded : [];
+        }
+
+        $formatted = [];
+        foreach ((array) $value as $item) {
+            if (!empty($item['company_id']) && isset($item['price'])) {
+                $formatted[] = [
+                    'company_id' => $item['company_id'],
+                    'price'      => (float) $item['price'],
+                ];
+            }
+        }
+
+        $this->attributes['loan_selling_price'] =
+            !empty($formatted) ? json_encode($formatted) : null;
+    }
+
+    // ---------------------------------------------------------------------
+    // ACCESSOR — return enriched loan prices with company_name
+    // ---------------------------------------------------------------------
+
+    /**
+     * Returns loan_selling_price enriched with company_name.
+     * Uses one query (whereIn) — no N+1 per row.
+     */
+    public function getLoanSellingPriceAttribute($value): array
+    {
+        $prices = $this->decodeLoanPrices($value);
+        if (empty($prices)) {
+            return [];
+        }
+
+        $companyIds = array_filter(array_column($prices, 'company_id'));
+        $companies  = Company::nameMapFor($companyIds);
+
+        return array_map(fn ($item) => [
+            'company_id'   => $item['company_id'],
+            'company_name' => $companies[$item['company_id']] ?? 'Unknown Company',
+            'price'        => (float) $item['price'],
+        ], $prices);
+    }
+
+    /**
+     * Internal: decode raw loan_selling_price from attributes.
+     */
+    private function decodeLoanPrices($value = null): array
+    {
+        $value = $value ?? ($this->attributes['loan_selling_price'] ?? null);
+
+        if (empty($value)) {
+            return [];
+        }
+
+        if (is_array($value)) {
+            return $value;
+        }
+
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    // ---------------------------------------------------------------------
+    // ACCESSORS
+    // ---------------------------------------------------------------------
+
+    public function getProductNameAttribute(): string
+    {
+        if ($this->relationLoaded('category') && $this->category) {
+            return $this->category->category_name . ' - ' . ($this->sku ?? $this->imei);
+        }
+        return 'Unknown Product';
+    }
+
+    public function getCategoryNameAttribute(): ?string
+    {
+        return $this->category?->category_name;
+    }
+
+    public function getStatusBadgeColorAttribute(): string
+    {
+        return match ($this->status) {
+            self::STATUS_ACTIVE         => 'success',
+            self::STATUS_INACTIVE       => 'secondary',
+            self::STATUS_SOLD           => 'info',
+            self::STATUS_DAMAGED        => 'error',
+            self::STATUS_RETURN_PENDING => 'warning',
+            self::STATUS_RETURNED       => 'warning',
+            default                     => 'default',
+        };
+    }
+
+    public function getStockStatusBadgeColorAttribute(): string
+    {
+        return match ($this->stock_status) {
+            self::STOCK_IN_STOCK       => 'success',
+            self::STOCK_TRANSFERRED    => 'info',
+            self::STOCK_RECEIVED       => 'primary',
+            self::STOCK_SOLD           => 'error',
+            self::STOCK_DAMAGED        => 'error',
+            self::STOCK_PENDING_RETURN => 'warning',
+            self::STOCK_RETURNED       => 'warning',
+            default                    => 'default',
+        };
+    }
+
+    // ---------------------------------------------------------------------
+    // SCOPES
+    // ---------------------------------------------------------------------
+
+    public function scopeActive($query)
+    {
+        return $query->where('status', self::STATUS_ACTIVE);
+    }
+
+    public function scopeByCategory($query, ?string $categoryId)
+    {
+        return $categoryId ? $query->where('category_id', $categoryId) : $query;
+    }
+
+    public function scopeInStock($query)
+    {
+        return $query->where('stock_status', self::STOCK_IN_STOCK);
+    }
+
+    public function scopeReturned($query)
+    {
+        return $query->where('stock_status', self::STOCK_RETURNED);
+    }
+
+    // ---------------------------------------------------------------------
+    // STATE HELPERS
+    // ---------------------------------------------------------------------
+
+    public function isActive(): bool
+    {
+        return $this->status === self::STATUS_ACTIVE;
+    }
+
+    public function isInStock(): bool
+    {
+        return $this->stock_status === self::STOCK_IN_STOCK;
+    }
+
+    public function isReturned(): bool
+    {
+        return $this->stock_status === self::STOCK_RETURNED;
+    }
+
+    public function setStatus(string $status): bool
+    {
+        return $this->update(['status' => $status]);
+    }
+
+    public function setStockStatus(string $status): bool
+    {
+        return $this->update(['stock_status' => $status]);
+    }
+
+    // ---------------------------------------------------------------------
+    // PRICING HELPERS
+    // ---------------------------------------------------------------------
+
+    /**
+     * Get the loan price for a specific company, or null if not set.
+     * Reads raw attributes directly — does NOT hit the DB.
+     */
+    public function getLoanPriceForCompany(string $companyId): ?float
+    {
+        foreach ($this->decodeLoanPrices() as $item) {
+            if (($item['company_id'] ?? null) === $companyId) {
+                return (float) $item['price'];
             }
         }
         return null;
     }
 
     /**
-     * Get all loan prices with company names
+     * Resolve the selling price for a given payment type and optional company.
      */
-    public function getLoanPricesWithNames()
-    {
-        if (empty($this->loan_selling_price)) {
-            return [];
-        }
-        
-        $prices = is_array($this->loan_selling_price) ? $this->loan_selling_price : json_decode($this->loan_selling_price, true);
-        $result = [];
-        
-        foreach ($prices as $item) {
-            $company = \App\Models\Company::find($item['company_id']);
-            $result[] = [
-                'company_id' => $item['company_id'],
-                'company_name' => $company ? $company->company_name : 'Unknown Company',
-                'price' => $item['price']
-            ];
-        }
-        
-        return $result;
-    }
-
-    /**
-     * Get loan selling price attribute (cast to array)
-     */
-    public function getLoanSellingPriceAttribute($value)
-    {
-        if (empty($value)) {
-            return [];
-        }
-        return is_array($value) ? $value : json_decode($value, true);
-    }
-
-    /**
-     * Set loan selling price
-     * Expects array of {company_id, price}
-     */
-    public function setLoanSellingPriceAttribute($value)
-    {
-        if (empty($value)) {
-            $this->attributes['loan_selling_price'] = null;
-        } else {
-            if (is_string($value) && $this->isJson($value)) {
-                $this->attributes['loan_selling_price'] = $value;
-                return;
-            }
-            
-            $formatted = [];
-            if (is_array($value)) {
-                foreach ($value as $item) {
-                    if (isset($item['company_id']) && isset($item['price'])) {
-                        $formatted[] = [
-                            'company_id' => $item['company_id'],
-                            'price' => (float) $item['price']
-                        ];
-                    }
-                }
-            }
-            $this->attributes['loan_selling_price'] = !empty($formatted) ? json_encode($formatted) : null;
-        }
-    }
-
-    private function isJson($string) {
-        json_decode($string);
-        return json_last_error() === JSON_ERROR_NONE;
-    }
-
-    /**
-     * Get selling price based on payment type and company
-     */
-    public function getSellingPrice($type = 'cash', $companyId = null)
+    public function getSellingPrice(string $type = 'cash', ?string $companyId = null): ?float
     {
         if ($type === 'loan') {
             if ($companyId) {
@@ -181,100 +306,12 @@ class Product extends Model
                     return $price;
                 }
             }
-            $prices = $this->getLoanSellingPriceAttribute($this->loan_selling_price);
-            if (!empty($prices)) {
-                return $prices[0]['price'] ?? null;
-            }
-            return null;
+            $prices = $this->decodeLoanPrices();
+            return isset($prices[0]['price']) ? (float) $prices[0]['price'] : null;
         }
-        return $this->cash_selling_price;
-    }
 
-    public function scopeActive($query)
-    {
-        return $query->where('status', 'active');
-    }
-
-    public function scopeByCategory($query, $categoryId)
-    {
-        if ($categoryId) {
-            return $query->where('category_id', $categoryId);
-        }
-        return $query;
-    }
-
-    public function scopeInStock($query)
-    {
-        return $query->where('stock_status', 'in_stock');
-    }
-
-    public function scopeReturned($query)
-    {
-        return $query->where('stock_status', 'returned');
-    }
-
-    public function isActive()
-    {
-        return $this->status === 'active';
-    }
-
-    public function isInStock()
-    {
-        return $this->stock_status === 'in_stock';
-    }
-
-    public function isReturned()
-    {
-        return $this->stock_status === 'returned';
-    }
-
-    public function setStatus($status)
-    {
-        $this->update(['status' => $status]);
-    }
-
-    public function setStockStatus($status)
-    {
-        $this->update(['stock_status' => $status]);
-    }
-
-    public function getProductNameAttribute()
-    {
-        if ($this->relationLoaded('category') && $this->category) {
-            return $this->category->category_name . ' - ' . ($this->sku ?? $this->imei);
-        }
-        return 'Unknown Product';
-    }
-
-    public function getCategoryNameAttribute()
-    {
-        return $this->category->category_name ?? null;
-    }
-
-    public function getStatusBadgeColor()
-    {
-        return match($this->status) {
-            'active' => 'success',
-            'inactive' => 'secondary',
-            'sold' => 'info',
-            'damaged' => 'error',
-            'return_pending' => 'warning',
-            'returned' => 'warning',
-            default => 'default'
-        };
-    }
-
-    public function getStockStatusBadgeColor()
-    {
-        return match($this->stock_status) {
-            'in_stock' => 'success',
-            'transferred' => 'info',
-            'received' => 'primary',
-            'sold' => 'error',
-            'damaged' => 'error',
-            'pending_return' => 'warning',
-            'returned' => 'warning',
-            default => 'default'
-        };
+        return $this->cash_selling_price !== null
+            ? (float) $this->cash_selling_price
+            : null;
     }
 }
